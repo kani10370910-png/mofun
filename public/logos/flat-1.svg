@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#ffffff"/>
+  <g transform="translate(256 210)">
+    <circle r="92" fill="#2bb89c"/>
+    <path d="M-92 0 A92 92 0 0 1 92 0 Z" fill="#188772"/>
+    <circle cx="0" cy="-18" r="34" fill="#ffffff"/>
+    <circle cx="0" cy="-18" r="16" fill="#0f5c4d"/>
+  </g>
+  <text x="256" y="360" font-size="46" font-weight="700" fill="#188772" text-anchor="middle" font-family="sans-serif" letter-spacing="6">青果优选</text>
+  <text x="256" y="398" font-size="18" fill="#9aa5a2" text-anchor="middle" font-family="sans-serif" letter-spacing="3">FRESH · SELECT</text>
+</svg>
