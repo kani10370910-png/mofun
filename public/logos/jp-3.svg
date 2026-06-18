@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#ffffff"/>
+  <g fill="none" stroke="#3f6f5a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M256 120 C256 200 256 240 256 280"/>
+    <path d="M256 168 C220 150 196 156 178 138"/>
+    <path d="M256 168 C292 150 316 156 334 138"/>
+    <path d="M256 214 C224 198 204 204 186 188"/>
+    <path d="M256 214 C288 198 308 204 326 188"/>
+    <circle cx="256" cy="280" r="26"/>
+  </g>
+  <text x="256" y="356" font-size="46" font-weight="600" fill="#2f5a48" text-anchor="middle" font-family="serif" letter-spacing="8">和叶</text>
+  <text x="256" y="394" font-size="17" fill="#9a9a9a" text-anchor="middle" font-family="sans-serif" letter-spacing="6">WAHA · LEAF</text>
+</svg>

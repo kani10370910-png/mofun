@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#ffffff"/>
+  <g transform="translate(256 205)">
+    <rect x="-80" y="-80" width="160" height="160" rx="34" fill="#f3a33b"/>
+    <polygon points="-34,-30 34,-30 0,40" fill="#ffffff"/>
+    <circle cx="0" cy="-26" r="16" fill="#ffffff"/>
+  </g>
+  <text x="256" y="358" font-size="46" font-weight="800" fill="#d97d1a" text-anchor="middle" font-family="sans-serif" letter-spacing="4">几何造物</text>
+  <text x="256" y="396" font-size="18" fill="#b6a48c" text-anchor="middle" font-family="sans-serif" letter-spacing="4">GEO STUDIO</text>
+</svg>

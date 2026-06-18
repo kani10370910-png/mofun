@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#ffffff"/>
+  <g fill="none" stroke="#c0392b" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M150 150 L362 150"/>
+    <path d="M168 178 L344 178"/>
+    <path d="M186 178 L186 300"/>
+    <path d="M326 178 L326 300"/>
+    <path d="M150 150 Q256 120 362 150"/>
+  </g>
+  <g fill="none" stroke="#2b2b2b" stroke-width="3.5" stroke-linecap="round">
+    <path d="M196 250 Q256 270 316 250"/>
+  </g>
+  <text x="256" y="358" font-size="46" font-weight="600" fill="#2b2b2b" text-anchor="middle" font-family="serif" letter-spacing="8">京町屋</text>
+  <text x="256" y="396" font-size="17" fill="#9a9a9a" text-anchor="middle" font-family="sans-serif" letter-spacing="5">KYO MACHIYA</text>
+</svg>

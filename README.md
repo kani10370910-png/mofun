@@ -1,93 +1,99 @@
-# mofun-prototype
+# MOFUN 魔方智绘平台
 
+面向「农文旅」（农产品 / 乡村旅游 / 地域文化）场景的 AI 内容与设计生成平台。
+由原单文件 HTML 演示（`魔方智绘_demo.html`）重构为可部署的 **Next.js 16 + React 19 + TypeScript** 全栈应用。
 
+## 功能模块
 
-## Getting started
+| 导航 | 路由 | 说明 |
+|------|------|------|
+| 首页 | `/` | 意图识别输入框 + 优秀案例墙（分类/搜索） |
+| 模版 | `/template` | 场景 → 类型 → 子类 三级联动筛选 |
+| **文案策划** | `/content` | **真实接入大模型**，逐字流式生成（社媒推文 / 公众号帮写 / 品牌推广） |
+| 品牌设计 | `/image` | 活动（文生图/图生图）、商拍、logo、IP、AI字体、店招 —— **生成为演示模拟** |
+| 视频宣传 | `/video` | 一句话成片、数字人模特、制作大片(6 步) —— **生成为演示模拟** |
+| 市场调研 | `/research` | 功能框架（建设中） |
+| 仓库 | `/storage` | 我的作品 / 素材 / 品牌资产（多选展开、新增品牌） |
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+> 说明：**仅「文案策划」接入真实 AI**；图片 / 视频生成保留进度动画 + 占位结果的演示效果（按需求设计）。
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+## 文案策划：真实 AI 接入
 
-## Add your files
+- 后端 `app/api/generate/route.ts`（Next.js Route Handler）作为代理，调用 **OpenAI 兼容**的国内大模型 `/chat/completions`（默认 DeepSeek），以 **SSE 流式**把文本逐块转发给前端。
+- **API Key 只在服务端读取**，绝不进前端 bundle / 不出现在响应里。
+- 支持：社媒推文（结构化策划案 JSON，解析失败自动回退纯文本）、公众号「先提纲 → 按提纲生成全文」两步流、品牌推广纯文本。
+- 内置 provider 预设，切换模型**无需改代码**，只改环境变量。
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+### provider 预设（`src/lib/llm.ts`）
+
+| `LLM_PROVIDER` | 默认 baseURL | 默认 model |
+|---|---|---|
+| `deepseek` | `https://api.deepseek.com/v1` | `deepseek-chat` |
+| `qwen`（通义） | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` |
+| `glm`（智谱） | `https://open.bigmodel.cn/api/paas/v4` | `glm-4-plus` |
+| `ernie`（文心） | `https://qianfan.baidubce.com/v2` | `ernie-4.5-turbo-128k` |
+
+`LLM_BASE_URL` / `LLM_MODEL` 留空则用预设值，填了则覆盖。
+
+## 本地运行
+
+```bash
+cd mofun
+npm install
+
+# 配置模型：复制 .env.example 为 .env.local，填入真实 Key
+cp .env.example .env.local
+# 编辑 .env.local：至少填 LLM_API_KEY（默认用 DeepSeek）
+
+npm run dev      # http://localhost:3000
+```
+
+### 环境变量（`.env.local`）
 
 ```
-cd existing_repo
-git remote add origin http://10.0.120.2:82/BrandAgentPlatform/mofun-prototype.git
-git branch -M main
-git push -uf origin main
+LLM_PROVIDER=deepseek      # deepseek | qwen | glm | ernie
+LLM_BASE_URL=              # 留空用预设
+LLM_API_KEY=sk-xxxx        # ★ 必填，你的真实 Key
+LLM_MODEL=                 # 留空用预设
+LLM_TIMEOUT_MS=60000
 ```
 
-## Integrate with your tools
+> 未配置 `LLM_API_KEY` 时，文案策划会给出友好提示（不会崩溃）；其余模块不受影响。
 
-* [Set up project integrations](http://10.0.120.2:82/BrandAgentPlatform/mofun-prototype/-/settings/integrations)
+## 构建与部署
 
-## Collaborate with your team
+```bash
+npm run build
+npm run start    # 生产模式本地预览
+```
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+### 部署到 Vercel
+1. 导入仓库（根目录指向 `mofun/`）。
+2. 在 Vercel 项目的 Environment Variables 里配置 `LLM_PROVIDER` / `LLM_API_KEY` 等（**不要**把 `.env.local` 提交到 git）。
+3. 部署。`/api/generate` 会作为 Serverless Function 运行。
 
-## Test and Deploy
+### 自托管
+```bash
+npm run build
+LLM_API_KEY=sk-xxxx npm run start   # 或在环境里导出变量
+```
+也可用 Docker / PM2 等托管 `next start`。
 
-Use the built-in continuous integration in GitLab.
+## 技术栈与目录
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+- Next.js 16（App Router, Turbopack）+ React 19 + TypeScript
+- 全局 CSS（`src/app/globals.css`，自原 demo 1:1 迁入，配色 `#188772`）
+- 无额外 UI 框架；图标系统在 `src/data/icons.ts` + `src/components/ui/Icon.tsx`
 
-***
+```
+src/
+  app/            # 7 个页面路由 + api/generate
+  components/     # shell / ui / home / template / content / image / video / storage / research
+  data/           # 静态数据（由原 DATA 拆分）+ 图标
+  lib/            # types / llm(服务端) / intent / useGenerateStream / useSimGenerate
+```
 
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+## 安全要点
+- 密钥仅服务端可见（变量无 `NEXT_PUBLIC_` 前缀）。
+- `Icon` 的 `dangerouslySetInnerHTML` 仅用于可信静态 SVG 常量；用户输入一律走 React 文本节点。
+- 上游错误不回传密钥相关细节，仅给状态码与精简提示。
