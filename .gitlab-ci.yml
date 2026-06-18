@@ -40,13 +40,9 @@ deploy:
   stage: deploy
   image: alpine:latest  # 使用轻量镜像执行部署命令
   before_script:
-    - apk add --no-cache rsync openssh  # 安装 rsync 和 SSH 工具
-    - mkdir -p ~/.ssh
-    - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa  # 从 GitLab CI 变量中读取私钥
-    - chmod 600 ~/.ssh/id_rsa
-    - ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts
+    - apk add --no-cache sshpass openssh-client
   script:
-    - rsync -avz --delete out/ $DEPLOY_USER@$DEPLOY_HOST:/var/www
+    - sshpass -p "MnGSwllvEml0p#" scp -r out/* root@10.0.120.2:/data/base/nginx/usr/share/nginx/html/mofun
   only:
     - main  # 仅在 main 分支推送时执行部署
   dependencies:
