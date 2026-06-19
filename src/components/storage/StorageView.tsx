@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/Toast";
 import { myWorks, myMaterials, brands as seedBrands, BRAND_SEQ_START } from "@/data/storage";
 import type { AssetCard } from "@/lib/types";
 import { useLibrary, assetKey } from "@/lib/store";
+import { asset } from "@/lib/asset";
 import { BrandPane } from "./BrandPane";
 import { AssetFilterBar, useAssetFilter } from "./AssetFilter";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
@@ -231,7 +232,7 @@ export function AssetCardView({
         )}
         {item.img ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img className="at-img" src={item.img} alt={item.name} loading="lazy" />
+          <img className="at-img" src={asset(item.img!)} alt={item.name} loading="lazy" />
         ) : (
           <span className="at-emoji">{item.emoji}</span>
         )}

@@ -10,6 +10,7 @@ import { nowStamp } from "@/lib/datetime";
 import { LogoDownloadModal } from "./LogoDownloadModal";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { AutoBgImg } from "./AutoBgImg";
+import { asset as assetUrl } from "@/lib/asset";
 
 // 待删除目标：本次会话生成行（run）或静态历史行（hist，按组+行索引定位）
 type DeleteTarget = { kind: "run"; id: string } | { kind: "hist"; gi: number; ii: number };
@@ -210,7 +211,7 @@ export function LogoGallery({
                 <div className="lg-case" key={c.img ?? c.name} onClick={() => onUseCase(c)}>
                   <div className="lg-case-thumb">
                     {c.img ? (
-                      <AutoBgImg className="lg-case-img" src={c.img} alt={c.name} />
+                      <AutoBgImg className="lg-case-img" src={assetUrl(c.img)} alt={c.name} />
                     ) : (
                       <span className="lg-case-emoji">{c.emoji}</span>
                     )}
@@ -356,7 +357,7 @@ function LogoResultCard({
     <div className={`lh-img ${result.grad}`}>
       {result.img ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img className="lh-result-img" src={result.img} alt={name} loading="lazy" />
+        <img className="lh-result-img" src={assetUrl(result.img!)} alt={name} loading="lazy" />
       ) : (
         <span className="lh-emoji">{result.emoji}</span>
       )}

@@ -10,6 +10,7 @@ import { nowStamp } from "@/lib/datetime";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { FontEditModal } from "./FontEditModal";
 import { AutoBgImg } from "./AutoBgImg";
+import { asset } from "@/lib/asset";
 
 type FontTab = "history" | "inspire" | "story";
 
@@ -244,7 +245,7 @@ export function FontGallery({
                 <div className="font-case" key={i} onClick={() => onUseCase(c)}>
                   <div className={c.img ? "font-case-thumb has-img" : "font-case-thumb"}>
                     {c.img ? (
-                      <AutoBgImg className="font-case-img" src={c.img} alt={c.text} ratio={1.4} />
+                      <AutoBgImg className="font-case-img" src={asset(c.img)} alt={c.text} ratio={1.4} />
                     ) : (
                       <span className={`font-case-text fc-${catStyle(c.cat)}`}>{c.text}</span>
                     )}
@@ -279,7 +280,7 @@ export function FontGallery({
               >
                 {s.cover ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img className="font-story-img" src={s.cover} alt={s.name} loading="lazy" />
+                  <img className="font-story-img" src={asset(s.cover!)} alt={s.name} loading="lazy" />
                 ) : (
                   <span className="font-story-title">{s.title}</span>
                 )}
@@ -315,7 +316,7 @@ export function FontGallery({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               className="fs-detail-img"
-              src={storyView.introduce}
+              src={asset(storyView.introduce!)}
               alt={storyView.name}
               title="点击立即使用该字体"
               onClick={() => {

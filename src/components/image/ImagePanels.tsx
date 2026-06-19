@@ -6,6 +6,7 @@ import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
 import { useToast } from "@/components/ui/Toast";
 import { imageModels, imageRatios, editModels, logoStyles } from "@/data/image";
 import type { ImageType } from "@/lib/types";
+import { asset } from "@/lib/asset";
 
 const modelOpts: DropdownOption[] = imageModels.map((m) => ({ name: m.name, desc: m.desc }));
 const editOpts: DropdownOption[] = editModels.map((m) => ({ name: m.name, desc: m.desc }));
@@ -324,7 +325,7 @@ export function ImageLogoPanel({
               <div className="ls-thumb">
                 {s.img ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img className="ls-thumb-img" src={s.img} alt={s.name} loading="lazy" />
+                  <img className="ls-thumb-img" src={asset(s.img!)} alt={s.name} loading="lazy" />
                 ) : (
                   s.emoji
                 )}

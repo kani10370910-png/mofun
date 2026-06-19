@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { fontCats, fontEffects } from "@/data/image";
 import type { FontCat, FontEffect } from "@/lib/types";
+import { asset } from "@/lib/asset";
 
 export interface FontImageState {
   text: string;
@@ -94,7 +95,7 @@ export function FontPanel({
               <div className={f.img ? "fe-thumb has-img" : `fe-thumb fe-style-${f.key}`}>
                 {f.img ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img className="fe-thumb-img" src={f.img} alt={f.name} loading="lazy" />
+                  <img className="fe-thumb-img" src={asset(f.img!)} alt={f.name} loading="lazy" />
                 ) : (
                   f.name
                 )}
@@ -138,7 +139,7 @@ export function FontPanel({
             {preview.img ? (
               <div className="fe-modal-stage has-img">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img className="fe-modal-img" src={preview.img} alt={preview.name} />
+                <img className="fe-modal-img" src={asset(preview.img!)} alt={preview.name} />
               </div>
             ) : (
               <div className={`fe-modal-stage fe-style-${preview.key}`}>

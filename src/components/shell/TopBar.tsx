@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
+import { asset } from "@/lib/asset";
 
 const LOGO = "/brand-logo.png";
 
@@ -32,7 +33,7 @@ export function TopBar() {
       <div className="topbar-inner">
         <div className="brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={LOGO} alt="魔方智绘" className="brand-logo" />
+          <img src={asset(LOGO)} alt="魔方智绘" className="brand-logo" />
           <span className="brand-title">魔方智绘</span>
         </div>
 
