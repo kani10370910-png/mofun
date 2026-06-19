@@ -9,7 +9,7 @@ const nextConfig = {
   },
   // 导出为静态 HTML
   output: 'export',
-  outDir: 'mofun', // 修改输出目录为 mofun
+  distDir: 'mofun',
   basePath: '/mofun',
 };
 
