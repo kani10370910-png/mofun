@@ -1,0 +1,49 @@
+# .gitlab-ci.yml
+image: node:23-alpine  # 使用轻量级 Node.js 镜像作为执行环境
+
+stages:
+  - install
+  - build
+  - deploy
+
+# 缓存 node_modules 以加速后续构建
+cache:
+  key: ${CI_COMMIT_REF_SLUG}  # 每个分支独立缓存
+  paths:
+    - node_modules/
+    - .npm/
+
+# 1. 安装依赖阶段
+install-deps:
+  stage: install
+  script:
+    - npm ci --cache .npm --prefer-offline  # 使用 ci 命令，严格按 package-lock.json 安装
+  artifacts:
+    paths:
+      - node_modules/  # 将安装好的依赖传递给后续阶段
+
+# 2. 构建阶段
+build-project:
+  stage: build
+  script:
+    - npm run build  # 执行构建命令，输出目录通常为 build/ 或 dist/
+  artifacts:
+    paths:
+      - build/       # 关键：将构建产物保存为制品，供部署或测试使用
+      - dist/        # 兼容 Vite 的输出目录
+    expire_in: 1 week # 制品保留时间
+  dependencies:
+    - install-deps   # 明确依赖上一阶段的 node_modules
+
+# 3. 部署阶段（示例：部署到服务器）
+deploy:
+  stage: deploy
+  image: alpine:latest  # 使用轻量镜像执行部署命令
+  before_script:
+    - apk add --no-cache sshpass openssh-client
+  script:
+    - sshpass -p "MnGSwllvEml0p#" scp -r out/* root@10.0.120.2:/data/base/nginx/usr/share/nginx/html/mofun
+  only:
+    - main  # 仅在 main 分支推送时执行部署
+  dependencies:
+    - build-project
