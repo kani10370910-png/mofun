@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#ffffff"/>
+  <g fill="none" stroke="#2b2b2b" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="256" cy="190" r="96"/>
+    <path d="M176 232 Q210 168 256 200 Q302 232 336 196"/>
+    <path d="M188 254 Q230 286 256 254 Q282 222 320 250"/>
+    <path d="M256 110 L256 130"/>
+  </g>
+  <text x="256" y="352" font-size="46" font-weight="600" fill="#2b2b2b" text-anchor="middle" font-family="serif" letter-spacing="8">海町</text>
+  <text x="256" y="392" font-size="17" fill="#9a9a9a" text-anchor="middle" font-family="sans-serif" letter-spacing="6">UMIMACHI</text>
+</svg>
