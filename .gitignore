@@ -27,8 +27,3 @@ next-env.d.ts
 .wrangler
 scripts/ssh_run.py
 
-# 大图资源暂不入库（VPN 传输受限），本地保留
-/public/fontcase/
-/public/fontstory/
-/public/logos/
-/public/webfont/
