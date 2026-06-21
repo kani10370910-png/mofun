@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:export": "node scripts/build-static.mjs",
     "start": "next start",
     "lint": "next lint",
     "cf:build": "opennextjs-cloudflare build",
