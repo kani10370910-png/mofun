@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
-import { fontCases, fontStories, fontHistory } from "@/data/image";
+import { fontCases, fontStories } from "@/data/image";
 import type { FontCase, FontStory, Grad, AssetCard, FontHistoryGroup } from "@/lib/types";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
@@ -88,20 +88,12 @@ export function FontGallery({
   // 字体故事详情弹窗：当前查看的字体（null = 关闭）
   const [storyView, setStoryView] = useState<FontStory | null>(null);
   const cats = ["全部", "书法体", "现代体", "艺术体"];
-  // 静态历史本地化为可删 state；按组定位行的删除
-  const [history, setHistory] = useState<FontHistoryGroup[]>(() =>
-    fontHistory.map((g) => ({ ...g, items: [...g.items] }))
-  );
+  // 生成历史默认为空：用户未真实生成时显示空状态（演示数据 fontHistory 保留在数据层备用，不默认加载）
+  const [history, setHistory] = useState<FontHistoryGroup[]>([]);
   // 删除确认弹框的待删目标（null = 关闭）
   const [pending, setPending] = useState<DeleteTarget | null>(null);
   // 收藏：按结果唯一 key 记录，可切换并供「只看收藏」筛选
-  const [favs, setFavs] = useState<Set<string>>(() => {
-    const init = new Set<string>();
-    fontHistory.forEach((g, gi) =>
-      g.items.forEach((it, ii) => it.results.forEach((r, i) => r.fav && init.add(`h-${gi}-${ii}-${i}`)))
-    );
-    return init;
-  });
+  const [favs, setFavs] = useState<Set<string>>(() => new Set());
   const isFav = (key: string) => favs.has(key);
   function toggleFav(key: string) {
     setFavs((prev) => {
@@ -430,6 +422,8 @@ function FontResultCard({
 }) {
   const { addWork, addMaterial, toggleFavorite } = useLibrary();
   const [editOpen, setEditOpen] = useState(false);
+  // 「储存为我的素材」二次确认弹框（与 logo 卡片一致）
+  const [confirmSave, setConfirmSave] = useState(false);
   const asset = (kind: string): AssetCard => ({
     emoji: "🔤",
     grad: grad as AssetCard["grad"],
@@ -462,30 +456,36 @@ function FontResultCard({
       >
         <Icon name="heart" size={15} />
       </button>
-      <div className="lh-hover">
+      <div className="lh-hover lh-hover-bottom">
         <button className="btn btn-ghost btn-sm" onClick={() => setEditOpen(true)}>
-          编辑
-        </button>
-        <button
-          className="btn btn-ghost btn-sm"
-          onClick={() => {
-            addWork(asset("图片"));
-            toast("已储存到「仓库 · 我的作品」");
-          }}
-        >
-          储存到我的作品
-        </button>
-        <button
-          className="btn btn-ghost btn-sm"
-          onClick={() => {
-            addMaterial(asset("素材"));
-            toast("已储存为「仓库 · 我的素材」");
-          }}
-        >
-          储存为我的素材
+          换色/下载
         </button>
       </div>
+      {/* 右下角「另存为」图标按钮（hover 显示）：交互与 logo 卡片一致 */}
+      <button
+        className="lh-saveas"
+        title="保存为我的素材"
+        onClick={(e) => {
+          e.stopPropagation();
+          setConfirmSave(true);
+        }}
+      >
+        <Icon name="share" size={16} />
+      </button>
       <span className="lh-mark">由 AI 生成</span>
+      {confirmSave && (
+        <ConfirmModal
+          title="是否保存为我的素材？"
+          cancelText="取消"
+          confirmText="保存"
+          onCancel={() => setConfirmSave(false)}
+          onConfirm={() => {
+            addMaterial(asset("素材"));
+            setConfirmSave(false);
+            toast("已保存为「仓库 · 我的素材」");
+          }}
+        />
+      )}
       {editOpen && (
         <FontEditModal text={text} effect={effect} dir={dir} grad={grad} onClose={() => setEditOpen(false)} />
       )}

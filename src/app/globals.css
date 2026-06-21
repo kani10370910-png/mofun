@@ -433,7 +433,9 @@ a { color: inherit; text-decoration: none; cursor: pointer; }
 .workspace { display: grid; grid-template-columns: 300px 1fr; gap: 18px; align-items: start; }
 .ws-panel { background: var(--c-white); border: 1px solid var(--c-line); border-radius: var(--radius); padding: 18px; }
 .ws-panel.sticky {
-  position: sticky; top: 16px; max-height: calc(100vh - 32px);
+  /* sticky 相对滚动容器 .main（高 = 视口 - 顶栏）定位，
+     故 max-height 必须扣掉顶栏，否则面板会比容器高、底部「立即生成」被推进滚动区，滚动时跟着动 */
+  position: sticky; top: 16px; max-height: calc(100vh - var(--topbar-h) - 32px);
   overflow: hidden; display: flex; flex-direction: column;
 }
 /* 字段区：撑满剩余高度，仅此区域内部滚动 */
@@ -1689,11 +1691,11 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
 .cp-panel {
   position: absolute; top: 100%; left: 0; z-index: 40; margin-top: 8px;
   background: var(--c-white); border: 1px solid var(--c-line);
-  border-radius: var(--radius-md); box-shadow: var(--shadow-lg); padding: 12px;
-  width: 280px; max-width: calc(100% - 0px); animation: fade .16s ease;
+  border-radius: 18px; box-shadow: var(--shadow-lg); padding: 16px;
+  width: 320px; max-width: calc(100% - 0px); animation: fade .16s ease;
 }
 .cp-sv {
-  position: relative; width: 100%; aspect-ratio: 1.35 / 1; border-radius: 8px;
+  position: relative; width: 100%; aspect-ratio: 1.55 / 1; border-radius: 10px;
   overflow: hidden; cursor: crosshair; user-select: none;
 }
 .cp-sv-white { position: absolute; inset: 0; background: linear-gradient(to right, #fff, transparent); }
@@ -1702,17 +1704,32 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
   position: absolute; width: 12px; height: 12px; border-radius: 50%;
   border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.4); transform: translate(-50%, -50%); pointer-events: none;
 }
+/* 色相条 + 左侧吸管 */
+.cp-hue-row { display: flex; align-items: center; gap: 12px; margin: 16px 0 14px; }
+.cp-dropper {
+  flex: none; width: 30px; height: 30px; border: none; background: transparent;
+  display: grid; place-items: center; color: var(--c-ink); cursor: pointer; border-radius: 8px; transition: all .15s;
+}
+.cp-dropper:hover { color: var(--c-primary); background: var(--c-bg); }
 .cp-hue {
-  position: relative; height: 14px; border-radius: 10px; margin: 14px 0 12px; cursor: pointer; user-select: none;
+  position: relative; flex: 1; height: 16px; border-radius: 10px; cursor: pointer; user-select: none;
   background: linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%);
 }
 .cp-hue-dot {
-  position: absolute; top: 50%; width: 16px; height: 16px; border-radius: 50%; background: #fff;
-  border: 1px solid rgba(0,0,0,.2); box-shadow: var(--shadow-sm); transform: translate(-50%, -50%); pointer-events: none;
+  position: absolute; top: 50%; width: 18px; height: 18px; border-radius: 50%; background: #fff;
+  border: 1px solid rgba(0,0,0,.18); box-shadow: var(--shadow-sm); transform: translate(-50%, -50%); pointer-events: none;
 }
-.cp-foot { display: flex; align-items: center; gap: 16px; }
-.cp-hex-label { font-size: 14px; color: var(--c-muted); }
-.cp-hex-val { font-size: 16px; color: var(--c-ink); font-family: ui-monospace, monospace; }
+/* HEX 底栏：左「Hex」标签框 + 右灰色色值框 */
+.cp-foot { display: flex; align-items: stretch; gap: 12px; }
+.cp-hex-label {
+  flex: none; min-width: 84px; height: 44px; padding: 0 18px; border: 1px solid var(--c-line);
+  border-radius: 10px; display: grid; place-items: center;
+  font-size: 15px; color: var(--c-ink);
+}
+.cp-hex-val {
+  flex: 1; height: 44px; background: var(--c-bg); border-radius: 10px; display: grid; place-items: center;
+  font-size: 16px; color: var(--c-muted); font-family: ui-monospace, monospace; letter-spacing: .5px;
+}
 
 /* 取色中的当前色预览圈（与已添加色块同款，但实色无 ×） */
 .ip-color-current { box-shadow: inset 0 0 0 1px rgba(0,0,0,.15), 0 0 0 2px var(--c-primary-soft); }
@@ -1795,6 +1812,28 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
 }
 .font-eff:hover .fe-zoom { opacity: 1; transform: scale(1); }
 .fe-zoom:hover { color: var(--c-primary-dark); border-color: var(--c-primary); }
+/* 已置顶：按钮常驻显示并高亮，明确标记该卡片处于置顶态 */
+.fe-pin.on {
+  opacity: 1; transform: scale(1);
+  color: #fff; background: var(--c-primary); border-color: var(--c-primary);
+}
+.fe-pin.on:hover { color: #fff; background: var(--c-primary-dark); }
+
+/* 悬停预览浮层：移入左侧字体卡片时，浮在右侧结果区位置展示放大的字体预览图。
+   fixed 定位、不拦截鼠标，避免影响卡片 hover 自身。 */
+.fe-hover-preview {
+  /* top/left/width 由 JS 按悬停卡片位置注入（紧贴卡片右侧）。 */
+  position: fixed; z-index: 90; pointer-events: none;
+  background: var(--c-white); border: 1px solid var(--c-line);
+  border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  padding: 4px; animation: fade .12s ease;
+}
+.fe-hover-img {
+  display: block; width: 100%; height: auto; max-height: 220px;
+  object-fit: contain; background: #f4f5f4; border-radius: var(--radius-md);
+}
+/* 窄屏不浮预览（空间不足，避免遮挡） */
+@media (max-width: 960px) { .fe-hover-preview { display: none; } }
 
 /* 字体效果放大预览弹窗 */
 .fe-modal-mask {
@@ -1912,27 +1951,40 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
 }
 
 /* ============ AI 字体生成信息弹窗 ============ */
+/* 尺寸贴近 LOGO 下载弹窗（.dl-panel 为 min(880px,92vw)）：同宽同圆角；
+   左栏比例略降，给信息密集的右栏足够宽度，避免文字竖排堆叠 */
 .fe-modal {
-  width: min(1040px, 94vw); height: min(720px, 88vh);
-  background: var(--c-white); border-radius: 18px; overflow: hidden;
-  display: grid; grid-template-columns: 1.15fr 1fr;
+  width: min(880px, 92vw); height: min(540px, 88vh); max-height: 88vh;
+  background: var(--c-white); border-radius: var(--radius); overflow: hidden;
+  display: grid; grid-template-columns: 1fr 340px;
   box-shadow: var(--shadow-lg); animation: pop .26s cubic-bezier(.2,.9,.3,1.2);
 }
 /* 左侧：预览 + 改色 */
-.fe-modal-left { display: flex; flex-direction: column; border-right: 1px solid var(--c-line-2); }
-.fe-preview { position: relative; flex: 1; display: grid; place-items: center; padding: 30px; background: var(--c-white); }
+.fe-modal-left { display: flex; flex-direction: column; border-right: 1px solid var(--c-line-2); min-width: 0; }
+.fe-preview { position: relative; flex: 1; display: grid; place-items: center; padding: 30px; background: var(--c-white); overflow: hidden; }
 .fe-preview-text {
   font-family: "STXingkai","行楷","STKaiti","楷体",cursive; font-weight: 800;
-  font-size: clamp(60px, 12vw, 150px); color: #111; line-height: 1.05; text-align: center;
+  /* 字号由组件按字数注入（--fz），保证横排不折行；这里给个回退值 */
+  font-size: var(--fz, 120px); color: #111; line-height: 1.05; text-align: center;
+  white-space: nowrap;
 }
+/* 竖排：跟随生成方向（从上到下，列右起，符合中文传统竖排） */
+.fe-preview-text.is-vertical { writing-mode: vertical-rl; text-orientation: upright; line-height: 1.1; white-space: nowrap; }
 .fe-fullscreen {
   position: absolute; right: 18px; bottom: 18px; width: 40px; height: 40px;
   border-radius: 10px; border: 1px solid var(--c-line); background: var(--c-white);
   display: grid; place-items: center; color: var(--c-ink); cursor: pointer; transition: all .15s;
 }
 .fe-fullscreen:hover { border-color: var(--c-primary); color: var(--c-primary); }
-.fe-colors { display: flex; align-items: center; gap: 10px; padding: 18px 24px; }
+/* 右侧 padding 加大，给绝对定位的全屏图标(40px + 右距)腾出空间，避免与「重置」重叠 */
+.fe-colors { position: relative; display: flex; align-items: center; gap: 10px; padding: 18px 78px 18px 24px; }
 .fe-colors-label { font-size: 14px; color: var(--c-ink); }
+.fe-color-add.on { border-color: var(--c-primary); color: var(--c-primary); background: var(--c-primary-soft); }
+/* 自定义取色面板锚点：脱离 .fe-colors 弹性流（否则被挤成竖条），相对整行向上弹出 */
+.fe-colorpicker-up { position: absolute; left: 24px; bottom: calc(100% - 8px); z-index: 40; }
+.fe-colorpicker-up .cp-panel {
+  position: static; top: auto; bottom: auto; left: auto; margin: 0;
+}
 .fe-color-add {
   width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--c-line);
   background: var(--c-white); display: grid; place-items: center; color: var(--c-muted); cursor: pointer; transition: all .15s;
@@ -1944,8 +1996,44 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
 }
 .fe-color:hover { transform: scale(1.12); }
 .fe-color.on { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--c-primary); }
+/* 重置按钮：黑色胶囊，靠右停在全屏图标左侧（行右 padding 已为图标留位） */
+.fe-reset {
+  margin-left: auto; height: 38px; padding: 0 22px; border: none; border-radius: 999px;
+  background: #111; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s;
+}
+.fe-reset:hover { background: #000; }
+/* 全屏预览：绝对定位钉在色块行右下角，与「重置」分开不重叠 */
+.fe-fullscreen-corner {
+  position: absolute; right: 24px; top: 50%; transform: translateY(-50%);
+  width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--c-line);
+  background: var(--c-white); display: grid; place-items: center; color: var(--c-ink);
+  cursor: pointer; transition: all .15s;
+}
+.fe-fullscreen-corner:hover { border-color: var(--c-primary); color: var(--c-primary); }
+/* 全屏预览遮罩：覆盖整个弹窗（z-index 高于 .modal-mask 的 100），字体大图居中 */
+.fe-fs-mask {
+  position: fixed; inset: 0; z-index: 200; background: rgba(255,255,255,.92);
+  backdrop-filter: blur(4px); display: grid; place-items: center; padding: 6vh 6vw;
+  cursor: zoom-out; animation: fade .2s ease;
+}
+.fe-fs-text {
+  font-family: "STXingkai","行楷","STKaiti","楷体",cursive; font-weight: 800;
+  /* 字号由组件自适应注入（--fz），保证横排一行 / 竖排一列整体铺满不溢出 */
+  font-size: var(--fz, 300px); color: #111; line-height: 1; text-align: center;
+  user-select: none; white-space: nowrap;
+}
+/* 全屏竖排：跟随生成方向 */
+.fe-fs-text.is-vertical {
+  writing-mode: vertical-rl; text-orientation: upright; line-height: 1.05;
+}
+.fe-fs-close {
+  position: fixed; top: 26px; right: 30px; width: 46px; height: 46px; border-radius: 50%;
+  border: none; background: rgba(0,0,0,.06); display: grid; place-items: center;
+  color: var(--c-ink); cursor: pointer; transition: background .15s;
+}
+.fe-fs-close:hover { background: rgba(0,0,0,.12); }
 /* 右侧：信息 + 图片处理 + 下载 */
-.fe-modal-right { display: flex; flex-direction: column; padding: 26px 28px; }
+.fe-modal-right { display: flex; flex-direction: column; padding: 26px 28px; min-width: 0; }
 .fe-head { display: flex; align-items: center; justify-content: space-between; }
 .fe-title { font-size: 19px; font-weight: 800; color: var(--c-ink); }
 .fe-fav {
@@ -1970,16 +2058,16 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
   font-size: 15px; font-weight: 600; color: var(--c-ink); cursor: pointer; padding: 4px 0; transition: color .15s;
 }
 .fe-tool:hover { color: var(--c-primary); }
-/* 下载按钮 */
-.fe-foot { display: flex; gap: 14px; }
+/* 下载按钮：单行不换行（右栏较窄，字号略降 + 横向内边距收紧以容纳整行文字） */
+.fe-foot { display: flex; gap: 10px; }
 .fe-dl-ghost {
-  flex: 1; height: 52px; border-radius: 999px; background: var(--c-white);
-  border: 1px solid var(--c-line); color: var(--c-ink); font-size: 15px; font-weight: 600;
+  flex: 1; height: 52px; padding: 0 8px; border-radius: 999px; background: var(--c-white);
+  border: 1px solid var(--c-line); color: var(--c-ink); font-size: 14px; font-weight: 600; white-space: nowrap;
 }
 .fe-dl-ghost:hover { border-color: var(--c-primary); color: var(--c-primary-dark); }
 .fe-dl-primary {
-  position: relative; flex: 1; height: 52px; border-radius: 999px; background: #111; color: #fff;
-  font-size: 15px; font-weight: 700; border: none;
+  position: relative; flex: 1; height: 52px; padding: 0 8px; border-radius: 999px; background: #111; color: #fff;
+  font-size: 14px; font-weight: 700; border: none; white-space: nowrap;
 }
 .fe-dl-primary:hover { background: #000; }
 .fe-dl-badge {
@@ -2006,6 +2094,9 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
 .iw-top-mid { display: flex; align-items: center; gap: 26px; justify-self: center; }
 .iw-top-act { display: flex; align-items: center; gap: 6px; background: none; border: none; cursor: pointer; font-size: 15px; color: var(--c-ink); }
 .iw-top-act:hover { color: var(--c-primary); }
+/* 字体场景顶部中间的当前工具标识（转矢量） */
+.iw-top-tool { display: inline-flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 600; color: var(--c-ink); }
+.iw-top-tool svg { color: #e0571f; }
 .iw-top-right { display: flex; align-items: center; gap: 12px; justify-self: end; }
 .iw-btn-ghost { height: 40px; padding: 0 20px; border-radius: 10px; border: 1px solid var(--c-line); background: var(--c-white); color: var(--c-ink); font-weight: 600; }
 .iw-btn-ghost:hover { border-color: var(--c-primary); }
@@ -2028,10 +2119,14 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
 .iw-tool.on { background: #eef1f0; }
 .iw-tool.on svg { color: #e0571f; }
 .iw-tool span { white-space: nowrap; }
+/* 禁用态：字体场景仅「转矢量」可用，其余灰掉、不可点击光标 */
+.iw-tool.disabled { color: var(--c-muted); opacity: .45; cursor: not-allowed; }
+.iw-tool.disabled:hover { background: transparent; }
 /* 中间画布 */
 .iw-canvas { flex: 1; display: grid; place-items: center; min-width: 0; padding: 40px; }
 .iw-stage { position: relative; display: grid; place-items: center; padding: 30px; }
-.iw-canvas-text { font-family: "STXingkai","行楷","STKaiti","楷体",cursive; font-weight: 800; font-size: clamp(80px, 16vw, 220px); color: #111; line-height: 1; }
+.iw-canvas-text { font-family: "STXingkai","行楷","STKaiti","楷体",cursive; font-weight: 800; font-size: clamp(80px, 16vw, 220px); color: #111; line-height: 1; white-space: nowrap; }
+.iw-canvas-text.is-vertical { writing-mode: vertical-rl; text-orientation: upright; }
 /* 扩图虚拟边框 */
 .iw-stage-expand .iw-expand-frame {
   position: absolute; inset: -60px -120px; border: 1px dashed var(--c-line);
@@ -2058,10 +2153,28 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
 .iw-side-tab { font-size: 15px; font-weight: 700; color: var(--c-muted); cursor: pointer; }
 .iw-side-tab.on { color: var(--c-ink); position: relative; }
 .iw-side-tab.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -16px; height: 2px; background: #111; }
-.iw-side-collapse { margin-left: auto; background: none; border: none; cursor: pointer; color: var(--c-muted); transform: rotate(180deg); }
+.iw-side-collapse { margin-left: auto; background: none; border: none; cursor: pointer; color: var(--c-muted); transform: rotate(180deg); transition: transform .2s; }
+.iw-side-collapse.is-open { transform: rotate(0deg); }
+/* 折叠：面板收窄，仅留标题栏，记录/空态内容隐藏 */
+.iw-side.is-collapsed .iw-side-list,
+.iw-side.is-collapsed .iw-side-empty { display: none; }
+.iw-side.is-collapsed { width: auto; flex: 0 0 auto; }
 .iw-side-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--c-muted); }
 .iw-empty-box { font-size: 56px; opacity: .5; }
 .iw-empty-text { font-size: 14px; }
+/* 转矢量结果记录列表 */
+.iw-side-list { flex: 1; overflow-y: auto; padding: 16px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; align-content: start; }
+.iw-rec { position: relative; border: 1px solid var(--c-line); border-radius: 12px; padding: 10px; background: var(--c-white); cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.iw-rec:hover { border-color: var(--c-primary); }
+/* 选中态：绿色边框高亮 */
+.iw-rec.is-selected { border-color: var(--c-primary); box-shadow: 0 0 0 1px var(--c-primary); background: var(--c-primary-soft); }
+.iw-rec-tag { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 6px; }
+.iw-rec-thumb { height: 84px; display: grid; place-items: center; background: var(--c-bg); border-radius: 8px; overflow: hidden; }
+.iw-rec-thumb svg { max-width: 100%; max-height: 100%; }
+/* 记录卡片底部两个图标按钮：保存为我的素材 / 下载 */
+.iw-rec-acts { display: flex; gap: 8px; margin-top: 8px; }
+.iw-rec-act { flex: 1; height: 30px; border: 1px solid var(--c-line); border-radius: 8px; background: var(--c-white); color: var(--c-ink); display: grid; place-items: center; cursor: pointer; transition: all .15s; }
+.iw-rec-act:hover { border-color: var(--c-primary); color: var(--c-primary); background: var(--c-primary-soft); }
 /* 底部操作区 */
 .iw-foot { border-top: 1px solid var(--c-line-2); padding: 18px 26px; min-height: 76px; display: flex; align-items: center; }
 .iw-foot-row { display: flex; align-items: center; gap: 16px; width: 100%; }
@@ -2080,6 +2193,9 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
   font-size: 15px; font-weight: 700; border: none; cursor: pointer;
 }
 .iw-foot-go:hover { background: #000; }
+/* 禁用：该模型已转换过 */
+.iw-foot-go.is-disabled, .iw-foot-go:disabled { background: #c9ccc9; cursor: not-allowed; }
+.iw-foot-go.is-disabled:hover, .iw-foot-go:disabled:hover { background: #c9ccc9; }
 .iw-foot-go-dark { background: #111; }
 .iw-foot-go-soft { background: #c9ccc9; color: #fff; }
 .iw-foot-center .iw-foot-go { margin-left: 0; }

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
-import { logoHistory, logoCats, logoCases } from "@/data/image";
+import { logoCats, logoCases } from "@/data/image";
 import type { LogoHistoryGroup, LogoResult, AssetCard, LogoCase } from "@/lib/types";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
@@ -73,20 +73,12 @@ export function LogoGallery({
   const toast = useToast();
   const [onlyFav, setOnlyFav] = useState(false);
   const [cat, setCat] = useState("全部");
-  // 静态历史本地化为可删 state；按组定位行的删除
-  const [history, setHistory] = useState<LogoHistoryGroup[]>(() =>
-    logoHistory.map((g) => ({ ...g, items: [...g.items] }))
-  );
+  // 生成历史默认为空：用户未真实生成时显示空状态（演示数据 logoHistory 保留在数据层备用，不默认加载）
+  const [history, setHistory] = useState<LogoHistoryGroup[]>([]);
   // 删除确认弹框的待删目标（null = 关闭）
   const [pending, setPending] = useState<DeleteTarget | null>(null);
   // 收藏：按结果唯一 key 记录，可切换并供「只看收藏」筛选
-  const [favs, setFavs] = useState<Set<string>>(() => {
-    const init = new Set<string>();
-    logoHistory.forEach((g, gi) =>
-      g.items.forEach((it, ii) => it.results.forEach((r, i) => r.fav && init.add(`h-${gi}-${ii}-${i}`)))
-    );
-    return init;
-  });
+  const [favs, setFavs] = useState<Set<string>>(() => new Set());
   const isFav = (key: string) => favs.has(key);
   function toggleFav(key: string) {
     setFavs((prev) => {
@@ -111,6 +103,8 @@ export function LogoGallery({
     toast("已删除该记录");
   }
 
+  const hasHistory = runRows.length > 0 || history.some((g) => g.items.length > 0);
+
   return (
     <>
       <div className="lg-head">
@@ -132,6 +126,16 @@ export function LogoGallery({
       </div>
 
       {tab === "history" ? (
+        !hasHistory ? (
+          <div className="preview-empty">
+            <div>
+              <div className="pe-ico">
+                <Icon name="image" size={42} />
+              </div>
+              还没有生成记录，填好左侧点「立即生成」试试
+            </div>
+          </div>
+        ) : (
         <div id="logoHistory">
           {/* 本次会话新生成的（含进度行）置顶，按生成时间分组（今天/昨天/更早） */}
           {groupRuns(runRows).map(([label, rows]) => (
@@ -195,6 +199,7 @@ export function LogoGallery({
             );
           })}
         </div>
+        )
       ) : (
         <div>
           <div className="filter-row" style={{ marginBottom: 16 }}>
