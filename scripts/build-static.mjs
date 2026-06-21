@@ -41,7 +41,14 @@ process.on("SIGINT", () => {
 });
 
 const env = { ...process.env, EXPORT: "1", BASE_PATH: process.env.BASE_PATH || "/mofun" };
-const res = spawnSync("npx", ["next", "build"], { stdio: "inherit", env, shell: true });
+// 直接调用本地 next 可执行文件，避免 alpine/sh 下 npx + shell 的参数与查找问题
+const isWin = process.platform === "win32";
+const nextBin = join(root, "node_modules", ".bin", isWin ? "next.cmd" : "next");
+const cmd = existsSync(nextBin) ? nextBin : "next";
+const res = spawnSync(cmd, ["build"], { stdio: "inherit", env, shell: isWin });
 
 restore();
+if (res.error) {
+  console.error("[build-static] 启动 next build 失败:", res.error.message);
+}
 process.exit(res.status ?? 1);

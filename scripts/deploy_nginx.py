@@ -2,7 +2,7 @@
 # 把本地 out/ 通过 SFTP 部署到内网 Nginx（绕过 CI）。
 # 密码从环境变量 NGINX_PWD 读取，不写在文件/命令行里。
 # 用法：NGINX_PWD=xxx python scripts/deploy_nginx.py
-import os, sys, stat, posixpath
+import os, sys, socket, posixpath
 import paramiko
 
 HOST = "10.0.120.2"
@@ -16,8 +16,9 @@ pwd = os.environ.get("NGINX_PWD")
 if not pwd:
     pwd_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".nginx_pwd")
     if os.path.isfile(pwd_file):
-        with open(pwd_file, "r", encoding="utf-8") as f:
-            pwd = f.read().strip()
+        # utf-8-sig 自动剥掉 BOM；strip 去掉换行/空白，避免混入密码
+        with open(pwd_file, "r", encoding="utf-8-sig") as f:
+            pwd = f.read().strip().lstrip("﻿")
 if not pwd:
     print("缺少密码：请把内网 root 密码写入 scripts/.nginx_pwd 文件（单行），或设 NGINX_PWD 环境变量")
     sys.exit(2)
@@ -28,8 +29,14 @@ if not os.path.isdir(LOCAL):
 cli = paramiko.SSHClient()
 cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 try:
+    # 预先建立 socket 再交给 paramiko，避免某些网络下读不到 SSH banner 的问题
+    sock = socket.create_connection((HOST, PORT), timeout=20)
     cli.connect(HOST, port=PORT, username=USER, password=pwd, timeout=25,
-                allow_agent=False, look_for_keys=False)
+                banner_timeout=30, auth_timeout=30,
+                allow_agent=False, look_for_keys=False, sock=sock)
+except paramiko.AuthenticationException:
+    print("认证失败：密码不对，请把正确的 root 密码写入 scripts/.nginx_pwd")
+    sys.exit(3)
 except Exception as e:
     print(f"连接失败: {e}")
     sys.exit(2)
