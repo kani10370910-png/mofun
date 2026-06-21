@@ -27,3 +27,6 @@ next-env.d.ts
 .wrangler
 scripts/ssh_run.py
 
+
+# 本地部署密码文件，勿提交
+scripts/.nginx_pwd
