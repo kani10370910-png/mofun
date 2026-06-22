@@ -22,6 +22,7 @@ install-deps:
     paths:
       - node_modules/  # 将安装好的依赖传递给后续阶段
 
+<<<<<<< HEAD
 # 2. 构建阶段
 build-project:
   stage: build
@@ -31,6 +32,16 @@ build-project:
     paths:
       - build/       # 关键：将构建产物保存为制品，供部署或测试使用
       - dist/        # 兼容 Vite 的输出目录
+=======
+# 2. 构建阶段（静态导出到 out/，部署到 Nginx 子目录 /mofun）
+build-project:
+  stage: build
+  script:
+    - npm run build:export  # 静态导出（自动排除 /api，BASE_PATH=/mofun），产物在 out/
+  artifacts:
+    paths:
+      - out/         # 静态导出产物，供 deploy 阶段 scp 到 Nginx
+>>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
     expire_in: 1 week # 制品保留时间
   dependencies:
     - install-deps   # 明确依赖上一阶段的 node_modules
@@ -42,7 +53,14 @@ deploy:
   before_script:
     - apk add --no-cache sshpass openssh-client
   script:
+<<<<<<< HEAD
     - sshpass -p "MnGSwllvEml0p#" scp -r out/* root@10.0.120.2:/data/base/nginx/usr/share/nginx/html/mofun
+=======
+    # SSHPASS 在 GitLab 项目「Settings · CI/CD · Variables」里配置（受保护/隐藏），不写明文
+    # 先清空目标目录再上传，避免残留旧 chunk；目标主机首次连接自动信任
+    - sshpass -e ssh -o StrictHostKeyChecking=no root@10.0.120.2 "mkdir -p /data/base/nginx/usr/share/nginx/html/mofun && rm -rf /data/base/nginx/usr/share/nginx/html/mofun/*"
+    - sshpass -e scp -o StrictHostKeyChecking=no -r out/* root@10.0.120.2:/data/base/nginx/usr/share/nginx/html/mofun
+>>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
   only:
     - main  # 仅在 main 分支推送时执行部署
   dependencies:

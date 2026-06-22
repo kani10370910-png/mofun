@@ -6,6 +6,11 @@ import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
 import { useToast } from "@/components/ui/Toast";
 import { imageModels, imageRatios, editModels, logoStyles } from "@/data/image";
 import type { ImageType } from "@/lib/types";
+<<<<<<< HEAD
+=======
+import { asset } from "@/lib/asset";
+import { AutoBgImg } from "./AutoBgImg";
+>>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
 
 const modelOpts: DropdownOption[] = imageModels.map((m) => ({ name: m.name, desc: m.desc }));
 const editOpts: DropdownOption[] = editModels.map((m) => ({ name: m.name, desc: m.desc }));
@@ -323,8 +328,12 @@ export function ImageLogoPanel({
             <div key={s.key} className={state.style === s.name ? "logo-style on" : "logo-style"} onClick={() => set("style", s.name)}>
               <div className="ls-thumb">
                 {s.img ? (
+<<<<<<< HEAD
                   // eslint-disable-next-line @next/next/no-img-element
                   <img className="ls-thumb-img" src={s.img} alt={s.name} loading="lazy" />
+=======
+                  <AutoBgImg className="ls-thumb-img" src={asset(s.img!)} alt={s.name} ratio={1.45} />
+>>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
                 ) : (
                   s.emoji
                 )}

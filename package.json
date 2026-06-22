@@ -5,6 +5,10 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+<<<<<<< HEAD
+=======
+    "build:export": "node scripts/build-static.mjs",
+>>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
     "start": "next start",
     "lint": "next lint",
     "cf:build": "opennextjs-cloudflare build",
@@ -12,8 +16,11 @@
     "cf:deploy": "opennextjs-cloudflare build && wrangler deploy"
   },
   "dependencies": {
+<<<<<<< HEAD
     "@aws-sdk/util-hex-encoding": "^3.310.0",
     "mime": "^4.1.0",
+=======
+>>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
     "next": "^16.2.9",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

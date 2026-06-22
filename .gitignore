@@ -3,7 +3,11 @@
 
 # next.js
 /.next/
+<<<<<<< HEAD
 /mofun/
+=======
+/out/
+>>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
 
 # production
 /build
@@ -26,3 +30,10 @@ next-env.d.ts
 /.open-next/
 .wrangler
 scripts/ssh_run.py
+<<<<<<< HEAD
+=======
+
+
+# 本地部署密码文件，勿提交
+scripts/.nginx_pwd
+>>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
