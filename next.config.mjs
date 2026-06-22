@@ -10,7 +10,7 @@ const nextConfig = {
   // 导出为静态 HTML
   output: 'export',
   distDir: 'mofun',
-  basePath: '/mofun',
+  // basePath: '/mofun',
 };
 
 export default nextConfig;
