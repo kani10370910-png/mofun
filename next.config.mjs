@@ -8,9 +8,11 @@ const nextConfig = {
   devIndicators: false,
   // 静态导出：构建产物为纯静态 HTML，部署到 nginx 子目录（仅 EXPORT=1 时启用，本地 dev 不受影响）
   // 导出时排除了 /api 路由，框架自动生成的旧路由类型会误报，故跳过类型检查（类型已在常规 build 验证）
-  ...(process.env.EXPORT === "1"
-    ? { output: "export", typescript: { ignoreBuildErrors: true } }
-    : {}),
+  // ...(process.env.EXPORT === "1"
+  //   ? { output: "export", typescript: { ignoreBuildErrors: true } }
+  //   : {}),
+  output: "export",
+  distDir: 'mofun',
   images: { unoptimized: true }, // 静态导出不支持图片优化服务
   // 部署在 /mofun 子目录：让框架资源(_next)、路由、Image 等自动带前缀
   basePath: basePath || undefined,

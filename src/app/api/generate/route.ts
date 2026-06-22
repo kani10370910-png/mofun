@@ -3,7 +3,6 @@ import { resolveProvider, buildMessages } from "@/lib/llm";
 import type { GenerateRequest } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 /* SSE 帮助：把一段文本封成 data 事件 */
 function sse(obj: unknown): string {
