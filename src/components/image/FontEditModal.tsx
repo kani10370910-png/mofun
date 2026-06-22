@@ -1,25 +1,16 @@
 "use client";
 
-<<<<<<< HEAD
-import { useState } from "react";
-=======
 import { useEffect, useRef, useState } from "react";
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { imageTools } from "@/data/image";
 import type { Grad } from "@/lib/types";
 import { ImageWorkbench, type ToolKey } from "./ImageWorkbench";
-<<<<<<< HEAD
-=======
 import { ColorPicker } from "./ColorPicker";
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
 
 // 「更改颜色」预设色板
 const PRESET_COLORS = ["#9b2c2c", "#e0571f", "#f2d574", "#3f7d3f", "#2f7a93"];
 
-<<<<<<< HEAD
-=======
 /* 自适应字号：渲染后测量，让文字整体（横排比宽、竖排比高）刚好容纳在容器内、不折行不溢出。
    通过给文字元素设 --fz 变量驱动 font-size。deps 变化（文字/方向/是否打开）时重新计算。*/
 function useFitText(
@@ -64,7 +55,6 @@ function useFitText(
   }, deps);
 }
 
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
 // 图片处理工具对应图标
 const TOOL_ICON: Record<string, "toolEnhance" | "toolErase" | "toolMatting" | "toolExpand" | "toolVector" | "toolRepair"> = {
   enhance: "toolEnhance",
@@ -93,15 +83,6 @@ export function FontEditModal({
   const [fav, setFav] = useState(false);
   const [color, setColor] = useState<string | null>(null);
   const [workbench, setWorkbench] = useState<ToolKey | null>(null);
-<<<<<<< HEAD
-
-  // 打开了图片处理工作台：全屏覆盖
-  if (workbench) {
-    return <ImageWorkbench text={text} grad={grad} initialTool={workbench} onClose={() => setWorkbench(null)} />;
-  }
-
-  return (
-=======
   // 自定义取色器：点「+」展开 HSV 取色面板，选色实时应用到字体预览
   const [picking, setPicking] = useState(false);
   // 全屏预览：点右下角图标，字体大图铺满屏幕（沿用当前所选颜色）
@@ -214,24 +195,10 @@ export function FontEditModal({
 
   return (
     <>
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
     <div className="modal-mask" onClick={onClose}>
       <div className="fe-modal" onClick={(e) => e.stopPropagation()}>
         {/* 左：大预览 + 改色 */}
         <div className="fe-modal-left">
-<<<<<<< HEAD
-          <div className="fe-preview">
-            <span className="fe-preview-text" style={color ? { color } : undefined}>
-              {text}
-            </span>
-            <button className="fe-fullscreen" title="全屏预览" onClick={() => toast("全屏预览（演示）")}>
-              <Icon name="toolExpand" size={18} />
-            </button>
-          </div>
-          <div className="fe-colors">
-            <span className="fe-colors-label">更改颜色：</span>
-            <button className="fe-color-add" title="自定义颜色" onClick={() => toast("自定义取色（演示）")}>
-=======
           <div className="fe-preview" ref={previewBoxRef}>
             <span
               ref={previewTextRef}
@@ -248,7 +215,6 @@ export function FontEditModal({
               title={picking ? "完成取色" : "自定义颜色"}
               onClick={() => setPicking((v) => !v)}
             >
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
               <Icon name="plus" size={16} />
             </button>
             {PRESET_COLORS.map((c) => (
@@ -260,8 +226,6 @@ export function FontEditModal({
                 onClick={() => setColor(c)}
               />
             ))}
-<<<<<<< HEAD
-=======
             {/* 自定义取色面板：选色实时应用到上方字体预览（cp-panel 自带浮层样式，向上弹避免溢出弹窗底部） */}
             {picking && (
               <div className="fe-colorpicker-up">
@@ -282,7 +246,6 @@ export function FontEditModal({
             <button className="fe-fullscreen-corner" title="全屏预览" onClick={() => setFullscreen(true)}>
               <Icon name="toolExpand" size={18} />
             </button>
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
           </div>
         </div>
 
@@ -312,14 +275,6 @@ export function FontEditModal({
           <div className="fe-tools">
             <div className="fe-tools-title">图片处理</div>
             <div className="fe-tools-grid">
-<<<<<<< HEAD
-              {imageTools.map((t) => (
-                <button key={t.key} className="fe-tool" onClick={() => setWorkbench(t.key as ToolKey)}>
-                  <Icon name={TOOL_ICON[t.key] ?? "sparkle"} size={18} />
-                  {t.name}
-                </button>
-              ))}
-=======
               {/* 字体场景仅保留「转矢量」一个图片处理功能 */}
               {imageTools
                 .filter((t) => t.key === "vector")
@@ -329,17 +284,10 @@ export function FontEditModal({
                     {t.name}
                   </button>
                 ))}
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
             </div>
           </div>
 
           <div className="fe-foot">
-<<<<<<< HEAD
-            <button className="btn fe-dl-ghost" onClick={() => toast("已下载透明背景图（演示）")}>
-              透明背景图下载
-            </button>
-            <button className="btn fe-dl-primary" onClick={() => toast("已下载 2K 高清图（演示）")}>
-=======
             <button
               className="btn fe-dl-ghost"
               onClick={() => downloadPng({ transparent: true, longSide: 2048, suffix: "透明背景" })}
@@ -350,7 +298,6 @@ export function FontEditModal({
               className="btn fe-dl-primary"
               onClick={() => downloadPng({ transparent: false, longSide: 2048, suffix: "2K高清" })}
             >
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
               2K高清图下载
               <span className="fe-dl-badge">变清晰</span>
             </button>
@@ -358,8 +305,6 @@ export function FontEditModal({
         </div>
       </div>
     </div>
-<<<<<<< HEAD
-=======
 
     {/* 全屏预览：字体大图铺满屏幕，沿用当前所选颜色，点遮罩 / × / Esc 退出 */}
     {fullscreen && (
@@ -377,6 +322,5 @@ export function FontEditModal({
       </div>
     )}
     </>
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
   );
 }

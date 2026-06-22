@@ -3,21 +3,14 @@
 import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
-<<<<<<< HEAD
-import { logoHistory, logoCats, logoCases } from "@/data/image";
-=======
 import { logoCats, logoCases } from "@/data/image";
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
 import type { LogoHistoryGroup, LogoResult, AssetCard, LogoCase } from "@/lib/types";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import { LogoDownloadModal } from "./LogoDownloadModal";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
-<<<<<<< HEAD
-=======
 import { AutoBgImg } from "./AutoBgImg";
 import { asset as assetUrl } from "@/lib/asset";
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
 
 // 待删除目标：本次会话生成行（run）或静态历史行（hist，按组+行索引定位）
 type DeleteTarget = { kind: "run"; id: string } | { kind: "hist"; gi: number; ii: number };
@@ -80,29 +73,12 @@ export function LogoGallery({
   const toast = useToast();
   const [onlyFav, setOnlyFav] = useState(false);
   const [cat, setCat] = useState("全部");
-<<<<<<< HEAD
-  // 静态历史本地化为可删 state；按组定位行的删除
-  const [history, setHistory] = useState<LogoHistoryGroup[]>(() =>
-    logoHistory.map((g) => ({ ...g, items: [...g.items] }))
-  );
-  // 删除确认弹框的待删目标（null = 关闭）
-  const [pending, setPending] = useState<DeleteTarget | null>(null);
-  // 收藏：按结果唯一 key 记录，可切换并供「只看收藏」筛选
-  const [favs, setFavs] = useState<Set<string>>(() => {
-    const init = new Set<string>();
-    logoHistory.forEach((g, gi) =>
-      g.items.forEach((it, ii) => it.results.forEach((r, i) => r.fav && init.add(`h-${gi}-${ii}-${i}`)))
-    );
-    return init;
-  });
-=======
   // 生成历史默认为空：用户未真实生成时显示空状态（演示数据 logoHistory 保留在数据层备用，不默认加载）
   const [history, setHistory] = useState<LogoHistoryGroup[]>([]);
   // 删除确认弹框的待删目标（null = 关闭）
   const [pending, setPending] = useState<DeleteTarget | null>(null);
   // 收藏：按结果唯一 key 记录，可切换并供「只看收藏」筛选
   const [favs, setFavs] = useState<Set<string>>(() => new Set());
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
   const isFav = (key: string) => favs.has(key);
   function toggleFav(key: string) {
     setFavs((prev) => {
@@ -127,11 +103,8 @@ export function LogoGallery({
     toast("已删除该记录");
   }
 
-<<<<<<< HEAD
-=======
   const hasHistory = runRows.length > 0 || history.some((g) => g.items.length > 0);
 
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
   return (
     <>
       <div className="lg-head">
@@ -153,8 +126,6 @@ export function LogoGallery({
       </div>
 
       {tab === "history" ? (
-<<<<<<< HEAD
-=======
         !hasHistory ? (
           <div className="preview-empty">
             <div>
@@ -165,7 +136,6 @@ export function LogoGallery({
             </div>
           </div>
         ) : (
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
         <div id="logoHistory">
           {/* 本次会话新生成的（含进度行）置顶，按生成时间分组（今天/昨天/更早） */}
           {groupRuns(runRows).map(([label, rows]) => (
@@ -229,10 +199,7 @@ export function LogoGallery({
             );
           })}
         </div>
-<<<<<<< HEAD
-=======
         )
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
       ) : (
         <div>
           <div className="filter-row" style={{ marginBottom: 16 }}>
@@ -242,23 +209,14 @@ export function LogoGallery({
               </span>
             ))}
           </div>
-<<<<<<< HEAD
-          <div className="grid grid-4">
-=======
           <div className="inspo-grid">
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
             {logoCases
               .filter((c) => cat === "全部" || c.cat === cat)
               .map((c) => (
                 <div className="lg-case" key={c.img ?? c.name} onClick={() => onUseCase(c)}>
                   <div className="lg-case-thumb">
                     {c.img ? (
-<<<<<<< HEAD
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img className="lg-case-img" src={c.img} alt={c.name} loading="lazy" />
-=======
                       <AutoBgImg className="lg-case-img" src={assetUrl(c.img)} alt={c.name} />
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
                     ) : (
                       <span className="lg-case-emoji">{c.emoji}</span>
                     )}
@@ -404,11 +362,7 @@ function LogoResultCard({
     <div className={`lh-img ${result.grad}`}>
       {result.img ? (
         // eslint-disable-next-line @next/next/no-img-element
-<<<<<<< HEAD
-        <img className="lh-result-img" src={result.img} alt={name} loading="lazy" />
-=======
         <img className="lh-result-img" src={assetUrl(result.img!)} alt={name} loading="lazy" />
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
       ) : (
         <span className="lh-emoji">{result.emoji}</span>
       )}

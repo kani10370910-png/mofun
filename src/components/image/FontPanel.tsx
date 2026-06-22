@@ -1,11 +1,5 @@
 "use client";
 
-<<<<<<< HEAD
-import { useState } from "react";
-import { Icon } from "@/components/ui/Icon";
-import { fontCats, fontEffects } from "@/data/image";
-import type { FontCat, FontEffect } from "@/lib/types";
-=======
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "@/components/ui/Icon";
@@ -15,7 +9,6 @@ import { asset } from "@/lib/asset";
 
 // 字体置顶状态的 localStorage 键（刷新后保留置顶）
 const PIN_KEY = "mofun.fontPinned";
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
 
 export interface FontImageState {
   text: string;
@@ -37,11 +30,6 @@ export function FontPanel({
   loading: boolean;
 }) {
   const set = <K extends keyof FontImageState>(k: K, v: FontImageState[K]) => setState({ ...state, [k]: v });
-<<<<<<< HEAD
-  const effects = fontEffects.filter((f) => f.cat === state.cat);
-  // 放大预览：当前预览的字体效果（null = 关闭）
-  const [preview, setPreview] = useState<FontEffect | null>(null);
-=======
 
   // 置顶字体：记录被置顶的字体 key。置顶项排到当前分类网格最前。
   // 持久化到 localStorage —— 刷新页面后仍保留。SSR 阶段取空集，挂载后再读，避免 hydration 不一致。
@@ -94,7 +82,6 @@ export function FontPanel({
   useEffect(() => {
     selectedRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [state.cat, state.effect]);
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
 
   return (
     <>
@@ -155,37 +142,15 @@ export function FontPanel({
           {effects.map((f) => (
             <div
               key={f.key}
-<<<<<<< HEAD
-              className={state.effect === f.name ? "font-eff on" : "font-eff"}
-              onClick={() => set("effect", f.name)}
-=======
               ref={state.effect === f.name ? selectedRef : undefined}
               className={state.effect === f.name ? "font-eff on" : "font-eff"}
               onClick={() => set("effect", f.name)}
               onMouseEnter={(e) => showHover(f, e.currentTarget)}
               onMouseLeave={() => setHover((h) => (h?.f.key === f.key ? null : h))}
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
             >
               <div className={f.img ? "fe-thumb has-img" : `fe-thumb fe-style-${f.key}`}>
                 {f.img ? (
                   // eslint-disable-next-line @next/next/no-img-element
-<<<<<<< HEAD
-                  <img className="fe-thumb-img" src={f.img} alt={f.name} loading="lazy" />
-                ) : (
-                  f.name
-                )}
-                {/* hover 显示置顶/放大按钮：点击弹出放大预览，不触发选中 */}
-                <button
-                  className="fe-zoom lh-tip"
-                  data-tip="放大预览"
-                  aria-label="放大预览"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setPreview(f);
-                  }}
-                >
-                  <Icon name="search" size={13} />
-=======
                   <img className="fe-thumb-img" src={asset(f.img!)} alt={f.name} loading="lazy" />
                 ) : (
                   f.name
@@ -202,7 +167,6 @@ export function FontPanel({
                   }}
                 >
                   <Icon name="pinTop" size={13} />
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
                 </button>
               </div>
               <div className="fe-name">{f.name}</div>
@@ -218,43 +182,6 @@ export function FontPanel({
         </button>
       </div>
 
-<<<<<<< HEAD
-      {/* 字体效果放大预览弹窗：居中大字展示，点遮罩外区域或 ✕ 关闭 */}
-      {preview && (
-        <div className="fe-modal-mask" onClick={() => setPreview(null)}>
-          <div className="fe-modal" onClick={(e) => e.stopPropagation()}>
-            <button className="fe-modal-close" aria-label="关闭" onClick={() => setPreview(null)}>
-              <Icon name="close" size={18} />
-            </button>
-            <div className="fe-modal-head">
-              <span className="fe-modal-name">{preview.name}</span>
-              <span className="fe-modal-cat">{preview.cat}</span>
-            </div>
-            {preview.img ? (
-              <div className="fe-modal-stage has-img">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img className="fe-modal-img" src={preview.img} alt={preview.name} />
-              </div>
-            ) : (
-              <div className={`fe-modal-stage fe-style-${preview.key}`}>
-                {state.text.trim() || preview.preview || preview.name}
-              </div>
-            )}
-            <div className="fe-modal-foot">
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => {
-                  set("effect", preview.name);
-                  setPreview(null);
-                }}
-              >
-                使用该字体
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-=======
       {/* 悬停预览浮层：移入左侧字体卡片时，在卡片右侧浮出预览图小框。
           Portal 到 body，z-index 高于右侧画廊，确保始终在最上层。 */}
       {mounted && hover &&
@@ -269,7 +196,6 @@ export function FontPanel({
           </div>,
           document.body
         )}
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
     </>
   );
 }

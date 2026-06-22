@@ -1,17 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-<<<<<<< HEAD
-
-/* 内联 HSV 取色面板：饱和度/明度方块 + 色相条 + HEX 实时显示 */
-=======
 import { Icon } from "@/components/ui/Icon";
 
 // 部分浏览器支持系统级取色（吸管），无类型声明，按需取用
 type EyeDropperCtor = new () => { open: () => Promise<{ sRGBHex: string }> };
 
 /* 内联 HSV 取色面板：吸管 + 饱和度/明度方块 + 色相条 + HEX 实时显示 */
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
 export function ColorPicker({
   value,
   onChange,
@@ -26,8 +21,6 @@ export function ColorPicker({
 
   const hex = hsvToHex(h, s, v);
 
-<<<<<<< HEAD
-=======
   // 应用一个十六进制颜色到面板状态
   function applyHex(next: string) {
     const hsv = hexToHsv(next);
@@ -49,7 +42,6 @@ export function ColorPicker({
     }
   }
 
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
   // 任意分量变化即回调
   useEffect(() => {
     onChange(hex);
@@ -107,21 +99,6 @@ export function ColorPicker({
         <div className="cp-sv-black" />
         <div className="cp-sv-dot" style={{ left: `${s * 100}%`, top: `${(1 - v) * 100}%` }} />
       </div>
-<<<<<<< HEAD
-      <div
-        ref={hueRef}
-        className="cp-hue"
-        onMouseDown={(e) => {
-          drag.current = "hue";
-          pickHue(e.clientX);
-        }}
-      >
-        <div className="cp-hue-dot" style={{ left: `${(h / 360) * 100}%` }} />
-      </div>
-      <div className="cp-foot">
-        <span className="cp-hex-label">HEX</span>
-        <span className="cp-hex-val">{hex.toUpperCase()}</span>
-=======
       <div className="cp-hue-row">
         <button type="button" className="cp-dropper" title="屏幕取色" onClick={pickFromScreen}>
           <Icon name="eyedropper" size={18} />
@@ -140,7 +117,6 @@ export function ColorPicker({
       <div className="cp-foot">
         <span className="cp-hex-label">Hex</span>
         <span className="cp-hex-val">{hex.replace("#", "").toUpperCase()}</span>
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
       </div>
     </div>
   );

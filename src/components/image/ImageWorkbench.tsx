@@ -3,12 +3,6 @@
 import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
-<<<<<<< HEAD
-import type { Grad } from "@/lib/types";
-
-export type ToolKey = "enhance" | "erase" | "matting" | "expand" | "repair" | "vector";
-
-=======
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import type { AssetCard, Grad } from "@/lib/types";
@@ -72,7 +66,6 @@ function downloadTextFile(filename: string, content: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
 const TOOLS: { key: ToolKey; name: string; ico: "toolEnhance" | "toolErase" | "toolMatting" | "toolExpand" | "toolRepair" | "toolVector" }[] = [
   { key: "enhance", name: "AI变清晰", ico: "toolEnhance" },
   { key: "erase", name: "AI消除", ico: "toolErase" },
@@ -82,34 +75,20 @@ const TOOLS: { key: ToolKey; name: string; ico: "toolEnhance" | "toolErase" | "t
   { key: "vector", name: "转矢量", ico: "toolVector" },
 ];
 
-<<<<<<< HEAD
-/* 图片处理全屏工作台：左工具栏 + 中画布 + 右操作记录 + 底部按工具切换 */
-=======
 /* 图片处理全屏工作台：左工具栏 + 中画布 + 右操作记录 + 底部按工具切换
    lockTo：锁定到某个工具（字体场景仅「转矢量」可用），其余工具禁用并提示 */
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
 export function ImageWorkbench({
   text,
   grad,
   initialTool = "enhance",
-<<<<<<< HEAD
-=======
   lockTo,
   color,
   vertical = false,
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
   onClose,
 }: {
   text: string;
   grad: Grad;
   initialTool?: ToolKey;
-<<<<<<< HEAD
-  onClose: () => void;
-}) {
-  const toast = useToast();
-  const [tool, setTool] = useState<ToolKey>(initialTool);
-  const [histTab, setHistTab] = useState<"op" | "saved">("op");
-=======
   lockTo?: ToolKey;
   color?: string;
   vertical?: boolean;
@@ -169,7 +148,6 @@ export function ImageWorkbench({
     addMaterial(material);
     toast("已保存为「仓库 · 我的素材」");
   }
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
 
   return (
     <div className="iw-root">
@@ -179,19 +157,6 @@ export function ImageWorkbench({
           <span className="iw-back-arrow">‹</span> 返回
         </button>
         <div className="iw-top-mid">
-<<<<<<< HEAD
-          <button className="iw-top-act" onClick={() => toast("重新上传（演示）")}>
-            <Icon name="plus" size={16} /> 重新上传
-          </button>
-          {tool !== "matting" && (
-            <>
-              <button className="iw-top-act" onClick={() => toast("已重置原图（演示）")}>
-                <Icon name="refresh" size={16} /> 重置原图
-              </button>
-              <button className="iw-top-act" onClick={() => toast("对比原图（演示）")}>
-                <Icon name="image" size={16} /> 对比原图
-              </button>
-=======
           {lockTo === "vector" ? (
             /* 字体场景：顶部中间仅展示当前「转矢量」工具，无重新上传/重置/对比 */
             <span className="iw-top-tool">
@@ -225,19 +190,10 @@ export function ImageWorkbench({
                   </button>
                 </>
               )}
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
             </>
           )}
         </div>
         <div className="iw-top-right">
-<<<<<<< HEAD
-          <button className="btn iw-btn-ghost" onClick={() => toast("制作包装（演示）")}>
-            制作包装
-          </button>
-          <button className="btn iw-btn-dark" onClick={() => toast("已下载（演示）")}>
-            下载
-          </button>
-=======
           {/* 字体场景（lockTo 锁定）不提供「制作包装」与顶部「下载」（下载在记录卡片里） */}
           {!lockTo && (
             <>
@@ -249,26 +205,10 @@ export function ImageWorkbench({
               </button>
             </>
           )}
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
         </div>
       </header>
 
       <div className="iw-body">
-<<<<<<< HEAD
-        {/* 左侧工具栏 */}
-        <aside className="iw-rail">
-          {TOOLS.map((t) => (
-            <button
-              key={t.key}
-              className={tool === t.key ? "iw-tool on" : "iw-tool"}
-              onClick={() => setTool(t.key)}
-            >
-              <Icon name={t.ico} size={22} />
-              <span>{t.name}</span>
-            </button>
-          ))}
-        </aside>
-=======
         {/* 左侧工具栏：字体场景（lockTo=vector）整体隐藏，转矢量已移到顶部中间 */}
         {lockTo !== "vector" && (
           <aside className="iw-rail">
@@ -289,7 +229,6 @@ export function ImageWorkbench({
             })}
           </aside>
         )}
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
 
         {/* 中间画布 */}
         <main className="iw-canvas">
@@ -308,39 +247,16 @@ export function ImageWorkbench({
           ) : (
             <div className={`iw-stage ${tool === "expand" ? "iw-stage-expand" : ""}`}>
               {tool === "expand" && <div className="iw-expand-frame" />}
-<<<<<<< HEAD
-              <span className="iw-canvas-text">{text}</span>
-=======
               <span
                 className={vertical ? "iw-canvas-text is-vertical" : "iw-canvas-text"}
                 style={{ color: shownColor }}
               >
                 {text}
               </span>
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
             </div>
           )}
         </main>
 
-<<<<<<< HEAD
-        {/* 右侧记录面板 */}
-        <aside className="iw-side">
-          <div className="iw-side-tabs">
-            <span className={histTab === "op" ? "iw-side-tab on" : "iw-side-tab"} onClick={() => setHistTab("op")}>
-              操作记录
-            </span>
-            <span className={histTab === "saved" ? "iw-side-tab on" : "iw-side-tab"} onClick={() => setHistTab("saved")}>
-              保存记录
-            </span>
-            <button className="iw-side-collapse" title="收起" onClick={() => toast("收起记录（演示）")}>
-              <Icon name="chevron" size={16} />
-            </button>
-          </div>
-          <div className="iw-side-empty">
-            <div className="iw-empty-box">📦</div>
-            <div className="iw-empty-text">暂无操作记录</div>
-          </div>
-=======
         {/* 右侧记录面板（可折叠） */}
         <aside className={sideCollapsed ? "iw-side is-collapsed" : "iw-side"}>
           <div className="iw-side-tabs">
@@ -398,15 +314,11 @@ export function ImageWorkbench({
               ))}
             </div>
           )}
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
         </aside>
       </div>
 
       {/* 底部：按工具切换 */}
       <footer className="iw-foot">
-<<<<<<< HEAD
-        <ToolFooter tool={tool} toast={toast} />
-=======
         <ToolFooter
           tool={tool}
           toast={toast}
@@ -415,15 +327,11 @@ export function ImageWorkbench({
           setVecModel={setVecModel}
           convertDisabled={convertedModels.has(vecModel)}
         />
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
       </footer>
     </div>
   );
 }
 
-<<<<<<< HEAD
-function ToolFooter({ tool, toast }: { tool: ToolKey; toast: (s: string) => void }) {
-=======
 function ToolFooter({
   tool,
   toast,
@@ -439,16 +347,11 @@ function ToolFooter({
   setVecModel: (m: "basic" | "pro") => void;
   convertDisabled: boolean;
 }) {
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
   const [scale, setScale] = useState<"2x" | "4x">("4x");
   const [brush, setBrush] = useState(30);
   const [matModel, setMatModel] = useState("模型1");
   const [width, setWidth] = useState("1312");
   const [height, setHeight] = useState("800");
-<<<<<<< HEAD
-  const [vecModel, setVecModel] = useState<"basic" | "pro">("pro");
-=======
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
 
   if (tool === "enhance") {
     const out = scale === "2x" ? "2624 X 1600 px" : "5248 X 3200 px";
@@ -556,16 +459,6 @@ function ToolFooter({
     <div className="iw-foot-row iw-foot-center">
       <div className="iw-vec-models">
         <button className={vecModel === "basic" ? "iw-vec-model on" : "iw-vec-model"} onClick={() => setVecModel("basic")}>
-<<<<<<< HEAD
-          <span className="iw-vec-dot" /> 基础矢量模型
-        </button>
-        <button className={vecModel === "pro" ? "iw-vec-model on" : "iw-vec-model"} onClick={() => setVecModel("pro")}>
-          <span className="iw-vec-dot on" /> 增强矢量模型 <span className="iw-vec-pro">pro</span>
-        </button>
-      </div>
-      <button className="iw-foot-go iw-foot-go-dark" onClick={() => toast("开始转换（演示）")}>
-        开始转换 <span className="iw-go-credit">8算力/次</span>
-=======
           <span className={vecModel === "basic" ? "iw-vec-dot on" : "iw-vec-dot"} /> 基础矢量模型
         </button>
         <button className={vecModel === "pro" ? "iw-vec-model on" : "iw-vec-model"} onClick={() => setVecModel("pro")}>
@@ -578,7 +471,6 @@ function ToolFooter({
         onClick={onConvert}
       >
         开始转换 <span className="iw-go-credit">{vecModel === "basic" ? "2" : "8"}算力/次</span>
->>>>>>> 89f8a5db19e534152e320d08e31d7866ab306664
       </button>
     </div>
   );
