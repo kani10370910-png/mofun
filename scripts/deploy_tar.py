@@ -3,7 +3,7 @@
 import os, socket, time
 import paramiko
 
-HOST, PORT, USER = "10.0.120.2x", 22, "root"
+HOST, PORT, USER = "10.0.120.2", 22, "root"
 REMOTE_DIR = "/data/base/nginx/usr/share/nginx/html/mofun"
 TAR_LOCAL = "out.tar.gz"
 TAR_REMOTE = "/tmp/mofun_out.tar.gz"
