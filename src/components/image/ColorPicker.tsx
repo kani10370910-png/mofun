@@ -21,6 +21,10 @@ export function ColorPicker({
 
   const hex = hsvToHex(h, s, v);
 
+  // Hex 输入框的草稿值：用户编辑中允许暂时不合法；合法（6 位）时即刻应用
+  const [hexDraft, setHexDraft] = useState<string | null>(null);
+  const hexText = hexDraft ?? hex.replace("#", "").toUpperCase();
+
   // 应用一个十六进制颜色到面板状态
   function applyHex(next: string) {
     const hsv = hexToHsv(next);
@@ -28,6 +32,22 @@ export function ColorPicker({
     setH(hsv.h);
     setS(hsv.s);
     setV(hsv.v);
+  }
+
+  // 用户编辑 Hex 输入框：清洗为 0-9A-F、最长 6 位；满 6 位即应用到面板
+  function onHexInput(raw: string) {
+    const cleaned = raw.replace(/[^0-9a-fA-F]/g, "").slice(0, 6).toUpperCase();
+    setHexDraft(cleaned);
+    if (cleaned.length === 6) applyHex(`#${cleaned}`);
+  }
+
+  // 失焦/回车：若不足 6 位则回退到当前实际颜色
+  function commitHex() {
+    if (!hexDraft || hexDraft.length !== 6) setHexDraft(null);
+    else {
+      applyHex(`#${hexDraft}`);
+      setHexDraft(null);
+    }
   }
 
   // 吸管：调用系统取色（支持的浏览器），失败/不支持则静默
@@ -116,7 +136,23 @@ export function ColorPicker({
       </div>
       <div className="cp-foot">
         <span className="cp-hex-label">Hex</span>
-        <span className="cp-hex-val">{hex.replace("#", "").toUpperCase()}</span>
+        <input
+          className="cp-hex-val cp-hex-input"
+          type="text"
+          inputMode="text"
+          spellCheck={false}
+          maxLength={6}
+          value={hexText}
+          onChange={(e) => onHexInput(e.target.value)}
+          onBlur={commitHex}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              commitHex();
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+          aria-label="十六进制色值"
+        />
       </div>
     </div>
   );

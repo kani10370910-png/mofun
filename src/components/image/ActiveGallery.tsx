@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useToast } from "@/components/ui/Toast";
 import { activeGalleryItems } from "@/data/image";
+import { asset } from "@/lib/asset";
+import { AutoBgImg } from "./AutoBgImg";
 
 /* 活动右侧案例画廊（未生成时展示，按成图子类筛选） */
 export function ActiveGallery({ sub }: { sub: string }) {
@@ -27,7 +29,11 @@ export function ActiveGallery({ sub }: { sub: string }) {
             <div className="ag-card" key={it.name}>
               <div className={`ag-thumb ${it.grad}`}>
                 <span className="ag-sub">{it.sub}</span>
-                <span className="ag-emoji">{it.emoji}</span>
+                {it.img ? (
+                  <AutoBgImg className="ag-img" src={asset(it.img)} alt={it.name} />
+                ) : (
+                  <span className="ag-emoji">{it.emoji}</span>
+                )}
                 <div className="case-hover">
                   <button className="btn btn-primary btn-sm" onClick={() => toast(`套用「${it.name}」（演示）`)}>
                     套用模版

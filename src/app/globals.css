@@ -431,11 +431,14 @@ a { color: inherit; text-decoration: none; cursor: pointer; }
 
 /* ============ 两栏工作区（左输入 / 右预览） ============ */
 .workspace { display: grid; grid-template-columns: 300px 1fr; gap: 18px; align-items: start; }
+/* 右侧结果区：定位上下文，供「帮我提案」浮层叠加在生成历史之上 */
+#iResult { position: relative; min-width: 0; }
 .ws-panel { background: var(--c-white); border: 1px solid var(--c-line); border-radius: var(--radius); padding: 18px; }
 .ws-panel.sticky {
-  /* sticky 相对滚动容器 .main（高 = 视口 - 顶栏）定位，
-     故 max-height 必须扣掉顶栏，否则面板会比容器高、底部「立即生成」被推进滚动区，滚动时跟着动 */
-  position: sticky; top: 16px; max-height: calc(100vh - var(--topbar-h) - 32px);
+  /* sticky 相对滚动容器 .main（高 = 视口 - 顶栏）定位。
+     用固定 height（而非仅 max-height）撑满整高，使「立即生成」无论内容长短都钉在面板底部，
+     各功能按钮位置一致。 */
+  position: sticky; top: 16px; height: calc(100vh - var(--topbar-h) - 32px);
   overflow: hidden; display: flex; flex-direction: column;
 }
 /* 字段区：撑满剩余高度，仅此区域内部滚动 */
@@ -578,6 +581,38 @@ a { color: inherit; text-decoration: none; cursor: pointer; }
 .lh-title { font-size: 13px; }
 .lh-prompt { font-weight: 700; color: var(--c-ink); margin-right: 8px; }
 .lh-desc { color: var(--c-muted); }
+/* 扩展设计卡片头：整行 flex —— 标题区铺满、复制/删除/时间随后，时间钉最右 */
+.lh-meta-ext { display: flex; align-items: flex-start; gap: 6px; }
+.lh-meta-ext .lh-time { position: static; margin-left: auto; align-self: flex-start; flex: none; margin-top: 4px; }
+.lh-meta-ext .lh-time-spacer { display: none; }
+.lh-meta-ext .lh-ico { flex: none; align-self: flex-start; }
+/* 标题区：标题 + 上传图 + 参考图 + 延展标签 + 描述词，占满剩余宽度、可换行 */
+.lh-ext-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.lh-ext-title .lh-prompt { margin-right: 0; flex: none; }
+.lh-ext-thumb {
+  width: 30px; height: 30px; border-radius: 7px; object-fit: cover;
+  border: 1px solid var(--c-border); background: #fff; flex: none;
+}
+.lh-ext-thumb-sm { width: 24px; height: 24px; border-radius: 6px; }
+/* 图片描述词：占满标题区剩余宽度，超长自然换行（不截断） */
+.lh-ext-desc {
+  color: var(--c-muted); white-space: normal; word-break: break-word; line-height: 1.5;
+  flex: 1 1 200px; min-width: 120px;
+}
+.lh-ext-ref {
+  flex: none; display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--c-muted);
+}
+/* 偏好颜色：小圆色块横排 */
+.lh-ext-colors { display: inline-flex; align-items: center; gap: 3px; }
+.lh-ext-color {
+  width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--c-border); display: inline-block;
+}
+/* 画面尺寸等元信息：胶囊标签 */
+.lh-ext-meta {
+  flex: none; font-size: 12px; color: var(--c-muted);
+  background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 999px; padding: 2px 10px; line-height: 1.5;
+}
 .lh-meta .lg-cat { margin: 0 8px; }
 .lh-meta .lh-ico { vertical-align: middle; }
 /* 生成时间：钉在该行最后一行的最右边 */
@@ -602,7 +637,7 @@ a { color: inherit; text-decoration: none; cursor: pointer; }
 .lh-fav {
   position: absolute; top: 8px; right: 8px; width: 36px; height: 36px; border-radius: 50%;
   background: rgba(255,255,255,.95); border: none; cursor: pointer; display: grid; place-items: center;
-  color: var(--c-ink); opacity: 0; transition: opacity .15s, color .15s; z-index: 4; box-shadow: var(--shadow-sm);
+  color: var(--c-ink); opacity: 0; transition: opacity .15s, color .15s; z-index: 6; box-shadow: var(--shadow-sm);
 }
 .lh-img:hover .lh-fav { opacity: 1; }
 .lh-fav.on { opacity: 1; color: #ff2e4d; }
@@ -618,12 +653,518 @@ a { color: inherit; text-decoration: none; cursor: pointer; }
 .lh-img:hover .lh-hover { opacity: 1; }
 .lh-hover .btn { background: #fff; white-space: nowrap; }
 .lh-hover .btn:hover { background: var(--c-primary-soft); }
-/* 整块浅灰半透明遮罩，下载按钮居中偏下，上方留出收藏按钮 */
+/* 整块浅灰半透明遮罩，下载按钮居中偏下（与 logo 生成历史一致），下方留给图标按钮 */
 .lh-hover-bottom {
   background: rgba(120,124,124,.55);
   justify-content: flex-end; padding: 0 14px 18%;
 }
-.lh-mark { position: absolute; bottom: 8px; left: 8px; font-size: 10px; color: var(--c-muted); background: rgba(255,255,255,.85); padding: 2px 7px; border-radius: 6px; }
+/* 「由 AI 生成」角标：前置品牌 logo + 文字 */
+.lh-mark {
+  position: absolute; bottom: 8px; left: 8px; font-size: 10px; color: var(--c-muted);
+  background: rgba(255,255,255,.85); padding: 2px 7px 2px 4px; border-radius: 6px;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.lh-mark-logo { width: 13px; height: 13px; border-radius: 3px; object-fit: contain; display: block; }
+
+/* IP 卡右下角功能图标行（hover 显示）：IP故事 / 延展设计 / 另存为
+   容器绝对定位在右下角，内部图标用 logo 同款 .lh-saveas 样式（在容器内改为静态排布） */
+.lh-corner-acts {
+  position: absolute; right: 8px; bottom: 8px; z-index: 4;
+  display: flex; align-items: center; gap: 8px;
+}
+.lh-corner-acts .lh-saveas { position: relative; bottom: auto; right: auto; }
+
+/* ============ IP 故事弹窗 ============ */
+.ipstory-mask {
+  position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center;
+  background: rgba(16,24,22,.5); padding: 24px;
+}
+.ipstory-modal {
+  width: min(960px, 94vw); max-height: 90vh; background: #fff; border-radius: 18px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.28); display: flex; flex-direction: column; overflow: hidden;
+}
+.ipstory-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 26px 10px;
+}
+.ipstory-title { font-size: 18px; font-weight: 700; color: var(--c-ink); }
+.ipstory-close {
+  width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer;
+  background: var(--c-bg); color: var(--c-ink); display: grid; place-items: center; transition: background .15s;
+}
+.ipstory-close:hover { background: var(--c-border); }
+.ipstory-body {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 26px;
+  padding: 8px 26px 26px; overflow: auto;
+}
+.ipstory-pic {
+  background: var(--c-bg); border-radius: 14px; overflow: hidden;
+  display: grid; place-items: center; min-height: 360px; align-self: start;
+}
+.ipstory-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ipstory-pic-ph { font-size: 72px; }
+.ipstory-form { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.ipstory-field { display: flex; flex-direction: column; gap: 8px; }
+.ipstory-label {
+  font-size: 15px; font-weight: 700; color: var(--c-ink);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.ipstory-label-l { display: inline-flex; align-items: center; gap: 8px; }
+.ipstory-mini-load {
+  font-size: 12px; font-weight: 500; color: var(--c-muted);
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.ipstory-desc {
+  width: 100%; min-height: 120px; resize: vertical; padding: 12px 14px;
+  border: 1px solid var(--c-border); border-radius: 12px; font-size: 14px; line-height: 1.6;
+  color: var(--c-ink); background: #fff; font-family: inherit;
+}
+/* 初版 IP 故事文本域：内容较长，给更高默认高度并可滚动 */
+.ipstory-story { min-height: 180px; max-height: 300px; line-height: 1.75; }
+.ipstory-sup {
+  width: 100%; padding: 12px 14px; border: 1px solid var(--c-border); border-radius: 12px;
+  font-size: 14px; color: var(--c-ink); background: #fff; font-family: inherit;
+}
+.ipstory-desc:focus, .ipstory-sup:focus { outline: none; border-color: var(--c-primary); }
+.ipstory-result .ipstory-label { justify-content: space-between; }
+.ipstory-copy {
+  border: none; background: var(--c-bg); cursor: pointer; color: var(--c-muted);
+  font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 8px;
+  display: inline-flex; align-items: center; gap: 4px; transition: color .15s, background .15s;
+}
+.ipstory-copy:hover { color: var(--c-primary); background: var(--c-primary-soft); }
+.ipstory-text {
+  background: var(--c-bg); border-radius: 12px; padding: 14px 16px;
+  font-size: 14px; line-height: 1.75; color: var(--c-ink); white-space: pre-wrap;
+  max-height: 240px; overflow: auto;
+}
+.ipstory-caret {
+  display: inline-block; width: 7px; height: 1.05em; vertical-align: text-bottom;
+  margin-left: 2px; background: var(--c-primary); border-radius: 1px;
+  animation: ipstory-blink 1s steps(2) infinite;
+}
+@keyframes ipstory-blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+.ipstory-go {
+  margin-top: auto; width: 100%; padding: 14px; border: none; border-radius: 12px; cursor: pointer;
+  background: #111; color: #fff; font-size: 15px; font-weight: 600; transition: opacity .15s;
+}
+.ipstory-go:hover:not(:disabled) { opacity: .9; }
+.ipstory-go:disabled { opacity: .55; cursor: not-allowed; }
+.ipstory-go-load { display: inline-flex; align-items: center; gap: 6px; }
+
+/* 「延展设计」带入的 IP 图来源角标 */
+.ip-seed-tag {
+  position: absolute; top: 8px; left: 8px; z-index: 3;
+  font-size: 11px; color: #fff; background: rgba(16,58,50,.78);
+  padding: 3px 8px; border-radius: 8px; max-width: calc(100% - 16px);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ============ IP 设计生成信息 / 下载弹窗（点「编辑/下载」弹出）============ */
+.ipdl-panel {
+  position: relative; width: min(1180px, 94vw); height: min(780px, 90vh);
+  background: #fff; border-radius: 18px; overflow: hidden;
+  display: grid; grid-template-columns: minmax(0, 1fr) 620px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.28);
+}
+/* 左：大图预览 */
+.ipdl-preview {
+  position: relative; background: var(--c-bg); display: grid; place-items: center; overflow: hidden;
+}
+/* 完整展示整张图（不裁切），按比例适应预览区，可能上下/左右留白 */
+.ipdl-preview-img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; display: block; }
+.ipdl-preview-ph { font-size: 96px; }
+.ipdl-zoom {
+  position: absolute; right: 14px; bottom: 14px; width: 44px; height: 44px; border-radius: 50%;
+  border: none; cursor: pointer; background: rgba(255,255,255,.9); color: var(--c-ink);
+  display: grid; place-items: center; box-shadow: var(--shadow-sm); transition: color .15s;
+}
+.ipdl-zoom:hover { color: var(--c-primary); }
+.ipdl-mark {
+  position: absolute; left: 14px; bottom: 14px; font-size: 11px; color: var(--c-muted);
+  background: rgba(255,255,255,.85); padding: 3px 8px; border-radius: 6px;
+}
+/* 右：信息面板（固定头/底，中间 scroll 区滚动；min-height:0 让 flex 子项可滚动） */
+.ipdl-info { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
+.ipdl-head {
+  display: flex; align-items: center; justify-content: space-between; padding: 22px 26px 12px;
+}
+.ipdl-title { font-size: 18px; font-weight: 700; color: var(--c-ink); }
+.ipdl-close {
+  width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer;
+  background: var(--c-bg); color: var(--c-ink); display: grid; place-items: center; transition: background .15s;
+}
+.ipdl-close:hover { background: var(--c-border); }
+.ipdl-scroll { flex: 1; overflow: auto; padding: 6px 26px 16px; display: flex; flex-direction: column; gap: 20px; }
+.ipdl-field { display: flex; flex-direction: column; gap: 10px; }
+.ipdl-label { font-size: 14.5px; font-weight: 600; color: var(--c-ink); }
+.ipdl-thumb { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; display: block; }
+.ipdl-thumb-ph { display: grid; place-items: center; background: var(--c-bg); font-size: 28px; }
+.ipdl-desc {
+  display: flex; align-items: flex-start; gap: 8px; font-size: 14px; line-height: 1.7; color: var(--c-ink);
+}
+/* 工具分组 */
+.ipdl-group { background: var(--c-bg); border-radius: 14px; padding: 16px 18px; }
+.ipdl-group-title { font-size: 13px; color: var(--c-muted); margin-bottom: 12px; }
+.ipdl-tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 8px; }
+.ipdl-tool {
+  display: flex; align-items: center; gap: 8px; border: none; background: transparent; cursor: pointer;
+  color: var(--c-ink); font-size: 14px; padding: 4px 2px; transition: color .15s;
+}
+.ipdl-tool:hover:not(:disabled) { color: var(--c-primary); }
+.ipdl-tool:disabled { opacity: .55; cursor: not-allowed; }
+.ipdl-tool .ico { color: var(--c-primary); }
+/* 底部 2K 下载 */
+.ipdl-foot { padding: 14px 26px 22px; }
+/* 底部两按钮并列：生成周边（绿）+ 2K高清图下载（黑） */
+.ipdl-foot-row { display: flex; gap: 12px; align-items: stretch; }
+.ipdl-foot-row > button { flex: 1 1 0; min-width: 0; }
+.ipdl-foot-gen {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 15px; border: none; border-radius: 12px; cursor: pointer;
+  background: var(--c-primary); color: #fff; font-size: 15px; font-weight: 600; transition: opacity .15s;
+}
+.ipdl-foot-gen:hover:not(:disabled) { opacity: .92; }
+.ipdl-foot-gen:disabled { opacity: .6; cursor: not-allowed; }
+.ipdl-download {
+  position: relative; width: 100%; padding: 15px; border: none; border-radius: 12px; cursor: pointer;
+  background: #111; color: #fff; font-size: 15px; font-weight: 600; transition: opacity .15s;
+}
+.ipdl-download:hover { opacity: .9; }
+.ipdl-clear-tag {
+  position: absolute; top: -10px; right: 14px;
+  background: var(--c-primary-soft); color: var(--c-primary-dark);
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 8px;
+}
+/* 周边预设：横向一排（参考视角/场景…的 tab 样式），放不下则换行，无滚动条 */
+.ipdl-pres-row {
+  display: flex; flex-wrap: wrap; gap: 6px; padding: 4px;
+  background: var(--c-bg); border-radius: 12px;
+}
+.ipdl-pres {
+  flex: 1 1 auto; border: none; background: transparent; cursor: pointer;
+  padding: 8px 12px; border-radius: 9px; font-size: 13.5px; color: var(--c-muted);
+  white-space: nowrap; transition: all .15s;
+}
+.ipdl-pres.on { background: #fff; color: var(--c-ink); font-weight: 600; box-shadow: var(--shadow-sm); }
+
+/* 周边生成结果小图：网格展示，点击切换左侧大图（随右侧信息区整体滚动，不单独滚动） */
+.ipdl-periph-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 10px; margin-top: 14px;
+}
+/* 图片处理结果小图网格（详情弹窗内，一行 5 个，复用 .periph-cell 样式） */
+.ipdl-result-grid {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 4px;
+}
+/* 显式约束每格为正方形缩略图，防 aspect-ratio 在 grid 内失效导致图片溢出 */
+.ipdl-result-grid .periph-cell { aspect-ratio: 1 / 1; height: auto; min-height: 0; overflow: hidden; }
+.ipdl-result-grid .periph-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ipdl-result-grid .periph-cell-tag { font-size: 11px; padding: 2px 0; }
+/* 勾选框：处理结果小图里常显（默认 .ipdl-check hover 才显示） */
+.ipdl-result-grid .ipdl-check { top: 5px; right: 5px; width: 20px; height: 20px; opacity: 1; background: rgba(0,0,0,.32); }
+.ipdl-result-grid .ipdl-check.on { background: var(--c-primary); border-color: var(--c-primary); }
+.ipdl-periph {
+  position: relative; aspect-ratio: 1/1; border: 2px solid transparent; border-radius: 10px;
+  overflow: hidden; cursor: pointer; padding: 0; background: var(--c-bg);
+  display: grid; place-items: center; transition: border-color .15s;
+}
+.ipdl-periph:hover:not(.is-disabled) { border-color: var(--c-primary-soft); }
+.ipdl-periph.on { border-color: var(--c-primary); }
+.ipdl-periph:disabled, .ipdl-periph.is-disabled { cursor: default; }
+.ipdl-periph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ipdl-periph-load, .ipdl-periph-ph { display: grid; place-items: center; font-size: 24px; color: var(--c-muted); }
+.ipdl-periph-tag {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 0; text-align: center;
+  font-size: 10px; color: #fff; background: rgba(16,24,22,.55);
+}
+/* 周边小图右上角勾选框（多选下载用）：默认半透明，hover 卡片或选中时显示 */
+.ipdl-check {
+  position: absolute; top: 5px; right: 5px; width: 18px; height: 18px; border-radius: 50%;
+  border: 1.5px solid #fff; background: rgba(0,0,0,.28); cursor: pointer; z-index: 2;
+  display: grid; place-items: center; color: #fff; opacity: 0; transition: opacity .15s, background .15s;
+}
+.ipdl-periph:hover .ipdl-check { opacity: 1; }
+.ipdl-check.on { opacity: 1; background: var(--c-primary); border-color: var(--c-primary); }
+/* 底部「下载选中」按钮（替换 2K 下载位置） */
+.ipdl-foot-dl-sel {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  width: 100%; padding: 15px; border: none; border-radius: 12px; cursor: pointer;
+  background: #111; color: #fff; font-size: 15px; font-weight: 600; transition: opacity .15s;
+}
+.ipdl-foot-dl-sel:hover:not(:disabled) { opacity: .9; }
+.ipdl-foot-dl-sel:disabled { background: #c9ccc9; cursor: not-allowed; }
+
+/* 弹窗内延展项的描述词与生成按钮 */
+.ipdl-ext-desc {
+  width: 100%; min-height: 64px; resize: vertical; margin-top: 12px; padding: 10px 12px;
+  border: 1px solid var(--c-border); border-radius: 10px; font-size: 13.5px; line-height: 1.6;
+  color: var(--c-ink); background: #fff; font-family: inherit;
+}
+.ipdl-ext-desc:focus { outline: none; border-color: var(--c-primary); }
+.ipdl-ext-gen {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  width: 100%; margin-top: 12px; padding: 11px; border: none; border-radius: 10px; cursor: pointer;
+  background: var(--c-primary); color: #fff; font-size: 14px; font-weight: 600; transition: opacity .15s;
+}
+.ipdl-ext-gen:hover:not(:disabled) { opacity: .92; }
+.ipdl-ext-gen:disabled { opacity: .6; cursor: not-allowed; }
+.ipdl-ext-credit { font-size: 12px; font-weight: 400; opacity: .8; }
+
+@media (max-width: 820px) {
+  .ipdl-panel { grid-template-columns: 1fr; height: 92vh; }
+  .ipdl-preview { min-height: 220px; }
+}
+
+/* ============ 「仓库」选图弹窗（IP 扩展设计·上传 IP 图）============ */
+/* 自带高层级遮罩，盖住右侧画廊（参考灵感卡片等可能有较高 z-index） */
+.libpick-mask {
+  position: fixed; inset: 0; z-index: 1500; background: rgba(20,40,36,.45);
+  backdrop-filter: blur(3px); display: grid; place-items: center; animation: fade .2s ease;
+}
+.libpick-panel {
+  width: min(680px, 92vw); max-height: 82vh; background: #fff; border-radius: 16px;
+  display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,.28);
+}
+.libpick-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--c-border);
+}
+.libpick-tabs { display: inline-flex; gap: 4px; background: var(--c-bg); border-radius: 10px; padding: 4px; }
+.libpick-tab {
+  border: none; background: transparent; cursor: pointer; padding: 7px 18px; border-radius: 8px;
+  font-size: 14px; color: var(--c-muted); transition: all .15s;
+}
+.libpick-tab.on { background: #fff; color: var(--c-ink); font-weight: 600; box-shadow: var(--shadow-sm); }
+.libpick-close {
+  width: 38px; height: 38px; border-radius: 50%; border: none; cursor: pointer;
+  background: var(--c-bg); color: var(--c-ink); display: grid; place-items: center; transition: background .15s;
+}
+.libpick-close:hover { background: var(--c-border); }
+.libpick-empty {
+  flex: 1; min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; color: var(--c-muted); font-size: 14px;
+}
+.libpick-grid {
+  flex: 1; overflow-y: auto; padding: 18px 20px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  grid-auto-rows: 140px; gap: 14px; align-content: start;
+}
+.libpick-item {
+  position: relative; height: 140px; box-sizing: border-box;
+  border: 2px solid transparent; border-radius: 12px;
+  overflow: hidden; cursor: pointer; padding: 0; margin: 0; background: var(--c-bg);
+  display: block; transition: border-color .15s;
+}
+.libpick-item:hover { border-color: var(--c-primary); }
+.libpick-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.libpick-name {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: 4px 8px; text-align: left;
+  font-size: 11px; color: #fff; background: rgba(16,24,22,.6);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ============ AI 抠图全屏弹窗 ============ */
+.matting-mask {
+  position: fixed; inset: 0; z-index: 1400; background: rgba(245,246,246,.98);
+  display: flex; flex-direction: column;
+}
+.matting-modal { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.matting-head {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  padding: 16px 24px; border-bottom: 1px solid var(--c-border); background: #fff;
+}
+/* 标题居中 + 左上「返回」 */
+.matting-title-center { font-size: 17px; font-weight: 700; color: var(--c-ink); }
+.matting-back {
+  position: absolute; left: 18px; display: inline-flex; align-items: center; gap: 4px;
+  border: none; background: transparent; cursor: pointer; color: var(--c-ink);
+  font-size: 14.5px; padding: 8px 10px; border-radius: 8px; transition: background .15s;
+}
+.matting-back:hover { background: var(--c-bg); }
+.matting-back .ico { transform: rotate(90deg); }
+.matting-close {
+  position: absolute; right: 20px; width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer;
+  background: var(--c-bg); color: var(--c-ink); display: grid; place-items: center; transition: background .15s;
+}
+.matting-close:hover { background: var(--c-border); }
+/* 三栏：原图 / 结果图 / 操作记录面板 */
+.matting-body {
+  flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr 300px; gap: 24px; padding: 24px 32px;
+}
+.matting-body:has(.iw-side.is-collapsed) { grid-template-columns: 1fr 1fr auto; }
+.matting-pane {
+  position: relative; background: #fff; border-radius: 14px; overflow: hidden;
+  display: grid; place-items: center; box-shadow: var(--shadow-sm);
+}
+.matting-tag {
+  position: absolute; top: 12px; right: 12px; z-index: 2; font-size: 12px; color: #fff;
+  background: rgba(60,64,64,.78); padding: 4px 12px; border-radius: 8px;
+}
+.matting-img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.matting-ph { font-size: 80px; }
+/* 抠图弹窗内复用的「操作记录」面板：适配 grid 单元（去掉工作台里的固定宽/外边距） */
+.matting-body .iw-side {
+  width: auto; flex: initial; margin: 0; background: #fff; box-shadow: var(--shadow-sm);
+}
+.matting-body .iw-side.is-collapsed { width: auto; }
+.matting-rec-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+
+/* ===== 生成周边工作台（仿抠图，2 列：预览 + 操作面板）===== */
+/* 用 flex 布局（不用 grid），左图弹性、右栏固定，高度靠 align-items:stretch 拉满，避免竖图撑爆被裁 */
+.periph-body {
+  display: flex !important; align-items: stretch; min-height: 0;
+}
+/* 预览格：弹性占据左侧，高度=body 可视高度；图片用绝对定位填满后 contain，严格受盒子约束 */
+.periph-body .matting-pane { flex: 1 1 auto; min-width: 0; min-height: 0; position: relative; overflow: hidden; }
+.periph-body .matting-img {
+  position: absolute; inset: 0; margin: auto;
+  max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain;
+}
+.periph-body .periph-side { flex: 0 0 420px; }
+.periph-side {
+  background: #fff; border-radius: 14px; box-shadow: var(--shadow-sm);
+  display: flex; flex-direction: column; overflow: hidden; min-height: 0;
+}
+.periph-side-title { font-size: 14px; font-weight: 700; color: var(--c-ink); padding: 16px 18px 8px; }
+.periph-side-title + .periph-pres-row { padding-top: 0; }
+.periph-pres-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 18px 14px; }
+.periph-pres {
+  padding: 7px 16px; border-radius: 999px; border: 1px solid var(--c-line);
+  background: var(--c-bg); color: var(--c-muted); font-size: 13px; cursor: pointer; transition: all .15s;
+}
+.periph-pres:hover { border-color: var(--c-primary-soft); }
+.periph-pres.on { background: var(--c-primary); border-color: var(--c-primary); color: #fff; font-weight: 600; }
+/* 「不使用预设」自定义描述文本框（样式同创意描述 .ip-desc，面板内适当压低高度） */
+.periph-custom { padding: 0 18px 12px; }
+.periph-custom .ip-desc { min-height: 90px; font-size: 13px; padding-bottom: 40px; }
+/* 结果小图网格：占满中间剩余高度，可滚动；底部按钮区固定。一行 3 个 */
+.periph-grid {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 18px 18px;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; align-content: start;
+}
+.periph-cell {
+  position: relative; aspect-ratio: 1 / 1; border-radius: 10px; overflow: hidden;
+  border: 2px solid transparent; background: var(--c-bg); cursor: pointer; padding: 0;
+}
+.periph-cell:hover:not(.is-disabled) { border-color: var(--c-primary-soft); }
+.periph-cell.on { border-color: var(--c-primary); }
+.periph-cell.is-disabled { cursor: default; }
+.periph-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.periph-cell-load, .periph-cell-ph { width: 100%; height: 100%; display: grid; place-items: center; font-size: 26px; color: var(--c-muted); }
+.periph-cell-tag {
+  position: absolute; left: 0; right: 0; bottom: 0; text-align: center;
+  font-size: 12px; color: #fff; background: rgba(60,64,64,.72); padding: 3px 0;
+}
+/* 勾选框：周边工作台里常显（默认 .ipdl-check hover 才显示） */
+.periph-cell .ipdl-check {
+  top: 6px; right: 6px; width: 22px; height: 22px; border-width: 2px;
+  opacity: 1; background: rgba(0,0,0,.32);
+}
+.periph-cell .ipdl-check.on { background: var(--c-primary); border-color: var(--c-primary); }
+.periph-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; color: var(--c-muted); padding: 30px;
+}
+/* 面板底部按钮区：生成周边 + 下载，并排横放，固定在面板底部 */
+.periph-foot-row {
+  flex: none; display: flex; align-items: stretch; gap: 12px;
+  padding: 14px 18px; border-top: 1px solid var(--c-line-2);
+}
+.periph-foot-row .ipdl-foot-gen,
+.periph-foot-row .ipdl-foot-dl-sel {
+  flex: 1 1 0; min-width: 0; width: auto; padding: 13px 10px; font-size: 14px; white-space: nowrap;
+}
+.periph-foot-row .ipdl-ext-credit { margin-left: 2px; }
+
+/* ===== 抠图画笔修整（快速选择）===== */
+.brush-wrap { position: relative; width: 100%; height: 100%; display: grid; place-items: center; }
+.brush-canvas { max-width: 100%; max-height: 100%; touch-action: none; cursor: crosshair; display: block; }
+/* 底部选区工具条（胶囊）；in-foot 时放进弹窗底栏（静态定位） */
+.brush-bar {
+  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 8px;
+  background: #fff; border-radius: 999px; padding: 6px 10px; box-shadow: var(--shadow-lg);
+}
+.brush-bar.in-foot {
+  position: static; transform: none; box-shadow: none; background: var(--c-bg); padding: 4px 8px;
+}
+.brush-mode {
+  display: inline-flex; align-items: center; gap: 6px; border: none; cursor: pointer;
+  background: transparent; padding: 6px 12px; border-radius: 999px; font-size: 13.5px; color: var(--c-ink);
+}
+.brush-mode.on { background: var(--c-bg); font-weight: 600; }
+.brush-dot {
+  width: 18px; height: 18px; border-radius: 50%; color: #fff; display: grid; place-items: center;
+  font-size: 13px; line-height: 1;
+}
+.brush-dot.add { background: #3682ff; }
+.brush-dot.sub { background: #f0564a; }
+.brush-size { display: inline-flex; align-items: center; padding: 0 6px; }
+.brush-size input { width: 80px; accent-color: var(--c-primary); }
+/* 撤销/重做/重置 */
+.brush-acts {
+  position: absolute; right: 14px; bottom: 18px; display: inline-flex; gap: 8px;
+  background: rgba(40,44,44,.9); border-radius: 12px; padding: 6px;
+}
+.brush-acts.in-foot {
+  position: static; background: var(--c-bg); border-radius: 10px; padding: 4px;
+}
+.brush-acts.in-foot .brush-act { color: var(--c-ink); }
+.brush-acts.in-foot .brush-act:hover:not(:disabled) { background: var(--c-line-2); }
+.brush-act {
+  width: 34px; height: 34px; border: none; border-radius: 8px; cursor: pointer;
+  background: transparent; color: #fff; display: grid; place-items: center; transition: background .15s;
+}
+.brush-act:hover:not(:disabled) { background: rgba(255,255,255,.18); }
+.brush-act:disabled { opacity: .35; cursor: not-allowed; }
+/* 透明棋盘格 */
+.matting-checker {
+  width: 100%; height: 100%; display: grid; place-items: center;
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #e9ebeb 25%, transparent 25%),
+    linear-gradient(-45deg, #e9ebeb 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #e9ebeb 75%),
+    linear-gradient(-45deg, transparent 75%, #e9ebeb 75%);
+  background-size: 22px 22px;
+  background-position: 0 0, 0 11px, 11px -11px, -11px 0;
+}
+.matting-loading, .matting-result .matting-loading {
+  display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--c-muted); font-size: 14px;
+}
+.matting-spinner {
+  width: 30px; height: 30px; border: 3px solid var(--c-border); border-top-color: var(--c-primary);
+  border-radius: 50%; animation: matting-spin .8s linear infinite;
+}
+.matting-spinner-sm { width: 15px; height: 15px; border-width: 2px; }
+@keyframes matting-spin { to { transform: rotate(360deg); } }
+/* 模型切换 */
+.matting-models { display: flex; align-items: center; gap: 8px; padding: 0 32px 16px; }
+.matting-models-label { font-size: 14px; color: var(--c-ink); margin-right: 4px; }
+.matting-model {
+  border: none; background: var(--c-bg); cursor: pointer; padding: 9px 22px; border-radius: 10px;
+  font-size: 14px; color: var(--c-muted); transition: all .15s;
+}
+.matting-model.on { background: #fff; color: var(--c-ink); font-weight: 700; box-shadow: var(--shadow-sm); }
+/* 底部操作 */
+.matting-foot {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  padding: 16px 24px 24px; border-top: 1px solid var(--c-border); background: #fff;
+}
+.matting-act {
+  display: inline-flex; align-items: center; gap: 7px; border: none; cursor: pointer;
+  background: var(--c-bg); color: var(--c-ink); font-size: 14px; padding: 11px 20px; border-radius: 10px;
+  transition: background .15s;
+}
+.matting-act:hover { background: var(--c-border); }
+.matting-primary {
+  display: inline-flex; align-items: center; gap: 7px; border: none; cursor: pointer;
+  background: #111; color: #fff; font-size: 14.5px; font-weight: 600; padding: 12px 26px; border-radius: 10px;
+  transition: opacity .15s;
+}
+.matting-primary:hover:not(:disabled) { opacity: .9; }
+.matting-primary:disabled { opacity: .6; cursor: not-allowed; }
+.matting-credit { font-size: 12px; font-weight: 400; opacity: .75; }
 
 /* 活动表单：文生图 / 图生图 Tab */
 .ev-tabs { display: flex; gap: 6px; background: var(--c-bg); border-radius: var(--radius-sm); padding: 4px; margin-bottom: 18px; }
@@ -922,7 +1463,7 @@ input[type="range"].slider::-moz-range-thumb {
 .ag-tab { padding: 6px 2px 12px; font-size: 14px; font-weight: 600; color: var(--c-muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .ag-tab:hover { color: var(--c-ink); }
 .ag-tab.on { color: var(--c-primary-dark); border-bottom-color: var(--c-primary); }
-.ag-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.ag-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
 .ag-card { cursor: pointer; transition: transform .18s; }
 .ag-card:hover { transform: translateY(-3px); }
 .ag-thumb {
@@ -930,6 +1471,7 @@ input[type="range"].slider::-moz-range-thumb {
   display: grid; place-items: center; box-shadow: var(--shadow-sm);
 }
 .ag-thumb .ag-emoji { font-size: 46px; filter: drop-shadow(0 4px 8px rgba(0,0,0,.12)); }
+.ag-thumb .ag-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .ag-thumb .ag-sub {
   position: absolute; top: 10px; left: 10px; font-size: 11px; color: #fff;
   background: rgba(0,0,0,.32); backdrop-filter: blur(4px); padding: 3px 9px; border-radius: 20px;
@@ -1362,6 +1904,27 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
 @keyframes lhSpin {
   to { transform: rotate(360deg); }
 }
+.lh-fail { color: #b42318; font-size: 13px; font-weight: 600; }
+
+/* 点击生成图放大预览 */
+.img-zoom-mask {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0, 0, 0, .78);
+  display: flex; align-items: center; justify-content: center;
+  padding: 40px; box-sizing: border-box; cursor: zoom-out;
+  animation: fade .15s ease;
+}
+.img-zoom-img {
+  max-width: 92vw; max-height: 90vh; object-fit: contain;
+  border-radius: 10px; box-shadow: 0 12px 48px rgba(0, 0, 0, .5); cursor: default;
+}
+.img-zoom-close {
+  position: fixed; top: 22px; right: 28px; z-index: 201;
+  width: 40px; height: 40px; border: 0; border-radius: 50%;
+  background: rgba(255, 255, 255, .16); color: #fff; display: grid; place-items: center; cursor: pointer;
+  transition: background .15s;
+}
+.img-zoom-close:hover { background: rgba(255, 255, 255, .3); }
 
 /* 左侧“生成中”按钮的小转圈 */
 .btn-spin {
@@ -1619,10 +2182,13 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
 /* ============ IP 设计表单 ============ */
 /* 创意描述 + 帮我提案 */
 .ip-desc-wrap { position: relative; }
-.ip-desc {
-  width: 100%; min-height: 150px; resize: vertical; line-height: 1.6;
+/* 用 .field 前缀提高特异性，覆盖通用的 .field textarea（resize/min-height） */
+.field .ip-desc, .ip-desc {
+  /* 随内容自动增高（JS 设 height=scrollHeight），故关闭手动 resize 与滚动条 */
+  width: 100%; min-height: 150px; resize: none; overflow: hidden; line-height: 1.6;
   border: 1px solid var(--c-line); border-radius: var(--radius-sm);
   padding: 12px 12px 44px; font-family: var(--font); font-size: 13.5px; color: var(--c-ink); outline: none;
+  box-sizing: border-box; display: block;
 }
 .ip-desc:focus { border-color: var(--c-primary); }
 .ip-propose-btn {
@@ -1633,6 +2199,63 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
   padding: 5px 11px; cursor: pointer; transition: all .15s;
 }
 .ip-propose-btn:hover { border-color: var(--c-primary); color: var(--c-primary-dark); }
+
+/* AI 优化后的画面描述展示 */
+.ip-optimized {
+  margin-top: 10px; border: 1px solid var(--c-line); border-radius: 10px;
+  background: var(--c-primary-soft); overflow: hidden;
+}
+.ip-optimized-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; font-size: 12.5px; font-weight: 600; color: var(--c-primary-dark);
+}
+.ip-optimized-head > span { display: inline-flex; align-items: center; gap: 5px; }
+.ip-optimized-apply {
+  font-size: 12px; color: var(--c-primary-dark); background: var(--c-white);
+  border: 1px solid var(--c-primary); border-radius: 7px; padding: 3px 10px; cursor: pointer; transition: all .15s;
+}
+.ip-optimized-apply:hover { background: var(--c-primary); color: #fff; }
+.ip-optimized-body {
+  padding: 0 12px 12px; font-size: 13px; line-height: 1.7; color: var(--c-ink); white-space: pre-wrap;
+}
+
+/* 画面尺寸·自定义比例：宽 : 高 */
+.ip-ratio-custom { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.ip-ratio-box {
+  flex: 1; display: flex; align-items: center; gap: 6px;
+  height: 44px; padding: 0 14px; border: 1px solid var(--c-line); border-radius: 10px;
+  background: var(--c-white); transition: border-color .15s;
+}
+.ip-ratio-box:focus-within { border-color: var(--c-primary); }
+.ip-ratio-tag { flex: none; color: var(--c-muted); font-size: 14px; }
+.ip-ratio-box input {
+  flex: 1; min-width: 0; border: 0; outline: none; background: transparent;
+  font-size: 15px; color: var(--c-ink); text-align: right; font-family: ui-monospace, monospace;
+}
+.ip-ratio-colon { flex: none; font-size: 18px; font-weight: 700; color: var(--c-ink); }
+
+/* 参考图：已选中后的真实缩略图预览 */
+.ip-ref-filled { position: relative; padding: 0; overflow: hidden; min-height: 120px; cursor: default; }
+.ip-ref-img { width: 100%; height: 100%; min-height: 120px; max-height: 220px; object-fit: cover; display: block; }
+/* 远程种子图加载失败时的占位 */
+.ip-ref-broken {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; min-height: 140px; padding: 16px; color: var(--c-muted); font-size: 12.5px; text-align: center;
+}
+/* 鼠标移入：中央浮出「更换 / 删除」图标 */
+.ip-ref-actions {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  background: rgba(0, 0, 0, .28);
+  opacity: 0; transition: opacity .15s ease;
+}
+.ip-ref-filled:hover .ip-ref-actions { opacity: 1; }
+.ip-ref-act {
+  width: 40px; height: 40px; border: 0; border-radius: 50%;
+  background: rgba(0, 0, 0, .55); color: #fff; display: grid; place-items: center; cursor: pointer;
+  transition: background .15s, transform .15s;
+}
+.ip-ref-act:hover { background: rgba(0, 0, 0, .82); transform: scale(1.06); }
 
 /* 偏好颜色 */
 .ip-colors { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
@@ -1653,6 +2276,11 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
 .ip-color-chip:hover .ip-color-x { opacity: 1; }
 
 /* 延展项子 Tab */
+/* 延展项纵向铺开：每项一个小节（标题 + 预设组），上下滚动查看 */
+.ip-ext-section { margin-bottom: 18px; }
+.ip-ext-section:last-child { margin-bottom: 0; }
+.ip-ext-section-title { font-size: 13px; font-weight: 600; color: var(--c-ink); margin-bottom: 10px; }
+
 .ip-ext-tabs {
   display: flex; gap: 2px; background: var(--c-bg); border: 1px solid var(--c-line);
   border-radius: var(--radius-sm); padding: 3px; margin-bottom: 12px;
@@ -1674,15 +2302,118 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
 .ip-preset:hover { color: var(--c-primary-dark); }
 .ip-preset.on { background: var(--c-primary-bg); border-color: var(--c-primary); color: var(--c-primary-dark); }
 
-/* 帮我提案浮层 */
-.propose-panel {
-  background: var(--c-white); border-radius: var(--radius); width: min(440px, 92vw);
-  padding: 20px; box-shadow: var(--shadow-lg); animation: fade .2s ease;
+/* ===== 自定义视角：3D 控制器 + 滑块 ===== */
+.cv-panel { margin-top: 14px; display: flex; flex-direction: column; gap: 18px; }
+/* 球体方向盘 */
+.cv-orb {
+  position: relative; width: 100%; aspect-ratio: 1/1; max-height: 200px;
+  border: 1px solid var(--c-line); border-radius: 14px; background: var(--c-white);
+  display: grid; place-items: center; overflow: hidden;
 }
-.propose-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-.propose-title { display: inline-flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 700; color: var(--c-ink); }
-.propose-go { background: #1d1d1d; color: #fff; margin-top: 16px; padding: 12px; }
+/* 经纬线球体（用径向/重复渐变模拟线框） */
+.cv-orb::before {
+  content: ""; position: absolute; width: 62%; aspect-ratio: 1/1; border-radius: 50%;
+  border: 1px solid var(--c-line-2);
+  background:
+    repeating-linear-gradient(0deg, transparent 0 16px, rgba(160,170,175,.18) 16px 17px),
+    repeating-linear-gradient(90deg, transparent 0 16px, rgba(160,170,175,.18) 16px 17px);
+  box-shadow: inset 0 0 0 1px var(--c-line-2);
+}
+.cv-orb::after {
+  content: ""; position: absolute; width: 62%; aspect-ratio: 1/1; border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, transparent 49%, var(--c-line-2) 49.5%, transparent 50%),
+    linear-gradient(90deg, transparent 49.6%, var(--c-line-2) 50%, transparent 50.4%),
+    linear-gradient(0deg, transparent 49.6%, var(--c-line-2) 50%, transparent 50.4%);
+}
+.cv-orb-center {
+  position: relative; z-index: 2; width: 34px; height: 34px; border-radius: 9px;
+  background: var(--c-bg); box-shadow: var(--shadow-sm);
+}
+.cv-arrow {
+  position: absolute; z-index: 3; width: 26px; height: 26px; border-radius: 50%; border: none; cursor: pointer;
+  background: transparent; color: var(--c-muted); display: grid; place-items: center; transition: color .15s, background .15s;
+}
+.cv-arrow:hover { color: var(--c-primary); background: var(--c-bg); }
+.cv-arrow.up { top: 6px; left: 50%; transform: translateX(-50%) rotate(180deg); }
+.cv-arrow.down { bottom: 6px; left: 50%; transform: translateX(-50%); }
+.cv-arrow.left { left: 6px; top: 50%; transform: translateY(-50%) rotate(90deg); }
+.cv-arrow.right { right: 6px; top: 50%; transform: translateY(-50%) rotate(-90deg); }
+/* 滑块组 */
+.cv-slider { display: flex; flex-direction: column; gap: 6px; }
+.cv-slider-head { display: flex; align-items: center; justify-content: space-between; }
+.cv-val { font-size: 15px; font-weight: 700; color: var(--c-ink); }
+.cv-hint { font-size: 12px; color: var(--c-muted); }
+.cv-slider input[type="range"] { width: 100%; accent-color: var(--c-primary); }
+
+/* 帮我提案：内嵌在右侧结果区的面板（贴左上、紧挨左侧表单栏） */
+.propose-pane {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; align-items: flex-start; justify-content: flex-start;
+  box-sizing: border-box; pointer-events: none;
+}
+/* 浮层内的面板可交互；面板外的区域不拦截点击（生成历史可见但提案打开时聚焦面板） */
+.propose-pane .propose-panel { pointer-events: auto; }
+/* 面板用 sticky 钉在滚动容器（.main）顶部附近，不随生成历史上下滚动 */
+.propose-panel {
+  position: sticky; top: 16px; align-self: flex-start;
+  background: var(--c-white); border-radius: var(--radius); width: min(280px, 100%);
+  padding: 14px; box-shadow: var(--shadow-lg); animation: fade .2s ease;
+}
+/* 提案面板的描述框不随内容增高，固定高度、内容超出时可上下滚动 */
+.propose-panel .ip-desc {
+  min-height: 120px; max-height: 200px; padding: 10px; font-size: 13px;
+  overflow-y: auto; resize: vertical;
+}
+.propose-panel .upload-box { min-height: 46px; padding: 8px; gap: 2px; }
+.propose-panel .upload-box .ub-ico { transform: scale(.7); margin-bottom: -4px; }
+.propose-panel .upload-box .ub-main { font-size: 11.5px; }
+.propose-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.propose-title { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; color: var(--c-ink); }
+.propose-go { background: #1d1d1d; color: #fff; margin-top: 12px; padding: 9px; font-size: 13px; }
 .propose-go:hover { background: #000; }
+.propose-go.is-disabled { background: #cfcfcf; color: #fff; cursor: not-allowed; }
+.propose-go.is-disabled:hover { background: #cfcfcf; }
+.propose-loading { display: inline-flex; align-items: center; gap: 6px; }
+.ico-rot90 { transform: rotate(90deg); }
+.ico-spin { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 返回箭头 */
+.propose-back {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 0; padding: 0; margin-right: 2px; cursor: pointer; color: var(--c-ink);
+}
+.propose-back:hover { color: var(--c-primary); }
+
+/* 设计提案列表 */
+.propose-list { display: flex; flex-direction: column; gap: 14px; }
+.propose-item { position: relative; }
+.propose-item-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.propose-item-name { font-size: 14px; font-weight: 700; color: var(--c-ink); }
+/* 右上角「引用」按钮 */
+.propose-cite {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border: 1px solid var(--c-line); border-radius: 8px;
+  background: var(--c-white); color: var(--c-ink-soft, #555); font-size: 15px; cursor: pointer;
+  transition: all .15s ease;
+}
+.propose-cite:hover { border-color: var(--c-primary); color: var(--c-primary); background: var(--c-primary-bg); }
+/* 列表里的短描述：两行截断 */
+.propose-item-short {
+  font-size: 13px; line-height: 1.6; color: var(--c-ink-soft, #555);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+/* hover 预览：深色浮层显示完整描述 */
+.propose-tip {
+  position: absolute; left: 0; top: calc(100% + 8px); z-index: 30;
+  width: max(100%, 260px); max-height: 60vh; overflow-y: auto;
+  background: #2b2b2b; color: #f4f4f4; border-radius: 12px; padding: 14px 16px;
+  font-size: 13.5px; line-height: 1.7; box-shadow: var(--shadow-lg);
+  opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity .15s ease, transform .15s ease;
+  pointer-events: none;
+}
+.propose-item:hover .propose-tip { opacity: 1; visibility: visible; transform: translateY(0); }
 
 
 /* ============ 自定义取色面板（偏好颜色） ============ */
@@ -1692,7 +2423,12 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
   position: absolute; top: 100%; left: 0; z-index: 40; margin-top: 8px;
   background: var(--c-white); border: 1px solid var(--c-line);
   border-radius: 18px; box-shadow: var(--shadow-lg); padding: 16px;
-  width: 320px; max-width: calc(100% - 0px); animation: fade .16s ease;
+  width: 320px; max-width: calc(100% - 0px);
+  transform-origin: top left; animation: cp-pop .18s cubic-bezier(.2, .8, .25, 1);
+}
+@keyframes cp-pop {
+  from { opacity: 0; transform: translateY(-6px) scale(.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .cp-sv {
   position: relative; width: 100%; aspect-ratio: 1.55 / 1; border-radius: 10px;
@@ -1730,6 +2466,13 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
   flex: 1; height: 44px; background: var(--c-bg); border-radius: 10px; display: grid; place-items: center;
   font-size: 16px; color: var(--c-muted); font-family: ui-monospace, monospace; letter-spacing: .5px;
 }
+/* 可编辑 Hex 输入框：保持原外观，点击可改 */
+.cp-hex-input {
+  display: block; width: 100%; box-sizing: border-box; text-align: center;
+  border: 1px solid transparent; outline: none; padding: 0 8px; text-transform: uppercase; cursor: text;
+}
+.cp-hex-input:hover { border-color: var(--c-line); }
+.cp-hex-input:focus { border-color: var(--c-primary); background: var(--c-white); color: var(--c-ink); }
 
 /* 取色中的当前色预览圈（与已添加色块同款，但实色无 ×） */
 .ip-color-current { box-shadow: inset 0 0 0 1px rgba(0,0,0,.15), 0 0 0 2px var(--c-primary-soft); }

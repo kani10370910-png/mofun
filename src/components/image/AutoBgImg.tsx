@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * 灵感缩略图：检测图片中「主体文字」的实际边界，裁掉多余背景并统一补齐边距，
@@ -32,6 +32,11 @@ export function AutoBgImg({
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
   const [out, setOut] = useState<{ url: string; bg: string } | null>(null);
+
+  // src 变化（如筛选切换复用了同一组件实例）时重置处理结果，重新裁切新图
+  useEffect(() => {
+    setOut(null);
+  }, [src]);
 
   function handleLoad() {
     const img = imgRef.current;

@@ -61,8 +61,136 @@ function lengthHint(req: GenerateRequest): string {
   return "篇幅适中";
 }
 
+/* IP 设计·创意描述优化的系统提示词（开头身份声明） */
+const IP_SYSTEM_PROMPT = "你是一个专业的IP形象创意描述优化助手。";
+
+/* IP 设计·优化规则（user 消息中的规则与输出格式部分，随有无参考图动态调整任务说明） */
+const IP_RULES =
+  "## 优化规则\n\n" +
+  "1. **保留用户核心意图**，不改变形象的基本设定和风格方向\n" +
+  "2. 若用户提供了偏好颜色，将其自然融入服饰、配色、色彩基调；**未提供则根据描述合理推断**\n" +
+  "3. 若用户指定了画面尺寸，正方形时构图居中饱满，其他比例相应调整；**未提供则默认正方形构图**\n" +
+  "4. **参考图片处理逻辑：**\n" +
+  "   - **有参考图时**：识别图片中的造型、色彩、风格、姿态等视觉元素，将其与创意描述融合，冲突时以用户文字描述为主\n" +
+  "   - **无参考图时**：忽略此项，完全依赖创意描述展开\n" +
+  "5. **补全关键视觉要素**，按以下维度展开：\n" +
+  "   - 整体造型（体型、姿态、构图）\n" +
+  "   - 头部特征（发型、表情、五官风格）\n" +
+  "   - 服饰配件（颜色、材质、细节）\n" +
+  "   - 标志性道具或元素\n" +
+  "   - 色彩基调\n" +
+  "   - 风格定位（如：扁平插画风、Q版卡通、国潮风等）\n" +
+  "6. **语言简洁精准**，避免抽象形容，多用可视化的具体描述\n" +
+  "7. **字数控制在150字以内**\n" +
+  "8. **画面中只能出现一个 IP 形象**：单一主体、单个角色，居中呈现；" +
+  "严禁出现多个分身、多个角色、三视图/多视角拼图、角色阵列或重复形象。\n\n" +
+  "## 输出格式\n\n" +
+  "直接输出优化后的描述文本，不需要解释说明，不需要标题。" +
+  "（在描述中明确体现「画面仅一个该 IP 形象，单一角色居中，无分身、无三视图」）";
+
 /** 按场景/模式把表单字段拼成 messages */
 export function buildMessages(req: GenerateRequest): ChatMessage[] {
+  // IP 设计·帮我提案：根据 IP 特征构思三个设计方案
+  if (req.scene === "ip-propose") {
+    const feature = req.description?.trim() || "（未提供）";
+    return [
+      {
+        role: "user",
+        content:
+          `「${feature}」，根据提供的信息，帮我构思三个合适的 IP 设计方案，输出格式要求为：\n` +
+          `方案一：内容\n方案二：内容\n方案三：内容。\n` +
+          `每个方案之间分段。不要有多余的总结和废话。`,
+      },
+    ];
+  }
+
+  // IP 故事·形象描述：严格依据用户之前填的创意描述 + 颜色 + 尺寸提炼，不识别图片、不臆造
+  if (req.scene === "ip-story-desc") {
+    const name = req.ipName?.trim() || "该 IP 形象";
+    const base = req.description?.trim();
+    const lines: string[] = [`- IP名称：${name}`];
+    if (base) lines.push(`- 创意描述：${base}`);
+    if (req.preferredColors && req.preferredColors.length) lines.push(`- 偏好颜色：${req.preferredColors.join("、")}`);
+    if (req.canvasSize) lines.push(`- 画面尺寸：${req.canvasSize}`);
+    return [
+      {
+        role: "system",
+        content:
+          "你是一个专业的IP形象描述助手。请【严格依据】用户给出的创意描述、偏好颜色、画面尺寸等信息，" +
+          "把这个IP形象的外观特征（造型、配色、服饰、表情、标志性道具、风格定位等）整理成一段通顺的客观描述。" +
+          "【重要】只能依据给定信息提炼，不得新增、臆造或更改任何信息里没有的设定；偏好颜色应自然融入配色描述。" +
+          "要求：80字以内，只输出描述本身，不要标题、不要解释、不要换行。",
+      },
+      {
+        role: "user",
+        content: base
+          ? `用户已填写以下信息：\n${lines.join("\n")}\n\n请据上面的信息，整理出「${name}」的形象描述。`
+          : `IP名称：${name}\n（暂无更多信息）\n\n请根据名称合理给出「${name}」的简要形象描述。`,
+      },
+    ];
+  }
+
+  // IP 故事：根据 IP 形象描述 + 用户补充信息，撰写一段品牌 IP 故事
+  if (req.scene === "ip-story") {
+    const name = req.ipName?.trim() || "该 IP 形象";
+    const desc = req.description?.trim() || "（未提供形象描述）";
+    const sup = req.supplement?.trim();
+    const lines = [`IP名称：${name}`, `IP形象描述：${desc}`];
+    if (req.preferredColors && req.preferredColors.length) lines.push(`形象主色调：${req.preferredColors.join("、")}`);
+    if (sup) lines.push(`补充信息（须紧扣的项目/公司/行业）：${sup}`);
+
+    // 有补充信息时，强约束：故事必须真正落到用户给的关键词上，而非一笔带过
+    const supRule = sup
+      ? `\n\n【最重要】用户提供的关键词是「${sup}」。这段故事必须紧扣「${sup}」来写：\n` +
+        `- 故事的应用场景、所服务的对象、解决的问题、传递的价值，都要落到「${sup}」上；\n` +
+        `- 把 IP 的性格与道具，自然映射到「${sup}」所代表的领域价值上（请据「${sup}」本身合理发挥，不要套用与它无关的设定）；\n` +
+        `- 不要只在结尾提一句「${sup}」，而要让整段故事都围绕它展开。`
+      : "";
+
+    return [
+      {
+        role: "system",
+        content:
+          "你是资深的品牌IP策划。请【紧扣给定的IP形象描述】，为这个IP撰写一段有温度、有记忆点的品牌故事：" +
+          "包含它的出身/由来、性格设定、与品牌或场景的情感联结，以及它想向用户传递的价值。" +
+          "【重要】故事要忠于形象描述里的设定（造型、配色、道具等），不要另起一个不相干的形象。" +
+          "要求：语言生动亲切，结构自然成段，约200-300字，直接输出故事正文，不要标题、不要分点。",
+      },
+      {
+        role: "user",
+        content: `${lines.join("\n")}${supRule}\n\n请为「${name}」撰写一段品牌IP故事。`,
+      },
+    ];
+  }
+
+  // IP 设计：创意描述优化（有/无参考图共用一套模板，按条件动态拼装）
+  if (req.scene === "ip") {
+    const hasRef = !!req.hasReference;
+    // 已填写信息（条件行：偏好颜色 / 画面尺寸 / 参考图片，未填则不出现）
+    const lines = [`- 创意描述：${req.description?.trim() || "（未填写）"}`];
+    if (req.preferredColors && req.preferredColors.length) {
+      lines.push(`- 偏好颜色：${req.preferredColors.join("、")}`);
+    }
+    if (req.canvasSize) lines.push(`- 画面尺寸：${req.canvasSize}`);
+    if (hasRef) lines.push(`- 参考图片：用户已上传参考图`);
+
+    // 任务说明：有参考图时结合图片视觉内容，无参考图时仅依赖创意描述
+    const task = hasRef
+      ? "用户上传了参考图片，请同时结合参考图片的视觉内容与用户的创意描述，优化为一段适合AI图像生成模型理解的prompt。"
+      : "根据用户的创意描述，优化为一段适合AI图像生成模型理解的prompt。";
+
+    return [
+      { role: "system", content: IP_SYSTEM_PROMPT },
+      {
+        role: "user",
+        content:
+          `用户已填写以下信息：\n${lines.join("\n")}\n\n` +
+          `## 你的任务\n\n${task}\n\n` +
+          `${IP_RULES}`,
+      },
+    ];
+  }
+
   const brandLine = req.brandAsset && req.brandAsset !== "不套用"
     ? `请贴合品牌资产「${req.brandAsset}」的调性。`
     : "";

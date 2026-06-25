@@ -8,6 +8,7 @@ import { imageModels, imageRatios, editModels, logoStyles } from "@/data/image";
 import type { ImageType } from "@/lib/types";
 import { asset } from "@/lib/asset";
 import { AutoBgImg } from "./AutoBgImg";
+import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 
 const modelOpts: DropdownOption[] = imageModels.map((m) => ({ name: m.name, desc: m.desc }));
 const editOpts: DropdownOption[] = editModels.map((m) => ({ name: m.name, desc: m.desc }));
@@ -52,9 +53,10 @@ export function ImageDefaultPanel({
         <div className="ws-label">
           画面描述 <span className="req">*</span>
         </div>
-        <textarea
+        <ClearableTextarea
           value={state.input}
           onChange={(e) => set("input", e.target.value)}
+          onClear={() => set("input", "")}
           placeholder="描述你想要的画面：主体、风格、氛围、文案…"
         />
       </div>
@@ -123,10 +125,11 @@ export function ImageDefaultPanel({
           </div>
           <div className="field" style={{ marginBottom: 0 }}>
             <div className="ws-label">负向提示词（不希望出现的元素）</div>
-            <textarea
+            <ClearableTextarea
               style={{ minHeight: 54 }}
               value={state.negative}
               onChange={(e) => set("negative", e.target.value)}
+              onClear={() => set("negative", "")}
               placeholder="例如：低清、变形文字、多余文字、水印…"
             />
           </div>
@@ -212,7 +215,7 @@ export function ImageEventPanel({
             <div className="ws-label">
               画面描述 <span className="req">*</span>
             </div>
-            <textarea value={state.input} onChange={(e) => set("input", e.target.value)} placeholder="请输入画面描述：主体、风格、氛围、文案…" />
+            <ClearableTextarea value={state.input} onChange={(e) => set("input", e.target.value)} onClear={() => set("input", "")} placeholder="请输入画面描述：主体、风格、氛围、文案…" />
           </div>
           <div className="field">
             <div className="ws-label">图片比例</div>
@@ -264,16 +267,12 @@ export function ImageEventPanel({
           </div>
           <div className="field">
             <div className="ws-label">修改需求</div>
-            <div className="ta-wrap">
-              <textarea
-                value={state.editInput}
-                onChange={(e) => set("editInput", e.target.value)}
-                placeholder="描述你想怎么改：替换背景、修改文字、调整色调…"
-              />
-              <button className="ta-clear" onClick={() => set("editInput", "")}>
-                清空
-              </button>
-            </div>
+            <ClearableTextarea
+              value={state.editInput}
+              onChange={(e) => set("editInput", e.target.value)}
+              onClear={() => set("editInput", "")}
+              placeholder="描述你想怎么改：替换背景、修改文字、调整色调…"
+            />
           </div>
           <div className="field">
             <div className="ws-label">编辑模型</div>
@@ -345,18 +344,12 @@ export function ImageLogoPanel({
         <div className="ws-label">
           创意描述 <span className="opt">（选填）</span>
         </div>
-        <div className="ta-wrap">
-          <textarea
-            value={state.input}
-            onChange={(e) => set("input", e.target.value)}
-            placeholder="示例：为「安吉白茶」设计图文插画风 LOGO，以高山云雾茶园与嫩芽为主体，国风清新、色彩明快，搭配品牌名中文字体（选填）"
-          />
-          {state.input.trim() && (
-            <button className="ta-clear" onClick={() => set("input", "")}>
-              清空
-            </button>
-          )}
-        </div>
+        <ClearableTextarea
+          value={state.input}
+          onChange={(e) => set("input", e.target.value)}
+          onClear={() => set("input", "")}
+          placeholder="示例：为「安吉白茶」设计图文插画风 LOGO，以高山云雾茶园与嫩芽为主体，国风清新、色彩明快，搭配品牌名中文字体（选填）"
+        />
       </div>
       </div>
       <div className="ws-foot">

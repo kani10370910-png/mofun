@@ -588,23 +588,69 @@ export const imageResults: ImageResult[] = [
 
 /* ---------- 活动 · 右侧案例画廊（未生成时展示；按左侧子类筛选） ---------- */
 export const activeGalleryItems: ActiveGalleryItem[] = [
-  { emoji: "🍃", sub: "海报", name: "明前白茶上市海报", grad: "thumb-grad-1" },
-  { emoji: "🛍️", sub: "海报", name: "高山笋干年货节海报", grad: "thumb-grad-5" },
-  { emoji: "🌅", sub: "海报", name: "云上草原露营季海报", grad: "thumb-grad-3" },
-  { emoji: "🏮", sub: "海报", name: "畲乡风情节活动海报", grad: "thumb-grad-2" },
-  { emoji: "📑", sub: "长图", name: "乡村旅游长图", grad: "thumb-grad-3" },
-  { emoji: "📊", sub: "长图", name: "和美乡村政策科普长图", grad: "thumb-grad-6" },
-  { emoji: "📱", sub: "长图", name: "文旅推介长页", grad: "thumb-grad-4" },
-  { emoji: "🍵", sub: "菜单", name: "半地咖啡饮品菜单", grad: "thumb-grad-1" },
-  { emoji: "☕", sub: "菜单", name: "精选咖啡价目表", grad: "thumb-grad-5" },
-  { emoji: "🍲", sub: "菜单", name: "「是真的汤」中式菜单", grad: "thumb-grad-3" },
-  { emoji: "🍝", sub: "菜单", name: "午餐套餐 LUNCH MENU", grad: "thumb-grad-2" },
-  { emoji: "🎏", sub: "易拉宝", name: "招商推介易拉宝", grad: "thumb-grad-6" },
-  { emoji: "🎪", sub: "易拉宝", name: "茶文化节活动易拉宝", grad: "thumb-grad-4" },
-  { emoji: "📣", sub: "易拉宝", name: "门店开业 X 展架", grad: "thumb-grad-2" },
-  { emoji: "📰", sub: "宣传单", name: "鲜笋促销宣传单", grad: "thumb-grad-2" },
-  { emoji: "📄", sub: "宣传单", name: "农家乐套餐 DM 单", grad: "thumb-grad-5" },
-  { emoji: "🗞️", sub: "宣传单", name: "白茶产地直发传单", grad: "thumb-grad-3" },
+  { emoji: "🍃", sub: "海报", name: "明前白茶上市海报", grad: "thumb-grad-1", img: "/active/haibao-baicha.png" },
+  { emoji: "🛍️", sub: "海报", name: "高山笋干年货节海报", grad: "thumb-grad-5", img: "/active/haibao-sungan.png" },
+  { emoji: "🌅", sub: "海报", name: "云上草原露营季海报", grad: "thumb-grad-3", img: "/active/haibao-luying.png" },
+  { emoji: "🏮", sub: "海报", name: "畲乡风情节活动海报", grad: "thumb-grad-2", img: "/active/haibao-shexiang.png" },
+  { emoji: "📑", sub: "长图", name: "乡村旅游长图", grad: "thumb-grad-3", img: "/active/changtu-lvyou.png" },
+  { emoji: "📊", sub: "长图", name: "和美乡村政策科普长图", grad: "thumb-grad-6", img: "/active/changtu-zhengce.png" },
+  { emoji: "📱", sub: "长图", name: "文旅推介长页", grad: "thumb-grad-4", img: "/active/changtu-wenlv.png" },
+  { emoji: "🍵", sub: "菜单", name: "半地咖啡饮品菜单", grad: "thumb-grad-1", img: "/active/caidan-yinpin.png" },
+  { emoji: "☕", sub: "菜单", name: "精选咖啡价目表", grad: "thumb-grad-5", img: "/active/caidan-kafei.png" },
+  { emoji: "🍲", sub: "菜单", name: "「是真的汤」中式菜单", grad: "thumb-grad-3", img: "/active/caidan-zhongshi.png" },
+  { emoji: "🍝", sub: "菜单", name: "午餐套餐 LUNCH MENU", grad: "thumb-grad-2", img: "/active/caidan-lunch.png" },
+  { emoji: "🎏", sub: "易拉宝", name: "招商推介易拉宝", grad: "thumb-grad-6", img: "/active/yilabao-zhaoshang.png" },
+  { emoji: "🎪", sub: "易拉宝", name: "茶文化节活动易拉宝", grad: "thumb-grad-4", img: "/active/yilabao-chawenhua.png" },
+  { emoji: "📣", sub: "易拉宝", name: "门店开业 X 展架", grad: "thumb-grad-2", img: "/active/yilabao-kaiye.png" },
+  { emoji: "📰", sub: "宣传单", name: "鲜笋促销宣传单", grad: "thumb-grad-2", img: "/active/xuanchuan-xiansun.png" },
+  { emoji: "📄", sub: "宣传单", name: "农家乐套餐 DM 单", grad: "thumb-grad-5", img: "/active/xuanchuan-nongjiale.png" },
+  { emoji: "🗞️", sub: "宣传单", name: "白茶产地直发传单", grad: "thumb-grad-3", img: "/active/xuanchuan-baicha.png" },
+];
+
+/* ---------- IP 创新设计：参考灵感案例 ----------
+   先放 2 个示范案例，功能完整；后期人工往此数组追加即可（可补 img 真实图）。 */
+export interface IpCase {
+  name: string; // IP 名称
+  cat: string; // 分类标签（如：吉祥物 / 拟人）
+  desc: string; // 创意描述（点「制作同款」回填到左侧创意描述）
+  colors?: string[]; // 偏好颜色（点「制作同款」一并回填）
+  ratioName?: string; // 画面尺寸（点「制作同款」一并回填）
+  emoji: string; // 无图时的占位 emoji
+  grad: Grad; // 卡片背景渐变
+  img?: string; // 真实案例图（在 public 下），有则优先于 emoji
+}
+
+export const ipCases: IpCase[] = [
+  {
+    name: "稻小金",
+    cat: "农业吉祥物",
+    emoji: "🌾",
+    grad: "thumb-grad-1",
+    colors: ["#E8B84B", "#F5EFE0"],
+    ratioName: "正方形 1:1",
+    img: "/ipcase/daoxiaojin.png",
+    desc: "「稻小金」——拟人化金色稻穗，头戴竹编斗笠，圆眼弯眉、憨厚微笑的 Q 版二头身少年。身穿米白与金黄拼接汉服马甲，袖口绣「丰」字纹，右手高举金色丰收镰刀，左手怀抱一捆稻穗。整体圆润亲和、色彩温暖明亮，扁平卡通风格，正方形居中构图，专属某县农业局品牌 IP。",
+  },
+  {
+    name: "茶灵儿",
+    cat: "文旅吉祥物",
+    emoji: "🍵",
+    grad: "thumb-grad-3",
+    colors: ["#7FB069", "#F5EFE0"],
+    ratioName: "正方形 1:1",
+    img: "/ipcase/chalinger.png",
+    desc: "「茶灵儿」——以高山云雾茶为灵感的清新少女 IP，绿色双丸子头点缀嫩芽发饰，眉眼弯弯、笑容甜美。身着青绿色改良汉服，腰系茶篓，手捧一杯热茶冒着袅袅热气。整体国风清新、色调以茶绿与米白为主，Q 版三头身、扁平插画风格，适合茶文旅品牌主视觉。",
+  },
+  {
+    name: "竹宝宝",
+    cat: "竹乡吉祥物",
+    emoji: "🎋",
+    grad: "thumb-grad-2",
+    colors: ["#6FA84B", "#F2F0E6"],
+    ratioName: "正方形 1:1",
+    img: "/ipcase/zhubaobao.png",
+    desc: "「竹宝宝」——以安吉翠竹与春笋为灵感的活泼男孩 IP，头顶冒出嫩绿小竹芽，圆脸大眼、笑容灿烂的 Q 版三头身。身着竹青色对襟短褂，背一只小竹篓，手握一截嫩笋。整体清新自然、色调以竹绿与米白为主，扁平卡通风格，正方形居中构图，适合竹乡文旅品牌主视觉。",
+  },
 ];
 
 /* ---------- IP 扩展设计：延展项（6 个子 Tab，各自的预设选项） ---------- */

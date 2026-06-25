@@ -225,6 +225,7 @@ export interface ActiveGalleryItem {
   sub: string;
   name: string;
   grad: Grad;
+  img?: string; // 真实案例图（在 public 下），有则优先于 emoji
 }
 
 /* ---------- 视频宣传 ---------- */
@@ -304,7 +305,7 @@ export type GenStages = Record<"content" | "image" | "video", string[]>;
 
 /* ---------- 文案生成 API ---------- */
 export interface GenerateRequest {
-  scene: ContentSceneKey;
+  scene: ContentSceneKey | "ip" | "ip-propose" | "ip-story-desc" | "ip-story";
   mode?: "outline" | "full";
   tone?: string;
   length?: string;
@@ -318,4 +319,12 @@ export interface GenerateRequest {
   outline?: string;
   /* official / brand 专用 */
   input?: string;
+  /* ip（IP 设计·创意描述优化）专用 */
+  description?: string;
+  preferredColors?: string[];
+  canvasSize?: string;
+  hasReference?: boolean;
+  /* ip-story-desc / ip-story（IP 故事）专用 */
+  ipName?: string; // 该 IP 形象的名称/标题
+  supplement?: string; // 用户补充的项目/公司/行业等关键词
 }

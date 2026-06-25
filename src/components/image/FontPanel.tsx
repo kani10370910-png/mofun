@@ -87,7 +87,7 @@ export function FontPanel({
     <>
       <div className="ws-scroll">
       <div className="field">
-        <div className="ws-label">文字内容</div>
+        <div className="ws-label">文字内容 <span className="req">*</span></div>
         <input
           type="text"
           value={state.text}

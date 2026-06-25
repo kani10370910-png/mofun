@@ -2,6 +2,7 @@
 
 import { Icon } from "@/components/ui/Icon";
 import type { ContentScene } from "@/lib/types";
+import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 
 /* ---------------- 通用文案表单（公众号帮写 / 品牌推广） ---------------- */
 export interface DefaultFormState {
@@ -46,9 +47,10 @@ export function ContentDefaultPanel({
         <div className="ws-label">
           写什么？<span className="req">*</span>
         </div>
-        <textarea
+        <ClearableTextarea
           value={state.input}
           onChange={(e) => set("input", e.target.value)}
+          onClear={() => set("input", "")}
           placeholder="例如：安吉明前白茶上市，高山云雾、氨基酸高、限量预订、产地直发…"
         />
       </div>

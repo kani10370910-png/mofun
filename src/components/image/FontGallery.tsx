@@ -10,7 +10,7 @@ import { nowStamp } from "@/lib/datetime";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { FontEditModal } from "./FontEditModal";
 import { AutoBgImg } from "./AutoBgImg";
-import { asset } from "@/lib/asset";
+import { asset as assetUrl } from "@/lib/asset";
 
 type FontTab = "history" | "inspire" | "story";
 
@@ -233,11 +233,11 @@ export function FontGallery({
           <div className="inspo-grid">
             {fontCases
               .filter((c) => cat === "全部" || c.cat === cat)
-              .map((c, i) => (
-                <div className="font-case" key={i} onClick={() => onUseCase(c)}>
+              .map((c) => (
+                <div className="font-case" key={c.img ?? c.text} onClick={() => onUseCase(c)}>
                   <div className={c.img ? "font-case-thumb has-img" : "font-case-thumb"}>
                     {c.img ? (
-                      <AutoBgImg className="font-case-img" src={asset(c.img)} alt={c.text} ratio={1.4} />
+                      <AutoBgImg className="font-case-img" src={assetUrl(c.img)} alt={c.text} ratio={1.4} />
                     ) : (
                       <span className={`font-case-text fc-${catStyle(c.cat)}`}>{c.text}</span>
                     )}
@@ -272,7 +272,7 @@ export function FontGallery({
               >
                 {s.cover ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img className="font-story-img" src={asset(s.cover!)} alt={s.name} loading="lazy" />
+                  <img className="font-story-img" src={assetUrl(s.cover!)} alt={s.name} loading="lazy" />
                 ) : (
                   <span className="font-story-title">{s.title}</span>
                 )}
@@ -308,7 +308,7 @@ export function FontGallery({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               className="fs-detail-img"
-              src={asset(storyView.introduce!)}
+              src={assetUrl(storyView.introduce!)}
               alt={storyView.name}
               title="点击立即使用该字体"
               onClick={() => {
@@ -472,7 +472,11 @@ function FontResultCard({
       >
         <Icon name="share" size={16} />
       </button>
-      <span className="lh-mark">由 AI 生成</span>
+      <span className="lh-mark">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="lh-mark-logo" src={assetUrl("/brand-logo.png")} alt="魔方智绘" />
+        由 AI 生成
+      </span>
       {confirmSave && (
         <ConfirmModal
           title="是否保存为我的素材？"

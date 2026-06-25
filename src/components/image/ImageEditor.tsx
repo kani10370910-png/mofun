@@ -25,7 +25,8 @@ import {
   type LogoImageState,
 } from "./ImagePanels";
 import { ImageResult } from "./ImageResult";
-import { ImageIpPanel } from "./ImageIpPanel";
+import { ImageIpPanel, ProposePanel, type IpGenPayload, type IpCopyPayload } from "./ImageIpPanel";
+import { IpGallery, type IpRunRow, type IpExtendSeed } from "./IpGallery";
 import { ActiveGallery } from "./ActiveGallery";
 import { LogoGallery, type LogoRunRow } from "./LogoGallery";
 import { FontPanel, type FontImageState } from "./FontPanel";
@@ -75,7 +76,25 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
 
   // 结果状态
   const [hasResult, setHasResult] = useState(false);
-  const [logoTab, setLogoTab] = useState<"history" | "inspire">("history");
+  // IP 设计「帮我提案」：在右侧结果区内嵌展示面板；proposeFill 用于把结果回填到左侧创意描述
+  const [proposeOpen, setProposeOpen] = useState(false);
+  const [proposeFill, setProposeFill] = useState("");
+  // IP 设计左侧的设计 tab（create=创新设计 / extend=扩展设计），受控以便复制时自动切换
+  const [ipDesignTab, setIpDesignTab] = useState<"create" | "extend">("create");
+  // 回填序号：每次复制 +1，让 ImageIpPanel 即使内容相同也能重新触发回填
+  const [fillSeq, setFillSeq] = useState(0);
+  // 「复制到左侧」的完整结构化载荷（颜色/尺寸/参考图等），供左侧逐项还原
+  const [copyFill, setCopyFill] = useState<IpCopyPayload | null>(null);
+  // 打开提案面板时，把左侧创意描述的已有内容复制进面板作为初始文本
+  const [proposeInit, setProposeInit] = useState("");
+
+  // 打开/关闭提案面板：打开时记录当前创意描述作为初始文本
+  function handlePropose(open: boolean, initialDesc?: string) {
+    if (open) setProposeInit(initialDesc ?? "");
+    setProposeOpen(open);
+  }
+  // 无生成历史时默认看「参考灵感」；点生成时 runLogoGenerate 会切到「生成历史」
+  const [logoTab, setLogoTab] = useState<"history" | "inspire">("inspire");
   const [logoRuns, setLogoRuns] = useState<LogoRunRow[]>([]);
   const [logoBusy, setLogoBusy] = useState(false);
   const logoTimer = useRef<number | null>(null);
@@ -84,11 +103,31 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   const [fontRuns, setFontRuns] = useState<FontRunRow[]>([]);
   const [fontBusy, setFontBusy] = useState(false);
   const fontTimer = useRef<number | null>(null);
+  // IP 设计：内联生成历史（含进度 + 真实出图）
+  const [ipRuns, setIpRuns] = useState<IpRunRow[]>([]);
+  const [ipBusy, setIpBusy] = useState(false);
+  const ipTimer = useRef<number | null>(null);
+  // IP 右侧 tab：默认无历史看「参考灵感」，生成时切到「生成历史」
+  const [ipTab, setIpTab] = useState<"history" | "inspire">("inspire");
+  // 「延展设计」：把某张生成图作为待延展的 IP 图，带去 IP扩展设计子表单
+  const [ipExtendSeed, setIpExtendSeed] = useState<IpExtendSeed | null>(null);
+
+  // 点生成历史图片上的「延展设计」：切到 IP扩展设计并把该图作为 IP 图
+  function handleIpExtend(seed: IpExtendSeed) {
+    setProposeOpen(false);
+    setIpExtendSeed(seed);
+    toast(`已将「${seed.name}」带入 IP 扩展设计，可选择延展项后生成`);
+  }
 
   function switchType(key: string) {
     const k = key as ImageTypeKey;
     setActive(k);
     setHasResult(false);
+    setProposeOpen(false);
+    if (ipTimer.current) {
+      window.clearInterval(ipTimer.current);
+      ipTimer.current = null;
+    }
     sim.close();
     const t = imageTypes.find((x) => x.key === k) ?? imageTypes[0];
     setDefForm(initDefault(t));
@@ -267,6 +306,167 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     setFontRuns((prev) => prev.filter((r) => r.id !== id));
   }
 
+  // IP 设计：点「立即生成」（描述已由左侧面板用 LLM 优化），调文生图出 4 张真图
+  async function runIpGenerate(payload?: IpGenPayload) {
+    if (!payload || ipBusy) return;
+    setIpBusy(true);
+    setIpTab("history"); // 生成时切到生成历史看进度
+    const id = "ip-" + ipRuns.length + "-" + payload.prompt.length;
+    const grads = ["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-grad-4"];
+    const size = ipRatioToSize(payload.ratioName);
+
+    const row: IpRunRow = {
+      id,
+      title: payload.title,
+      desc: payload.prompt, // 完整优化描述：复制回填用（扩展设计行头改用 ext 结构化展示）
+      rawDesc: payload.rawDesc, // 用户原始创意描述（供 IP 故事）
+      ext: payload.ext, // 扩展设计结构化展示信息（卡片头用）
+      create: payload.create, // IP创新设计结构化展示信息（卡片头用）
+      colors: payload.colors,
+      ratioName: payload.ratioName,
+      time: nowStamp(),
+      pct: 8,
+      grads,
+      imgs: [],
+    };
+    setIpRuns((prev) => [row, ...prev]);
+
+    // 进度推进到 90%，剩余 10% 等真图返回
+    let pct = 8;
+    ipTimer.current = window.setInterval(() => {
+      pct = Math.min(90, pct + 7 + (pct % 5));
+      setIpRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct } : r)));
+    }, 500);
+
+    function finishTimer() {
+      if (ipTimer.current) window.clearInterval(ipTimer.current);
+      ipTimer.current = null;
+    }
+
+    // 单张请求：失败自动重试（anyfast 并发会触发限流，重试可救回；最多 3 次、退避递增）
+    async function genOne(attempt = 0): Promise<string> {
+      try {
+        const r = await fetch("/api/image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          // 有参考图（扩展设计的 IP 图，已转 base64 data URL）则走图生图，保持人物一致性
+          body: JSON.stringify({
+            prompt: payload!.prompt,
+            size,
+            ...(payload!.refImage ? { image: payload!.refImage } : {}),
+          }),
+        });
+        const j = await r.json();
+        const url = (j?.images?.[0] as string) || "";
+        if (url) return url;
+      } catch {
+        /* 网络错误，落到重试 */
+      }
+      if (attempt < 3) {
+        await new Promise((res) => setTimeout(res, 1000 * (attempt + 1)));
+        return genOne(attempt + 1);
+      }
+      return "";
+    }
+
+    try {
+      // 串行逐张请求（实测串行 4/4 全成功，避免 anyfast 并发限流导致部分 502/空图）
+      const imgs: string[] = new Array(grads.length).fill("");
+      for (let i = 0; i < grads.length; i++) {
+        const url = await genOne();
+        imgs[i] = url;
+        // 实时回填该位置的图片
+        setIpRuns((prev) => prev.map((r) => (r.id === id ? { ...r, imgs: [...imgs] } : r)));
+      }
+      finishTimer();
+
+      const ok = imgs.filter(Boolean);
+      if (ok.length === 0) {
+        setIpRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: 100, error: "生成失败" } : r)));
+        toast("文生图失败，请稍后重试或检查图像 API 配置。", "warn");
+        return;
+      }
+      setIpRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: 100, imgs } : r)));
+      toast(
+        ok.length < grads.length
+          ? `已生成 ${ok.length}/${grads.length} 张（部分超时），已存入「我的作品」`
+          : `已生成 ${ok.length} 张 IP 形象，已存入「我的作品」`,
+      );
+      // 图片已展示给用户；后台静默预加载该次的 IP 描述，点开「IP故事」时直接可用
+      preloadIpStoryDesc(id, payload);
+      // 存入「我的作品」（取第一张成功的）
+      addWork({
+        emoji: "🧸",
+        grad: "thumb-grad-1",
+        kind: "图片",
+        name: `${payload.title} · IP 设计`,
+        sub: "品牌设计 · IP 设计",
+        img: ok[0],
+        time: nowStamp(),
+        edit: { sub: "ip", input: payload.prompt },
+      });
+    } catch {
+      finishTimer();
+      setIpRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: 100, error: "生成失败" } : r)));
+      toast("网络错误，文生图失败。", "warn");
+    } finally {
+      setIpBusy(false);
+    }
+  }
+
+  // 后台预加载某次 IP 生成的「初版 IP 故事」：据创意描述 + 颜色 + 尺寸调 LLM，
+  // 结果写回该行 storyDesc，使「IP故事」弹窗打开即有现成的初版故事（失败则静默，弹窗会现场兜底）
+  async function preloadIpStoryDesc(id: string, payload: IpGenPayload) {
+    try {
+      const resp = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scene: "ip-story",
+          ipName: payload.title,
+          description: (payload.rawDesc && payload.rawDesc.trim()) || payload.prompt,
+          preferredColors: payload.colors,
+          canvasSize: payload.ratioName,
+        }),
+      });
+      const ctype = resp.headers.get("Content-Type") || "";
+      if (!resp.ok || !resp.body || ctype.includes("application/json")) return; // 出错静默
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let full = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const events = buf.split("\n\n");
+        buf = events.pop() ?? "";
+        for (const evt of events) {
+          const line = evt.split("\n").find((l) => l.startsWith("data:"));
+          if (!line) continue;
+          const data = line.slice(5).trim();
+          if (!data || data === "[DONE]") continue;
+          try {
+            const j = JSON.parse(data);
+            if (typeof j.text === "string") full += j.text;
+          } catch {
+            /* 跳过 */
+          }
+        }
+      }
+      if (full.trim()) {
+        setIpRuns((prev) => prev.map((r) => (r.id === id ? { ...r, storyDesc: full.trim() } : r)));
+      }
+    } catch {
+      /* 预加载失败：静默，弹窗打开时会现场生成兜底 */
+    }
+  }
+
+  // IP 生成历史「删除」
+  function deleteIpRun(id: string) {
+    setIpRuns((prev) => prev.filter((r) => r.id !== id));
+  }
+
   // 生成历史「复制」：把字体记录回填到左侧表单
   function copyFontRun(text: string, effect: string) {
     const eff = fontEffects.find((f) => f.name === effect);
@@ -308,7 +508,18 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     ) : active === "logo" ? (
       <ImageLogoPanel state={logoForm} setState={setLogoForm} onGenerate={runLogoGenerate} loading={logoBusy} />
     ) : active === "ip" ? (
-      <ImageIpPanel onGenerate={runGenerate} loading={sim.state.open} />
+      <ImageIpPanel
+        onGenerate={runIpGenerate}
+        loading={ipBusy}
+        onPropose={handlePropose}
+        proposeFill={proposeFill}
+        copyFill={copyFill}
+        fillSeq={fillSeq}
+        designTab={ipDesignTab}
+        onDesignTabChange={setIpDesignTab}
+        extendSeed={ipExtendSeed}
+        onExtendSeedUsed={() => setIpExtendSeed(null)}
+      />
     ) : active === "font" ? (
       <FontPanel state={fontForm} setState={setFontForm} onGenerate={runFontGenerate} loading={fontBusy} />
     ) : (
@@ -317,7 +528,48 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
 
   // 右侧结果区
   let resultArea: React.ReactNode;
-  if (active === "font") {
+  if (active === "ip") {
+    // IP 设计：右侧始终展示生成历史（进度卡片 + 真实出图）；点「帮我提案」时提案面板浮在其上
+    resultArea = (
+      <>
+        <IpGallery
+          tab={ipTab}
+          setTab={setIpTab}
+          runRows={ipRuns}
+          onDeleteRun={deleteIpRun}
+          onCopyRun={(payload) => {
+            // 切到对应设计 tab，再把整条记录的结构化信息回填到左侧
+            setIpDesignTab(payload.kind);
+            setProposeFill(payload.desc);
+            setCopyFill(payload);
+            setFillSeq((n) => n + 1);
+            toast(payload.kind === "extend" ? "已复制到左侧（含 IP 图）" : "已复制到左侧（含颜色/尺寸）");
+          }}
+          onUseCase={(c) => {
+            // 制作同款：回填创意描述 + 偏好颜色 + 画面尺寸到左侧
+            setIpDesignTab("create");
+            setProposeFill(c.desc);
+            setCopyFill({ kind: "create", desc: c.desc, colors: c.colors, ratioName: c.ratioName });
+            setFillSeq((n) => n + 1);
+            toast(`已套用「${c.name}」，可在左侧调整后点击「立即生成」`);
+          }}
+          onExtend={handleIpExtend}
+          onGenerate={runIpGenerate}
+        />
+        {proposeOpen && (
+          <ProposePanel
+            initialText={proposeInit}
+            onClose={() => setProposeOpen(false)}
+            onGenerate={(text) => {
+              if (text.trim()) setProposeFill(text.trim());
+              setProposeOpen(false);
+              toast("已生成创意提案并填入描述（演示）");
+            }}
+          />
+        )}
+      </>
+    );
+  } else if (active === "font") {
     resultArea = (
       <FontGallery
         tab={fontTab}
@@ -379,6 +631,27 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       <GenModal state={sim.state} title="正在生成图片" />
     </div>
   );
+}
+
+/* IP 画面比例名 → 文生图尺寸（豆包 Seedream 要求 ≥ 约 369 万像素，即 1920×1920）。
+   返回的宽高均放大到该下限之上，并保持目标宽高比。 */
+function ipRatioToSize(ratioName: string): string {
+  const MIN_PIXELS = 3686400; // 1920²
+  let w = 1,
+    h = 1;
+  const custom = ratioName.match(/(\d+)\s*[:：]\s*(\d+)/); // 自定义 w:h
+  if (custom) {
+    w = Number(custom[1]) || 1;
+    h = Number(custom[2]) || 1;
+  } else if (ratioName.includes("3:5")) [w, h] = [3, 5];
+  else if (ratioName.includes("5:3")) [w, h] = [5, 3];
+  else if (ratioName.includes("16:9")) [w, h] = [16, 9];
+  else [w, h] = [1, 1]; // 正方形 1:1
+
+  // 按比例求满足像素下限的最小整数边，并取整到 8 的倍数（多数模型要求）
+  const scale = Math.sqrt(MIN_PIXELS / (w * h));
+  const round8 = (n: number) => Math.ceil((n * scale) / 8) * 8;
+  return `${round8(w)}x${round8(h)}`;
 }
 
 function initDefault(type: ImageType): DefaultImageState {

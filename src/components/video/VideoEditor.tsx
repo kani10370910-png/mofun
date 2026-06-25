@@ -10,6 +10,7 @@ import { useSimGenerate } from "@/lib/useSimGenerate";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import { videoTypes } from "@/data/video";
+import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 import { genStages } from "@/data/genStages";
 import { VID_ICON } from "@/data/icons";
 import type { IconName } from "@/data/icons";
@@ -93,7 +94,7 @@ export function VideoEditor({ initialSub, initialInput }: { initialSub?: string;
               <div className="ws-label">
                 脚本 / 要点 <span className="req">*</span>
               </div>
-              <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder="一句话或一段要点，AI 按内置流程自动拆分镜" />
+              <ClearableTextarea value={input} onChange={(e) => setInput(e.target.value)} onClear={() => setInput("")} placeholder="一句话或一段要点，AI 按内置流程自动拆分镜" />
             </div>
             <div className="field">
               <div className="ws-label">首帧 / 尾帧（图生视频时使用）</div>
@@ -159,7 +160,7 @@ export function VideoEditor({ initialSub, initialInput }: { initialSub?: string;
               </div>
               <div className="adv-body">
                 <div className="field" style={{ marginBottom: 0 }}>
-                  <textarea style={{ minHeight: 54 }} value={advPrompt} onChange={(e) => setAdvPrompt(e.target.value)} />
+                  <ClearableTextarea style={{ minHeight: 54 }} value={advPrompt} onChange={(e) => setAdvPrompt(e.target.value)} onClear={() => setAdvPrompt("")} />
                   <div className="field-hint">公式：镜头语言 + 光影 + 主体 + 主体运动 + 场景 + 氛围</div>
                 </div>
               </div>

@@ -34,23 +34,37 @@ export async function POST(req: NextRequest) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), provider.timeoutMs);
 
-  let upstream: Response;
-  try {
-    upstream = await fetch(`${provider.baseURL.replace(/\/$/, "")}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${provider.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: provider.model,
-        messages,
-        stream: true,
-        temperature: 0.8,
-      }),
-      signal: ctrl.signal,
-    });
-  } catch {
+  const url = `${provider.baseURL.replace(/\/$/, "")}/chat/completions`;
+  const init: RequestInit = {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${provider.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: provider.model,
+      messages,
+      stream: true,
+      temperature: 0.8,
+    }),
+    signal: ctrl.signal,
+  };
+
+  // 连接偶发被重置（ECONNRESET，常见于本机代理抖动）时自动重试，最多 3 次、退避递增
+  let upstream: Response | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      upstream = await fetch(url, init);
+      break;
+    } catch (e) {
+      if ((e as Error)?.name === "AbortError" || attempt === 2) {
+        clearTimeout(timer);
+        return Response.json({ error: "无法连接模型服务，请检查网络或 baseURL 配置。" }, { status: 502 });
+      }
+      await new Promise((res) => setTimeout(res, 600 * (attempt + 1)));
+    }
+  }
+  if (!upstream) {
     clearTimeout(timer);
     return Response.json({ error: "无法连接模型服务，请检查网络或 baseURL 配置。" }, { status: 502 });
   }

@@ -393,7 +393,11 @@ function LogoResultCard({
       >
         <Icon name="share" size={16} />
       </button>
-      <span className="lh-mark">由 AI 生成</span>
+      <span className="lh-mark">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="lh-mark-logo" src={assetUrl("/brand-logo.png")} alt="魔方智绘" />
+        由 AI 生成
+      </span>
       {confirmSave && (
         <ConfirmModal
           title="是否另存为我的素材？"
