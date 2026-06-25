@@ -11,7 +11,7 @@ import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import { logoSvgDataUrl } from "@/lib/logoSvg";
 import type { AssetCard } from "@/lib/types";
-import { imageTypes, imageModels, imageRatios, logoStyles, fontEffects } from "@/data/image";
+import { imageTypes, imageModels, imageRatios, posterRatios, rollupRatios, flyerRatios, logoStyles, fontEffects, productGalleryItems, signageGalleryItems } from "@/data/image";
 import { genStages } from "@/data/genStages";
 import { IMG_ICON } from "@/data/icons";
 import type { IconName } from "@/data/icons";
@@ -27,7 +27,7 @@ import {
 import { ImageResult } from "./ImageResult";
 import { ImageIpPanel, ProposePanel, type IpGenPayload, type IpCopyPayload } from "./ImageIpPanel";
 import { IpGallery, type IpRunRow, type IpExtendSeed } from "./IpGallery";
-import { ActiveGallery } from "./ActiveGallery";
+import { ActiveGallery, type EventRunRow } from "./ActiveGallery";
 import { LogoGallery, type LogoRunRow } from "./LogoGallery";
 import { FontPanel, type FontImageState } from "./FontPanel";
 import { FontGallery, type FontRunRow } from "./FontGallery";
@@ -111,6 +111,12 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   const [ipTab, setIpTab] = useState<"history" | "inspire">("inspire");
   // 「延展设计」：把某张生成图作为待延展的 IP 图，带去 IP扩展设计子表单
   const [ipExtendSeed, setIpExtendSeed] = useState<IpExtendSeed | null>(null);
+  // 活动：内联生成历史（进度卡 + 真实出图，文生图/图生图共用）
+  const [eventRuns, setEventRuns] = useState<EventRunRow[]>([]);
+  const [eventBusy, setEventBusy] = useState(false);
+  const eventTimer = useRef<number | null>(null);
+  // 活动右侧 tab：默认看「生成历史」（空态会引导）；生成时也停在生成历史看进度
+  const [eventTab, setEventTab] = useState<"history" | "cases">("history");
 
   // 点生成历史图片上的「延展设计」：切到 IP扩展设计并把该图作为 IP 图
   function handleIpExtend(seed: IpExtendSeed) {
@@ -127,6 +133,10 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     if (ipTimer.current) {
       window.clearInterval(ipTimer.current);
       ipTimer.current = null;
+    }
+    if (eventTimer.current) {
+      window.clearInterval(eventTimer.current);
+      eventTimer.current = null;
     }
     sim.close();
     const t = imageTypes.find((x) => x.key === k) ?? imageTypes[0];
@@ -145,6 +155,9 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         toast("请输入画面描述！", "warn");
         return;
       }
+      // 活动：真实文生图（右侧生成历史进度卡 + 真图）
+      runEventGenerate();
+      return;
     } else if (active !== "ip" && !defForm.input.trim()) {
       // IP 设计有独立表单，必填在其组件内处理，这里跳过通用画面描述校验
       toast("请输入画面描述！", "warn");
@@ -467,6 +480,111 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     setIpRuns((prev) => prev.filter((r) => r.id !== id));
   }
 
+  // 活动：点「立即生成」→ 右侧生成历史进度卡 → 调文生图出 N 张真图（N 取生成数量）
+  async function runEventGenerate() {
+    if (eventBusy) return;
+    setEventBusy(true);
+    setEventTab("history"); // 切到生成历史看进度
+    const prompt = eventForm.input.trim();
+    const n = Math.max(1, Math.min(4, eventForm.count || 4));
+    const allGrads = ["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-grad-4"];
+    const grads = allGrads.slice(0, n);
+    const size = eventRatioToSize(eventForm.ratio, eventForm.customW, eventForm.customH);
+    const id = "ev-" + eventRuns.length + "-" + prompt.length;
+
+    const row: EventRunRow = {
+      id,
+      prompt,
+      sub: eventForm.sub || "自定义",
+      ratioName: eventForm.ratio,
+      time: nowStamp(),
+      pct: 8,
+      imgs: [],
+      grads,
+    };
+    setEventRuns((prev) => [row, ...prev]);
+
+    // 进度推进到 90%，剩余等真图返回
+    let pct = 8;
+    eventTimer.current = window.setInterval(() => {
+      pct = Math.min(90, pct + 7 + (pct % 5));
+      setEventRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct } : r)));
+    }, 500);
+    const finishTimer = () => {
+      if (eventTimer.current) window.clearInterval(eventTimer.current);
+      eventTimer.current = null;
+    };
+
+    // 单张请求：失败自动重试（最多 3 次、退避递增）
+    async function genOne(attempt = 0): Promise<string> {
+      try {
+        const r = await fetch("/api/image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt, size }),
+        });
+        const j = await r.json();
+        const url = (j?.images?.[0] as string) || "";
+        if (url) return url;
+      } catch {
+        /* 网络错误，落到重试 */
+      }
+      if (attempt < 3) {
+        await new Promise((res) => setTimeout(res, 1000 * (attempt + 1)));
+        return genOne(attempt + 1);
+      }
+      return "";
+    }
+
+    try {
+      const imgs: string[] = new Array(n).fill("");
+      for (let i = 0; i < n; i++) {
+        imgs[i] = await genOne();
+        setEventRuns((prev) => prev.map((r) => (r.id === id ? { ...r, imgs: [...imgs] } : r)));
+      }
+      finishTimer();
+      const ok = imgs.filter(Boolean);
+      if (ok.length === 0) {
+        setEventRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: 100, error: "生成失败" } : r)));
+        toast("文生图失败，请稍后重试或检查图像 API 配置。", "warn");
+        return;
+      }
+      setEventRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: 100, imgs } : r)));
+      toast(
+        ok.length < n
+          ? `已生成 ${ok.length}/${n} 张（部分超时），已存入「我的作品」`
+          : `已生成 ${ok.length} 张活动图，已存入「我的作品」`,
+      );
+      addWork({
+        emoji: "🎨",
+        grad: "thumb-grad-1",
+        kind: "图片",
+        name: `${prompt.slice(0, 12) || "活动图"} · 活动`,
+        sub: "品牌设计 · 活动",
+        img: ok[0],
+        time: nowStamp(),
+        edit: { sub: "event", input: prompt },
+      });
+    } catch {
+      finishTimer();
+      setEventRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: 100, error: "生成失败" } : r)));
+      toast("网络错误，文生图失败。", "warn");
+    } finally {
+      setEventBusy(false);
+    }
+  }
+
+  // 活动生成历史「删除」
+  function deleteEventRun(id: string) {
+    setEventRuns((prev) => prev.filter((r) => r.id !== id));
+  }
+
+  // 活动生成历史「复制描述到左侧」
+  function copyEventRun(prompt: string) {
+    setEventForm({ ...eventForm, tab: "t2i", input: prompt });
+    toast("已复制描述到左侧");
+  }
+
   // 生成历史「复制」：把字体记录回填到左侧表单
   function copyFontRun(text: string, effect: string) {
     const eff = fontEffects.find((f) => f.name === effect);
@@ -601,7 +719,22 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       <ImageResult count={count} size={sizeName} model={modelName} refStrength={refS} onRegenerate={runGenerate} />
     );
   } else if (active === "event") {
-    resultArea = <ActiveGallery sub={eventForm.sub === "自定义" ? "" : eventForm.sub} />;
+    resultArea = (
+      <ActiveGallery
+        sub={eventForm.sub === "自定义" ? "" : eventForm.sub}
+        tab={eventTab}
+        setTab={setEventTab}
+        runRows={eventRuns}
+        onDeleteRun={deleteEventRun}
+        onCopyRun={copyEventRun}
+      />
+    );
+  } else if (active === "product") {
+    // 商拍：右侧用通用画廊（生成历史 / 参考灵感），按图片尺寸子类筛选
+    resultArea = <ActiveGallery sub={defForm.size} source={productGalleryItems} />;
+  } else if (active === "signage") {
+    // 店招设计：右侧用通用画廊（生成历史 / 参考灵感），按图片尺寸子类筛选
+    resultArea = <ActiveGallery sub={defForm.size} source={signageGalleryItems} />;
   } else {
     resultArea = (
       <div className="preview-empty">
@@ -654,6 +787,35 @@ function ipRatioToSize(ratioName: string): string {
   return `${round8(w)}x${round8(h)}`;
 }
 
+/* 活动「图片尺寸」名 → 文生图尺寸（保持宽高比，放大到 ≥369 万像素，取整到 8 的倍数）。
+   - 「自定义」用 customW:customH 的比例
+   - 其余按各尺寸组里该项的 size 字段（如「1080 × 1920 px」「13 × 18 cm」）解析出宽:高比 */
+function eventRatioToSize(ratioName: string, customW = "", customH = ""): string {
+  const MIN_PIXELS = 3686400;
+  let w = 0,
+    h = 0;
+  if (ratioName === "自定义") {
+    w = Number(customW) || 0;
+    h = Number(customH) || 0;
+  } else {
+    // 在所有尺寸组里找到该项，取其 size 字段的两个数字作为宽:高比
+    const all = [...imageRatios, ...posterRatios, ...rollupRatios, ...flyerRatios];
+    const hit = all.find((s) => s.name === ratioName);
+    const m = hit?.size.match(/(\d+(?:\.\d+)?)\s*[×x:：]\s*(\d+(?:\.\d+)?)/);
+    if (m) {
+      w = Number(m[1]) || 0;
+      h = Number(m[2]) || 0;
+    }
+  }
+  if (!w || !h) {
+    w = 1;
+    h = 1;
+  }
+  const scale = Math.sqrt(MIN_PIXELS / (w * h));
+  const round8 = (n: number) => Math.ceil((n * scale) / 8) * 8;
+  return `${round8(w)}x${round8(h)}`;
+}
+
 function initDefault(type: ImageType): DefaultImageState {
   return {
     model: imageModels[0].name,
@@ -673,6 +835,8 @@ function initEvent(type: ImageType): EventImageState {
     sub: "自定义",
     input: "茶文化节活动主视觉，高山云雾茶园背景，国风清新，主标题「明前头采·鲜爽回甘」",
     ratio: imageRatios[0].name,
+    customW: "1080",
+    customH: "1920",
     model: imageModels[0].name,
     count: 4,
     uploaded: false,

@@ -4,15 +4,38 @@ import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
 import { useToast } from "@/components/ui/Toast";
-import { imageModels, imageRatios, editModels, logoStyles } from "@/data/image";
+import { imageModels, imageRatios, posterRatios, rollupRatios, flyerRatios, editModels, logoStyles } from "@/data/image";
+import type { SizePreset } from "@/lib/types";
 import type { ImageType } from "@/lib/types";
 import { asset } from "@/lib/asset";
 import { AutoBgImg } from "./AutoBgImg";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
+import { Img2TextModal } from "./Img2TextModal";
+import { useGenerateStream } from "@/lib/useGenerateStream";
 
 const modelOpts: DropdownOption[] = imageModels.map((m) => ({ name: m.name, desc: m.desc }));
 const editOpts: DropdownOption[] = editModels.map((m) => ({ name: m.name, desc: m.desc }));
-const ratioOpts: DropdownOption[] = imageRatios.map((r) => ({ name: r.name, sub: r.size, ico: "szSquare" }));
+
+// SizePreset[] → DropdownOption[]（保留各自形状图标；name=="自定义" 标记 custom）
+const toRatioOpts = (list: SizePreset[]): DropdownOption[] =>
+  list.map((r) => ({ name: r.name, sub: r.size, ico: (r.ico as DropdownOption["ico"]) ?? "szSquare", custom: r.name === "自定义" }));
+
+// 活动通用比例组：最前面加「自定义」（数据层 imageRatios 不动，避免影响 IP 等其它用处）
+const ratioOpts: DropdownOption[] = [
+  { name: "自定义", sub: "自定义宽高", ico: "szSquare", custom: true },
+  ...toRatioOpts(imageRatios),
+];
+const posterOpts: DropdownOption[] = toRatioOpts(posterRatios);
+const rollupOpts: DropdownOption[] = toRatioOpts(rollupRatios);
+const flyerOpts: DropdownOption[] = toRatioOpts(flyerRatios);
+
+// 按「成图类型」选用对应的尺寸下拉组（海报/易拉宝/宣传单各有专用尺寸，其余用通用比例）
+function ratioOptsForSub(sub: string): DropdownOption[] {
+  if (sub === "海报") return posterOpts;
+  if (sub === "易拉宝") return rollupOpts;
+  if (sub === "宣传单") return flyerOpts;
+  return ratioOpts;
+}
 
 /* ---------------- 通用图片表单（商拍/IP/AI字体/店招） ---------------- */
 export interface DefaultImageState {
@@ -138,11 +161,8 @@ export function ImageDefaultPanel({
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
-          <Icon name="sparkle" size={16} /> 生成图片
+          <Icon name="sparkle" size={16} /> 立即生成
         </button>
-        <p className="empty-note" style={{ textAlign: "center" }}>
-          自动套用品牌资产中的 LOGO / 标准色 / 字体
-        </p>
       </div>
     </>
   );
@@ -154,6 +174,8 @@ export interface EventImageState {
   sub: string; // 成图子类型（海报/长图/…）
   input: string;
   ratio: string;
+  customW: string; // 「自定义」尺寸宽（px）
+  customH: string; // 「自定义」尺寸高（px）
   model: string;
   count: number;
   uploaded: boolean;
@@ -176,6 +198,23 @@ export function ImageEventPanel({
 }) {
   const toast = useToast();
   const set = <K extends keyof EventImageState>(k: K, v: EventImageState[K]) => setState({ ...state, [k]: v });
+
+  // 文生图·描述词辅助：联想（LLM 扩写，流式回填）+ 图转文（弹窗，调视觉模型反推）
+  const { generate, state: assocState } = useGenerateStream();
+  const [i2tOpen, setI2tOpen] = useState(false);
+  const assocBusy = assocState.loading;
+
+  async function onAssociate() {
+    if (assocBusy) return;
+    // 把当前画面描述扩写得更丰富，流式实时回填到输入框
+    const result = await generate({ scene: "t2i-associate", input: state.input.trim() }, (full) => {
+      setState({ ...state, input: full });
+    });
+    if (result.trim()) {
+      setState({ ...state, input: result.trim() });
+      toast("已联想扩写画面描述");
+    }
+  }
 
   return (
     <>
@@ -204,7 +243,12 @@ export function ImageEventPanel({
                 <button
                   key={s.name}
                   className={state.sub === s.name ? "preset-chip on" : "preset-chip"}
-                  onClick={() => set("sub", s.name)}
+                  onClick={() => {
+                    // 切成图类型时，同步把「图片尺寸」重置为该类型尺寸组里第一个实际尺寸
+                    const opts = ratioOptsForSub(s.name);
+                    const firstReal = opts.find((o) => o.name !== "自定义") ?? opts[0];
+                    setState({ ...state, sub: s.name, ratio: firstReal?.name ?? state.ratio });
+                  }}
                 >
                   {s.name}
                 </button>
@@ -215,11 +259,59 @@ export function ImageEventPanel({
             <div className="ws-label">
               画面描述 <span className="req">*</span>
             </div>
-            <ClearableTextarea value={state.input} onChange={(e) => set("input", e.target.value)} onClear={() => set("input", "")} placeholder="请输入画面描述：主体、风格、氛围、文案…" />
+            <ClearableTextarea
+              value={state.input}
+              onChange={(e) => set("input", e.target.value)}
+              onClear={() => set("input", "")}
+              placeholder="请输入画面描述：主体、风格、氛围、文案…"
+              toolbar={
+                <>
+                  <button type="button" className="ta-tool" disabled={assocBusy} onClick={onAssociate}>
+                    {assocBusy ? (
+                      <><Icon name="refresh" size={14} className="ico-spin" /> 联想中…</>
+                    ) : (
+                      <><Icon name="sparkle" size={14} /> 联想</>
+                    )}
+                  </button>
+                  <button type="button" className="ta-tool" onClick={() => setI2tOpen(true)}>
+                    <Icon name="image" size={14} /> 图转文
+                  </button>
+                </>
+              }
+            />
           </div>
           <div className="field">
-            <div className="ws-label">图片比例</div>
-            <Dropdown title="图片比例" options={ratioOpts} value={state.ratio} onChange={(o) => set("ratio", o.name)} showSub />
+            <div className="ws-label">图片尺寸</div>
+            <Dropdown
+              title="图片尺寸"
+              options={ratioOptsForSub(state.sub)}
+              value={state.ratio}
+              onChange={(o) => set("ratio", o.name)}
+              showSub
+            />
+            {state.ratio === "自定义" && (
+              <div className="custom-size">
+                <input
+                  type="number"
+                  className="cs-input"
+                  min={64}
+                  placeholder="宽"
+                  value={state.customW}
+                  onChange={(e) => set("customW", e.target.value)}
+                />
+                <span className="cs-unit">px</span>
+                <span className="cs-colon">:</span>
+                <input
+                  type="number"
+                  className="cs-input"
+                  min={64}
+                  placeholder="高"
+                  value={state.customH}
+                  onChange={(e) => set("customH", e.target.value)}
+                />
+                <span className="cs-unit">px</span>
+              </div>
+            )}
           </div>
           <div className="field">
             <div className="ws-label">生图模型</div>
@@ -286,10 +378,16 @@ export function ImageEventPanel({
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
           <Icon name="sparkle" size={16} /> 立即生成
         </button>
-        <p className="empty-note" style={{ textAlign: "center" }}>
-          自动套用品牌资产中的 LOGO / 标准色 / 字体
-        </p>
       </div>
+      {i2tOpen && (
+        <Img2TextModal
+          onClose={() => setI2tOpen(false)}
+          onResult={(text) => {
+            // 图转文结果填入画面描述（替换当前内容）
+            setState({ ...state, input: text });
+          }}
+        />
+      )}
     </>
   );
 }

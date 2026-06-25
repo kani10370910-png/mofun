@@ -71,6 +71,47 @@ export const imageRatios: SizePreset[] = [
   { name: "宽屏 16:9", size: "1920 × 1080 px", ico: "szLandscape" },
 ];
 
+/* ---------- 海报专用尺寸（活动·成图类型选「海报」时的「图片尺寸」下拉） ----------
+   首项「自定义」点选后展示宽×高输入框；其后为 px 比例组与 cm 实物海报组。
+   size 字段为副值展示用；实际出图尺寸由 ImageEditor 按 name 解析为像素。 */
+export const posterRatios: SizePreset[] = [
+  { name: "自定义", size: "自定义宽高", ico: "szSquare" },
+  // —— px 比例组 ——
+  { name: "竖版9:16", size: "1080 × 1920 px", ico: "szPortrait" },
+  { name: "横版16:9", size: "1920 × 1080 px", ico: "szLandscape" },
+  { name: "竖版3:4", size: "1080 × 1440 px", ico: "szPortrait" },
+  { name: "横版4:3", size: "1440 × 1080 px", ico: "szLandscape" },
+  { name: "方版1:1", size: "1080 × 1080 px", ico: "szSquare" },
+  { name: "电商海报竖版", size: "1200 × 1920 px", ico: "szPortrait" },
+  { name: "电商海报横版", size: "1920 × 1200 px", ico: "szLandscape" },
+  { name: "标准长图", size: "800 × 2000 px", ico: "szLong" },
+  // —— cm 实物海报组 ——
+  { name: "13*18cm海报", size: "13 × 18 cm", ico: "szPortrait" },
+  { name: "19*25cm海报", size: "19 × 25 cm", ico: "szPortrait" },
+  { name: "42*57cm海报", size: "42 × 57 cm", ico: "szPortrait" },
+  { name: "50*70cm海报", size: "50 × 70 cm", ico: "szPortrait" },
+  { name: "60*90cm海报", size: "60 × 90 cm", ico: "szPortrait" },
+  { name: "57*84cm海报", size: "57 × 84 cm", ico: "szPortrait" },
+];
+
+/* ---------- 易拉宝专用尺寸（活动·成图类型选「易拉宝」时） ---------- */
+export const rollupRatios: SizePreset[] = [
+  { name: "自定义", size: "自定义宽高", ico: "szRollup" },
+  { name: "标准易拉宝(2m)", size: "80 × 200 cm", ico: "szRollup" },
+  { name: "标准易拉宝(1.8m)", size: "80 × 180 cm", ico: "szRollup" },
+  { name: "X展架(1.6m)", size: "60 × 160 cm", ico: "szXstand" },
+  { name: "X展架(1.8m)", size: "60 × 180 cm", ico: "szXstand" },
+  { name: "门型展架(1.8m)", size: "80 × 180 cm", ico: "szRollup" },
+  { name: "门型展架(2m)", size: "120 × 200 cm", ico: "szRollup" },
+];
+
+/* ---------- 宣传单专用尺寸（活动·成图类型选「宣传单」时） ---------- */
+export const flyerRatios: SizePreset[] = [
+  { name: "自定义", size: "自定义宽高", ico: "szA4" },
+  { name: "A4单页", size: "210 × 297 mm", ico: "szA4" },
+  { name: "A5单页", size: "148 × 210 mm", ico: "szA4" },
+];
+
 /* ---------- 图生图：编辑模型（活动图生图用） ---------- */
 export const editModels: ModelOption[] = [
   { name: "基础编辑模型", desc: "通用图像编辑，速度快" },
@@ -586,25 +627,36 @@ export const imageResults: ImageResult[] = [
   { emoji: "✨", tag: "方案 D · 促销", grad: "thumb-grad-2" },
 ];
 
-/* ---------- 活动 · 右侧案例画廊（未生成时展示；按左侧子类筛选） ---------- */
-export const activeGalleryItems: ActiveGalleryItem[] = [
-  { emoji: "🍃", sub: "海报", name: "明前白茶上市海报", grad: "thumb-grad-1", img: "/active/haibao-baicha.png" },
-  { emoji: "🛍️", sub: "海报", name: "高山笋干年货节海报", grad: "thumb-grad-5", img: "/active/haibao-sungan.png" },
-  { emoji: "🌅", sub: "海报", name: "云上草原露营季海报", grad: "thumb-grad-3", img: "/active/haibao-luying.png" },
-  { emoji: "🏮", sub: "海报", name: "畲乡风情节活动海报", grad: "thumb-grad-2", img: "/active/haibao-shexiang.png" },
-  { emoji: "📑", sub: "长图", name: "乡村旅游长图", grad: "thumb-grad-3", img: "/active/changtu-lvyou.png" },
-  { emoji: "📊", sub: "长图", name: "和美乡村政策科普长图", grad: "thumb-grad-6", img: "/active/changtu-zhengce.png" },
-  { emoji: "📱", sub: "长图", name: "文旅推介长页", grad: "thumb-grad-4", img: "/active/changtu-wenlv.png" },
-  { emoji: "🍵", sub: "菜单", name: "半地咖啡饮品菜单", grad: "thumb-grad-1", img: "/active/caidan-yinpin.png" },
-  { emoji: "☕", sub: "菜单", name: "精选咖啡价目表", grad: "thumb-grad-5", img: "/active/caidan-kafei.png" },
-  { emoji: "🍲", sub: "菜单", name: "「是真的汤」中式菜单", grad: "thumb-grad-3", img: "/active/caidan-zhongshi.png" },
-  { emoji: "🍝", sub: "菜单", name: "午餐套餐 LUNCH MENU", grad: "thumb-grad-2", img: "/active/caidan-lunch.png" },
-  { emoji: "🎏", sub: "易拉宝", name: "招商推介易拉宝", grad: "thumb-grad-6", img: "/active/yilabao-zhaoshang.png" },
-  { emoji: "🎪", sub: "易拉宝", name: "茶文化节活动易拉宝", grad: "thumb-grad-4", img: "/active/yilabao-chawenhua.png" },
-  { emoji: "📣", sub: "易拉宝", name: "门店开业 X 展架", grad: "thumb-grad-2", img: "/active/yilabao-kaiye.png" },
-  { emoji: "📰", sub: "宣传单", name: "鲜笋促销宣传单", grad: "thumb-grad-2", img: "/active/xuanchuan-xiansun.png" },
-  { emoji: "📄", sub: "宣传单", name: "农家乐套餐 DM 单", grad: "thumb-grad-5", img: "/active/xuanchuan-nongjiale.png" },
-  { emoji: "🗞️", sub: "宣传单", name: "白茶产地直发传单", grad: "thumb-grad-3", img: "/active/xuanchuan-baicha.png" },
+/* ---------- 活动 · 右侧案例画廊（未生成时展示；按左侧子类筛选） ----------
+   预设案例已清空，等待后续填充真实内容。
+   每项格式：{ emoji, sub（成图子类：海报/长图/菜单/易拉宝/宣传单）, name, grad, img? } */
+export const activeGalleryItems: ActiveGalleryItem[] = [];
+
+/* ---------- 商拍：参考灵感案例（按子类筛选，结构同活动；占位 emoji，真图后补 img） ---------- */
+export const productGalleryItems: ActiveGalleryItem[] = [
+  { emoji: "🫙", sub: "白底商品图", name: "蜂蜜白底主图", grad: "thumb-grad-1" },
+  { emoji: "🍵", sub: "白底商品图", name: "茶叶礼盒白底图", grad: "thumb-grad-5" },
+  { emoji: "🍶", sub: "白底商品图", name: "土特产酱料白底图", grad: "thumb-grad-3" },
+  { emoji: "🧴", sub: "白底商品图", name: "护肤瓶身白底图", grad: "thumb-grad-2" },
+  { emoji: "🏞️", sub: "产品场景图", name: "高山茶园场景图", grad: "thumb-grad-3" },
+  { emoji: "🍱", sub: "产品场景图", name: "农家美食桌景图", grad: "thumb-grad-6" },
+  { emoji: "🪵", sub: "产品场景图", name: "原木质感氛围图", grad: "thumb-grad-4" },
+  { emoji: "🛍️", sub: "产品场景图", name: "节日礼盒摆拍图", grad: "thumb-grad-1" },
+  { emoji: "🔍", sub: "竖版细节图", name: "纹理特写细节图", grad: "thumb-grad-2" },
+  { emoji: "💧", sub: "竖版细节图", name: "饮品质感细节图", grad: "thumb-grad-5" },
+  { emoji: "🌾", sub: "竖版细节图", name: "原料成分细节图", grad: "thumb-grad-3" },
+];
+
+/* ---------- 店招设计：参考灵感案例（按子类筛选，结构同活动；占位 emoji，真图后补 img） ---------- */
+export const signageGalleryItems: ActiveGalleryItem[] = [
+  { emoji: "🏪", sub: "线上店招", name: "茶饮品牌线上店招", grad: "thumb-grad-1" },
+  { emoji: "🛒", sub: "线上店招", name: "土特产旗舰店招", grad: "thumb-grad-5" },
+  { emoji: "🎍", sub: "线上店招", name: "新中式生鲜店招", grad: "thumb-grad-3" },
+  { emoji: "🍜", sub: "线上店招", name: "面馆外卖店招", grad: "thumb-grad-2" },
+  { emoji: "🏮", sub: "实体门头", name: "国风茶馆门头", grad: "thumb-grad-6" },
+  { emoji: "☕", sub: "实体门头", name: "社区咖啡门头", grad: "thumb-grad-4" },
+  { emoji: "🥢", sub: "实体门头", name: "中式餐馆门头", grad: "thumb-grad-1" },
+  { emoji: "🌿", sub: "实体门头", name: "农家乐招牌门头", grad: "thumb-grad-3" },
 ];
 
 /* ---------- IP 创新设计：参考灵感案例 ----------

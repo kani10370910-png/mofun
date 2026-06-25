@@ -104,6 +104,28 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
     ];
   }
 
+  // 文生图·联想：把用户当前的画面描述扩写成更丰富、更适合出图的画面描述词
+  if (req.scene === "t2i-associate") {
+    const base = req.input?.trim() || req.description?.trim() || "";
+    return [
+      {
+        role: "system",
+        content:
+          "你是专业的AI绘画提示词助手，服务于「农文旅」（农产品、乡村旅游、地域文化）领域的宣传图设计。" +
+          "请把用户的画面想法扩写成一段更完整、可视化的画面描述词，便于AI图像生成模型理解。" +
+          "从主体、场景环境、风格氛围、光影色调、构图、文案要点等维度自然补全；" +
+          "保留并贴合用户的核心意图，不偏题、不堆砌空洞形容词。" +
+          "要求：120字以内，输出一段连贯的中文描述，不要标题、不要分点、不要解释、不要换行。",
+      },
+      {
+        role: "user",
+        content: base
+          ? `请把下面这段画面描述扩写得更丰富具体：\n${base}`
+          : `请给出一个适合农文旅宣传图的画面描述示例，主体鲜明、有地域文化氛围。`,
+      },
+    ];
+  }
+
   // IP 故事·形象描述：严格依据用户之前填的创意描述 + 颜色 + 尺寸提炼，不识别图片、不臆造
   if (req.scene === "ip-story-desc") {
     const name = req.ipName?.trim() || "该 IP 形象";

@@ -47,31 +47,44 @@ cli.exec_command(f"mkdir -p {REMOTE}")[1].channel.recv_exit_status()
 i, o, e = cli.exec_command(f"rm -rf {REMOTE}/*")
 o.channel.recv_exit_status()
 
-sftp = cli.open_sftp()
+TOTAL = sum(len(files) for _, _, files in os.walk(LOCAL))
 
-def ensure_dir(remote_dir):
-    parts = remote_dir.strip("/").split("/")
-    cur = ""
-    for p in parts:
-        cur += "/" + p
-        try:
-            sftp.stat(cur)
-        except IOError:
-            sftp.mkdir(cur)
+# 先用 SSH 一次性把所有需要的远程目录建好（mkdir -p），避免 SFTP 逐级 stat/mkdir 漏建导致
+# 写文件时 stat 不到目录而报 FileNotFoundError（曾导致只传 ~50 个文件就中断）。
+remote_dirs = set()
+for root, dirs, files in os.walk(LOCAL):
+    rel = os.path.relpath(root, LOCAL)
+    rdir = REMOTE if rel == "." else posixpath.join(REMOTE, rel.replace(os.sep, "/"))
+    remote_dirs.add(rdir)
+if remote_dirs:
+    print(f"预建 {len(remote_dirs)} 个远程目录…")
+    quoted = " ".join(f"'{d}'" for d in sorted(remote_dirs))
+    i, o, e = cli.exec_command(f"mkdir -p {quoted}")
+    rc = o.channel.recv_exit_status()
+    if rc != 0:
+        print("mkdir -p 失败:", e.read().decode("utf-8", "ignore"))
+        sys.exit(2)
+
+sftp = cli.open_sftp()
 
 count = 0
 for root, dirs, files in os.walk(LOCAL):
     rel = os.path.relpath(root, LOCAL)
     rdir = REMOTE if rel == "." else posixpath.join(REMOTE, rel.replace(os.sep, "/"))
-    ensure_dir(rdir)
     for fn in files:
         lp = os.path.join(root, fn)
         rp = posixpath.join(rdir, fn)
-        sftp.put(lp, rp)
+        # confirm=False: 某些 SFTP 服务器在 put 完成后立即 stat 会因写缓冲未刷新而
+        # 返回 ENOENT，导致 FileNotFoundError。我们改为不做上传后 stat 确认，
+        # 最后用 SSH 统计远程文件数来校验完整性。
+        sftp.put(lp, rp, confirm=False)
         count += 1
         if count % 50 == 0:
-            print(f"  已上传 {count} 个文件…")
+            print(f"  已上传 {count}/{TOTAL} 个文件…")
 
 sftp.close()
 cli.close()
-print(f"完成，共上传 {count} 个文件到 {HOST}:{REMOTE}")
+print(f"完成，共上传 {count}/{TOTAL} 个文件到 {HOST}:{REMOTE}")
+if count != TOTAL:
+    print(f"⚠️ 上传数 {count} 与本地文件总数 {TOTAL} 不一致，部署可能不完整！")
+    sys.exit(4)

@@ -305,7 +305,7 @@ export type GenStages = Record<"content" | "image" | "video", string[]>;
 
 /* ---------- 文案生成 API ---------- */
 export interface GenerateRequest {
-  scene: ContentSceneKey | "ip" | "ip-propose" | "ip-story-desc" | "ip-story";
+  scene: ContentSceneKey | "ip" | "ip-propose" | "ip-story-desc" | "ip-story" | "t2i-associate";
   mode?: "outline" | "full";
   tone?: string;
   length?: string;
