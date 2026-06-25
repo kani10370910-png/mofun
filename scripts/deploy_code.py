@@ -5,7 +5,7 @@
 import os, socket, posixpath
 import paramiko
 
-HOST, PORT, USER = "10.0.120.2", 22, "root"
+HOST, PORT, USER = "10.0.120.2x", 22, "root"
 REMOTE = "/data/base/nginx/usr/share/nginx/html/mofun"
 LOCAL = os.path.join(os.getcwd(), "out")
 IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico", ".svg")

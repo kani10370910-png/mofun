@@ -43,8 +43,8 @@ deploy:
   script:
     # SSHPASS 在 GitLab 项目「Settings · CI/CD · Variables」里配置（受保护/隐藏），不写明文
     # 先清空目标目录再上传，避免残留旧 chunk；目标主机首次连接自动信任
-    - sshpass -e ssh -o StrictHostKeyChecking=no root@10.0.120.2 "mkdir -p /data/base/nginx/usr/share/nginx/html/mofun && rm -rf /data/base/nginx/usr/share/nginx/html/mofun/*"
-    - sshpass -e scp -o StrictHostKeyChecking=no -r out/* root@10.0.120.2:/data/base/nginx/usr/share/nginx/html/mofun
+    - sshpass -e ssh -o StrictHostKeyChecking=no root@10.0.120.2x "mkdir -p /data/base/nginx/usr/share/nginx/html/mofun && rm -rf /data/base/nginx/usr/share/nginx/html/mofun/*"
+    - sshpass -e scp -o StrictHostKeyChecking=no -r out/* root@10.0.120.2x:/data/base/nginx/usr/share/nginx/html/mofun
   only:
     - main  # 仅在 main 分支推送时执行部署
   dependencies:

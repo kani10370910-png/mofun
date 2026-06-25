@@ -5,7 +5,7 @@
 import os, sys, socket, posixpath
 import paramiko
 
-HOST = "10.0.120.2"
+HOST = "10.0.120.2x"
 PORT = 22
 USER = "root"
 REMOTE = "/data/base/nginx/usr/share/nginx/html/mofun"
