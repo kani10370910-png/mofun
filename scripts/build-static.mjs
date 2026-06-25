@@ -40,7 +40,7 @@ process.on("SIGINT", () => {
   process.exit(130);
 });
 
-const env = { ...process.env, EXPORT: "1", BASE_PATH: process.env.BASE_PATH || "/" };
+const env = { ...process.env, EXPORT: "1", BASE_PATH: process.env.BASE_PATH || "" };
 // 直接调用本地 next 可执行文件，避免 alpine/sh 下 npx + shell 的参数与查找问题
 const isWin = process.platform === "win32";
 const nextBin = join(root, "node_modules", ".bin", isWin ? "next.cmd" : "next");
