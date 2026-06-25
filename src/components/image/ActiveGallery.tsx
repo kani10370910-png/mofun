@@ -15,13 +15,13 @@ export function ActiveGallery({ sub }: { sub: string }) {
 
   return (
     <>
-      <div className="ag-tabs">
-        <span className={tab === "history" ? "ag-tab on" : "ag-tab"} onClick={() => setTab("history")}>
+      <div className="tabs">
+        <div className={tab === "history" ? "tab on" : "tab"} onClick={() => setTab("history")}>
           生成历史
-        </span>
-        <span className={tab === "cases" ? "ag-tab on" : "ag-tab"} onClick={() => setTab("cases")}>
-          优秀案例
-        </span>
+        </div>
+        <div className={tab === "cases" ? "tab on" : "tab"} onClick={() => setTab("cases")}>
+          参考灵感
+        </div>
       </div>
       {items.length > 0 ? (
         <div className="ag-grid">
