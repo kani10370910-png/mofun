@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 // 部署到子目录 /mofun 时设 BASE_PATH=/mofun（构建时注入），本地开发留空。
 const basePath = process.env.BASE_PATH || "";
-
+console.log(basePath)
 const nextConfig = {
   reactStrictMode: true,
   // 关闭开发模式左下角的 Next.js Dev Tools 指示器（N 字圆形按钮）
