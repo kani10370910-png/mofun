@@ -20,7 +20,7 @@ const nextConfig = {
   // 部署在 /mofun 子目录：让框架资源(_next)、路由、Image 等自动带前缀
   basePath: basePath || undefined,
   // 把 basePath 暴露给客户端，供手写 <img> 的图片路径拼前缀（见 src/lib/asset.ts）
-  env: { NEXT_PUBLIC_BASE_PATH: basePath },
+  // env: { NEXT_PUBLIC_BASE_PATH: basePath },
 };
 
 export default nextConfig;
