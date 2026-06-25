@@ -3,6 +3,7 @@
 
 # next.js
 /.next/
+/mofun/
 /out/
 
 # production

@@ -148,3 +148,4 @@ export const IMG_ICON: Record<string, IconName> = { event: "imgPoster", product:
 export const VID_ICON: Record<string, IconName> = { oneline: "vidShortad", avatar: "vidShowcase", studio: "vidBrand" };
 export const CONTENT_ICON: Record<string, IconName> = { social: "wechat", official: "official", brand: "sparkle" };
 export const RESEARCH_ICON: Record<string, IconName> = { brand: "search", industry: "storage", hotsale: "sparkle" };
+

@@ -3092,3 +3092,4 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
 .af-fav:hover { border-color: #ff8fa0; color: #ff2e4d; }
 .af-fav.on { border-color: #ff2e4d; color: #ff2e4d; background: #fff0f2; }
 .af-fav.on svg { fill: #ff2e4d; }
+
