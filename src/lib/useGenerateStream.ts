@@ -10,6 +10,48 @@ export interface StreamState {
   done: boolean;
 }
 
+/** 一次性收集 /api/generate 的流式结果，返回完整文本（无 React 状态，供非 hook 场景调用）。
+    出错或被中断返回空串，调用方据空串回退原始输入。signal 可选用于中断。 */
+export async function collectGenerate(req: GenerateRequest, signal?: AbortSignal): Promise<string> {
+  let full = "";
+  try {
+    const resp = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+      signal,
+    });
+    const ctype = resp.headers.get("Content-Type") || "";
+    if (!resp.ok || !resp.body || ctype.includes("application/json")) return "";
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const events = buf.split("\n\n");
+      buf = events.pop() ?? "";
+      for (const evt of events) {
+        const line = evt.split("\n").find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        const data = line.slice(5).trim();
+        if (!data) continue;
+        try {
+          const json = JSON.parse(data);
+          if (json.error || json.done) continue;
+          if (typeof json.text === "string") full += json.text;
+        } catch {
+          /* 跳过解析失败的帧 */
+        }
+      }
+    }
+  } catch {
+    return "";
+  }
+  return full.trim();
+}
+
 /** 调 /api/generate 的流式 hook：逐块累加文本，支持中断 */
 export function useGenerateStream() {
   const [state, setState] = useState<StreamState>({ text: "", loading: false, error: null, done: false });

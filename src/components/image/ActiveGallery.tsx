@@ -5,10 +5,11 @@ import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { activeGalleryItems } from "@/data/image";
 import type { ActiveGalleryItem, AssetCard } from "@/lib/types";
-import { useLibrary } from "@/lib/store";
+import { ResultCardActions } from "./ResultCardActions";
+import { ImageEditModal } from "./ImageEditModal";
+import { DeepEditModal } from "./DeepEditModal";
 import { nowStamp } from "@/lib/datetime";
 import { asset as assetUrl } from "@/lib/asset";
-import { AutoBgImg } from "./AutoBgImg";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 
 /* 活动一次生成（文生图/图生图）的历史行：进度推进中 imgs 为空，完成后填入真图 URL */
@@ -65,6 +66,8 @@ export function ActiveGallery({
   runRows = [],
   onDeleteRun,
   onCopyRun,
+  onUseCase,
+  onPickCate,
 }: {
   sub: string;
   source?: ActiveGalleryItem[];
@@ -73,12 +76,23 @@ export function ActiveGallery({
   runRows?: EventRunRow[];
   onDeleteRun?: (id: string) => void;
   onCopyRun?: (prompt: string) => void;
+  onUseCase?: (it: ActiveGalleryItem) => void; // 套用模版：回填画面描述 + 成图类型 + 尺寸
+  onPickCate?: (it: ActiveGalleryItem) => void; // 点卡片：左侧成图类型 + 尺寸跳到该卡（不填描述）
 }) {
   const toast = useToast();
   const [innerTab, setInnerTab] = useState<"history" | "cases">("history");
   const curTab = tab ?? innerTab;
   const switchTab = setTab ?? setInnerTab;
   const [pendingDel, setPendingDel] = useState<string | null>(null);
+  const [onlyFav, setOnlyFav] = useState(false);
+  // 收藏：按图片唯一 key（行id + 图序号）记录，供「只看收藏」筛选
+  const [favs, setFavs] = useState<Set<string>>(() => new Set());
+  const toggleFav = (key: string) =>
+    setFavs((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
 
   const all = source ?? activeGalleryItems;
   const items = sub ? all.filter((it) => it.sub === sub) : all;
@@ -86,13 +100,22 @@ export function ActiveGallery({
 
   return (
     <>
-      <div className="tabs">
-        <div className={curTab === "history" ? "tab on" : "tab"} onClick={() => switchTab("history")}>
-          生成历史
+      <div className="lg-head">
+        <div className="tabs">
+          <div className={curTab === "history" ? "tab on" : "tab"} onClick={() => switchTab("history")}>
+            生成历史
+          </div>
+          <div className={curTab === "cases" ? "tab on" : "tab"} onClick={() => switchTab("cases")}>
+            参考灵感
+          </div>
         </div>
-        <div className={curTab === "cases" ? "tab on" : "tab"} onClick={() => switchTab("cases")}>
-          参考灵感
-        </div>
+        {curTab === "history" && hasHistory && (
+          <label className="lg-fav-switch">
+            <input type="checkbox" checked={onlyFav} onChange={(e) => setOnlyFav(e.target.checked)} />
+            <span className="lg-switch" />
+            只看收藏
+          </label>
+        )}
       </div>
 
       {curTab === "history" ? (
@@ -114,6 +137,9 @@ export function ActiveGallery({
                   <EventRunRowView
                     key={row.id}
                     row={row}
+                    onlyFav={onlyFav}
+                    favs={favs}
+                    onToggleFav={toggleFav}
                     onCopy={() => onCopyRun?.(row.prompt)}
                     onDelete={() => setPendingDel(row.id)}
                   />
@@ -125,16 +151,35 @@ export function ActiveGallery({
       ) : items.length > 0 ? (
         <div className="ag-grid">
           {items.map((it) => (
-            <div className="ag-card" key={it.name}>
+            <div
+              className="ag-card"
+              key={it.name}
+              onClick={() => onPickCate?.(it)} // 点卡片：左侧成图类型 + 尺寸跳到该卡
+              style={onPickCate ? { cursor: "pointer" } : undefined}
+            >
               <div className={`ag-thumb ${it.grad}`}>
                 <span className="ag-sub">{it.sub}</span>
                 {it.img ? (
-                  <AutoBgImg className="ag-img" src={assetUrl(it.img)} alt={it.name} />
+                  // 海报样张：按宽铺满直接展示（不走 AutoBgImg 智能裁切，那是给 logo 文字缩略用的）；
+                  // 超高部分由 .ag-img 的 object-position 在 hover 时从上滚到下展示全图
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img className="ag-img" src={assetUrl(it.img)} alt={it.name} loading="lazy" />
                 ) : (
                   <span className="ag-emoji">{it.emoji}</span>
                 )}
                 <div className="case-hover">
-                  <button className="btn btn-primary btn-sm" onClick={() => toast(`套用「${it.name}」（演示）`)}>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={(e) => {
+                      e.stopPropagation(); // 套用按钮不触发卡片的「只切类型」
+                      if (onUseCase) {
+                        onUseCase(it);
+                        toast(`已套用「${it.name}」，描述与成图类型已填入左侧`);
+                      } else {
+                        toast(`套用「${it.name}」（演示）`);
+                      }
+                    }}
+                  >
                     套用模版
                   </button>
                 </div>
@@ -164,17 +209,28 @@ export function ActiveGallery({
   );
 }
 
-/* 单条生成行：加载中显示进度占位，完成后显示真图卡 */
+/* 单条生成行：加载中显示进度占位，完成后显示真图卡；支持「只看收藏」筛选 */
 function EventRunRowView({
   row,
+  onlyFav,
+  favs,
+  onToggleFav,
   onCopy,
   onDelete,
 }: {
   row: EventRunRow;
+  onlyFav: boolean;
+  favs: Set<string>;
+  onToggleFav: (key: string) => void;
   onCopy: () => void;
   onDelete: () => void;
 }) {
   const loading = row.pct < 100;
+  // 完成后按收藏筛选；加载中不筛（保留进度占位）
+  const cells = row.grads.map((g, i) => ({ g, i, key: `${row.id}-${i}` }));
+  const shown = !loading && onlyFav ? cells.filter(({ key }) => favs.has(key)) : cells;
+  // 「只看收藏」下整行无收藏则隐藏该行
+  if (!loading && onlyFav && shown.length === 0) return null;
   return (
     <div className="lh-row">
       <div className="lh-meta">
@@ -196,7 +252,7 @@ function EventRunRowView({
         )}
       </div>
       <div className="lh-imgs">
-        {row.grads.map((g, i) =>
+        {shown.map(({ g, i, key }) =>
           loading ? (
             <div className={`lh-img ${g} lh-loading`} key={i}>
               <span className="lh-progress">{row.pct}%完成</span>
@@ -206,7 +262,14 @@ function EventRunRowView({
               </span>
             </div>
           ) : (
-            <EventResultCard key={i} img={row.imgs[i]} grad={g} name={row.prompt} />
+            <EventResultCard
+              key={i}
+              img={row.imgs[i]}
+              grad={g}
+              name={row.prompt}
+              fav={favs.has(key)}
+              onToggleFav={() => onToggleFav(key)}
+            />
           )
         )}
       </div>
@@ -214,12 +277,24 @@ function EventRunRowView({
   );
 }
 
-/* 结果卡：真图 + 收藏 / 下载 / 另存为素材，存入仓库 */
-function EventResultCard({ img, grad, name }: { img?: string; grad: string; name: string }) {
+/* 结果卡：真图 + 编辑/下载（打开编辑工作台）+ 收藏/另存（通用组件），存入仓库 */
+function EventResultCard({
+  img,
+  grad,
+  name,
+  fav,
+  onToggleFav,
+}: {
+  img?: string;
+  grad: string;
+  name: string;
+  fav?: boolean;
+  onToggleFav?: () => void;
+}) {
   const toast = useToast();
-  const { addMaterial, addWork, toggleFavorite } = useLibrary();
-  const [fav, setFav] = useState(false);
-  const [confirmSave, setConfirmSave] = useState(false);
+  const [editOpen, setEditOpen] = useState(false); // 编辑器
+  const [deepOpen, setDeepOpen] = useState(false); // 深度编辑（分层画布）
+  const [zoom, setZoom] = useState(false); // 点击图片（非按钮处）放大预览
 
   const card = (kind: string): AssetCard => ({
     emoji: "🎨",
@@ -231,19 +306,11 @@ function EventResultCard({ img, grad, name }: { img?: string; grad: string; name
     time: nowStamp(),
   });
 
-  function handleFav() {
-    setFav((v) => !v);
-    const a = card("图片");
-    addWork(a);
-    toggleFavorite(a);
-    toast(fav ? "已取消收藏" : "已收藏，可在「仓库 · 我的作品」查看");
-  }
-
-  // 下载真图：远程图经代理拉取避免跨域，data URL 直接下载
+  // 纯下载：远程图经代理拉取避免跨域，data/blob 直接下载
   async function handleDownload() {
     if (!img) return;
     try {
-      const src = img.startsWith("data:") ? img : `/api/proxy-image?url=${encodeURIComponent(img)}`;
+      const src = img.startsWith("data:") || img.startsWith("blob:") ? img : `/api/proxy-image?url=${encodeURIComponent(img)}`;
       const resp = await fetch(src);
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
@@ -270,37 +337,50 @@ function EventResultCard({ img, grad, name }: { img?: string; grad: string; name
   }
 
   return (
-    <div className={`lh-img ev-result ${grad}`}>
+    <div
+      className={`lh-img ev-result ${grad}`}
+      style={{ cursor: "zoom-in" }}
+      onClick={() => setZoom(true)}
+    >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img className="lh-result-img" src={assetUrl(img)} alt="活动生成图" loading="lazy" />
-      <button className={fav ? "lh-fav on" : "lh-fav"} title={fav ? "取消收藏" : "收藏"} onClick={(e) => { e.stopPropagation(); handleFav(); }}>
-        <Icon name="heart" size={15} />
-      </button>
-      <div className="lh-hover lh-hover-bottom">
-        <button className="btn btn-ghost btn-sm" onClick={handleDownload}>
-          下载
-        </button>
+      {/* hover 居中：编辑 / 深度编辑（点按钮不触发放大预览） */}
+      <div className="lh-hover lh-hover-center">
+        <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); setEditOpen(true); }}>编辑</button>
+        <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); setDeepOpen(true); }}>深度编辑</button>
       </div>
-      <button className="lh-saveas" title="另存为我的素材" onClick={(e) => { e.stopPropagation(); setConfirmSave(true); }}>
-        <Icon name="share" size={16} />
-      </button>
+      {/* 收藏 + 另存为（通用组件）：下载作为额外图标，排在另存为左边 */}
+      <ResultCardActions
+        asset={card}
+        fav={fav}
+        onToggleFav={onToggleFav}
+        extraActions={
+          <button
+            className="lh-saveas lh-tip"
+            data-tip="下载"
+            aria-label="下载"
+            onClick={(e) => { e.stopPropagation(); handleDownload(); }}
+          >
+            <Icon name="download" size={16} />
+          </button>
+        }
+      />
       <span className="lh-mark">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img className="lh-mark-logo" src={assetUrl("/brand-logo.png")} alt="魔方智绘" />
         由 AI 生成
       </span>
-      {confirmSave && (
-        <ConfirmModal
-          title="是否另存为我的素材？"
-          cancelText="取消"
-          confirmText="储存"
-          onCancel={() => setConfirmSave(false)}
-          onConfirm={() => {
-            addMaterial(card("素材"));
-            setConfirmSave(false);
-            toast("已另存为「仓库 · 我的素材」");
-          }}
-        />
+      {editOpen && <ImageEditModal img={img} name={name} onClose={() => setEditOpen(false)} />}
+      {deepOpen && <DeepEditModal img={img} name={name} onClose={() => setDeepOpen(false)} />}
+      {/* 点击图片放大预览：点遮罩或关闭按钮收起 */}
+      {zoom && (
+        <div className="img-zoom-mask" onClick={(e) => { e.stopPropagation(); setZoom(false); }}>
+          <button className="img-zoom-close" aria-label="关闭" onClick={(e) => { e.stopPropagation(); setZoom(false); }}>
+            <Icon name="close" size={22} />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="img-zoom-img" src={assetUrl(img)} alt={name} onClick={(e) => e.stopPropagation()} />
+        </div>
       )}
     </div>
   );

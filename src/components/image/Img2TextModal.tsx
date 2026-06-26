@@ -1,18 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 
-/* 「图转文」弹窗：上传一张图（点击 / 拖拽 / ctrl+v 粘贴）→ 调 /api/vision 反推出
-   适合文生图的画面描述词，点「转换成描述词」后通过 onResult 回填到描述框。
-   纯前端 UI，视觉理解走现有 /api/vision（OpenAI 兼容多模态）。 */
+/* 「图转文」面板：内嵌渲染在右侧结果区（与「帮我提案」同款交互，不再是居中弹窗）。
+   上传一张图（点击 / 拖拽 / ctrl+v 粘贴）→ 调 /api/vision 反推出适合文生图的画面描述词，
+   点「转换成描述词」后通过 onResult 回填到左侧描述框并关闭面板。 */
 
-// 反推画面描述词的提示词（面向文生图，区别于 IP 形象识别）
 const T2I_VISION_PROMPT =
-  "请把这张图转换成一段适合AI图像生成模型理解的中文画面描述词：" +
-  "客观描述画面主体、场景环境、风格氛围、光影色调、构图与文字要点等可视化元素。" +
+  "请像素级仔细观察这张图，把它【忠实地】转换成一段中文画面描述词，用于AI重新生成同款图。" +
+  "请按以下顺序逐项核对后再写：" +
+  "①头发的【真实颜色】（绿/蓝/棕/黑等，看准别猜错）与发型；" +
+  "②服饰的款式（如汉服/连衣裙）与【每个部位的真实颜色】；" +
+  "③双手【是否手持或佩戴物品】（如茶杯、篮子、道具），有就写明，没有才说空手；" +
+  "④表情、姿态、整体画风（Q版卡通/写实/插画等）、背景配色。" +
+  "【铁律】颜色和手持物必须与图完全一致，宁可不写也【绝不臆造或猜错颜色】，禁止添加图中没有的元素。" +
   "120字以内，只输出描述本身，不要标题、不要分点、不要换行。";
 
 function fileToDataUrl(f: File): Promise<string> {
@@ -35,11 +38,8 @@ export function Img2TextModal({
   const [img, setImg] = useState<string>(""); // data URL
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  // 仅客户端挂载后才 portal 到 body（避免 SSR 无 document）
-  useEffect(() => setMounted(true), []);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   async function accept(f: File | null | undefined) {
     if (!f) return;
@@ -58,7 +58,7 @@ export function Img2TextModal({
     }
   }
 
-  // 支持 ctrl+v 粘贴图片（弹窗打开期间全局监听）
+  // 支持 ctrl+v 粘贴图片
   useEffect(() => {
     function onPaste(e: ClipboardEvent) {
       const item = Array.from(e.clipboardData?.items || []).find((it) => it.type.startsWith("image/"));
@@ -69,6 +69,19 @@ export function Img2TextModal({
     }
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 点面板以外区域关闭（延后挂载，避免打开它的同一次点击立即关闭）
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) onClose();
+    };
+    const t = window.setTimeout(() => document.addEventListener("mousedown", onDown), 0);
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener("mousedown", onDown);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -96,14 +109,14 @@ export function Img2TextModal({
     }
   }
 
-  if (!mounted) return null;
-
-  return createPortal(
-    <div className="i2t-mask" onClick={onClose}>
-      <div className="i2t-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="i2t-head">
-          <div className="i2t-title">图转文</div>
-          <button className="i2t-close" onClick={onClose} aria-label="关闭">
+  return (
+    <div className="propose-pane">
+      <div className="propose-panel i2t-panel" ref={panelRef}>
+        <div className="propose-head">
+          <span className="propose-title">
+            <Icon name="image" size={16} /> 图转文
+          </span>
+          <button className="bf-close" onClick={onClose} aria-label="关闭">
             <Icon name="close" size={18} />
           </button>
         </div>
@@ -128,7 +141,7 @@ export function Img2TextModal({
             </>
           ) : (
             <>
-              <span className="i2t-plus"><Icon name="plus" size={22} /></span>
+              <span className="i2t-plus"><Icon name="plus" size={20} /></span>
               <div className="i2t-main">点击 / 拖拽上传图片</div>
               <div className="i2t-main">使用 ctrl+v 粘贴</div>
               <div className="i2t-sub">支持 10M 内 JPG / PNG</div>
@@ -144,21 +157,18 @@ export function Img2TextModal({
           onChange={(e) => { accept(e.target.files?.[0]); e.target.value = ""; }}
         />
 
-        <div className="i2t-foot">
-          <button
-            className={`btn btn-primary i2t-go ${!img || busy ? "is-disabled" : ""}`}
-            disabled={!img || busy}
-            onClick={convert}
-          >
-            {busy ? (
-              <span className="i2t-loading"><Icon name="refresh" size={15} className="ico-spin" /> 转换中…</span>
-            ) : (
-              "转换成描述词"
-            )}
-          </button>
-        </div>
+        <button
+          className={`btn btn-block propose-go${!img && !busy ? " is-disabled" : ""}`}
+          disabled={!img || busy}
+          onClick={convert}
+        >
+          {busy ? (
+            <span className="propose-loading"><Icon name="refresh" size={15} className="ico-spin" /> 转换中</span>
+          ) : (
+            "转换成描述词"
+          )}
+        </button>
       </div>
-    </div>,
-    document.body,
+    </div>
   );
 }

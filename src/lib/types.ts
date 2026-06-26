@@ -220,12 +220,25 @@ export interface ImageResult {
   grad: Grad;
 }
 
+/* 活动文生图·画面风格（九宫格选择） */
+export interface PaintStyle {
+  key: string;
+  name: string; // 风格名（如「国潮」）
+  emoji: string; // 无图时占位 emoji
+  grad: Grad; // 卡片背景渐变
+  prompt: string; // 出图时拼接的风格描述词（智能匹配为空，不拼）
+  img?: string; // 真实风格预览图（在 public 下），有则优先于 emoji
+}
+
 export interface ActiveGalleryItem {
-  emoji: string;
+  emoji?: string;
   sub: string;
   name: string;
   grad: Grad;
   img?: string; // 真实案例图（在 public 下），有则优先于 emoji
+  prompt?: string; // 套用模版时回填到「画面描述」的提示词
+  w?: number; // 样张原图宽（px），套用时设为自定义尺寸还原比例
+  h?: number; // 样张原图高（px）
 }
 
 /* ---------- 视频宣传 ---------- */
@@ -305,8 +318,13 @@ export type GenStages = Record<"content" | "image" | "video", string[]>;
 
 /* ---------- 文案生成 API ---------- */
 export interface GenerateRequest {
-  scene: ContentSceneKey | "ip" | "ip-propose" | "ip-story-desc" | "ip-story" | "t2i-associate";
+  scene: ContentSceneKey | "ip" | "ip-propose" | "ip-story-desc" | "ip-story" | "t2i-associate" | "t2i-event";
   mode?: "outline" | "full";
+  /* t2i-event（活动·文生图扩写）专用 */
+  eventSub?: string; // 成图类型：海报/长图/菜单/易拉宝/宣传单/…
+  imageRatio?: string; // 图片比例（如 3:4）
+  artStyle?: string; // 画面风格（如 国潮）
+  county?: string; // 县域/地区（暂为空）
   tone?: string;
   length?: string;
   brandAsset?: string;

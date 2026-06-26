@@ -1,16 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
 import { useToast } from "@/components/ui/Toast";
-import { imageModels, imageRatios, posterRatios, rollupRatios, flyerRatios, editModels, logoStyles } from "@/data/image";
+import { imageModels, imageRatios, posterRatios, rollupRatios, flyerRatios, editModels, editPresets, logoStyles, paintStyles } from "@/data/image";
 import type { SizePreset } from "@/lib/types";
 import type { ImageType } from "@/lib/types";
 import { asset } from "@/lib/asset";
 import { AutoBgImg } from "./AutoBgImg";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
-import { Img2TextModal } from "./Img2TextModal";
 import { useGenerateStream } from "@/lib/useGenerateStream";
 
 const modelOpts: DropdownOption[] = imageModels.map((m) => ({ name: m.name, desc: m.desc }));
@@ -30,7 +29,7 @@ const rollupOpts: DropdownOption[] = toRatioOpts(rollupRatios);
 const flyerOpts: DropdownOption[] = toRatioOpts(flyerRatios);
 
 // 按「成图类型」选用对应的尺寸下拉组（海报/易拉宝/宣传单各有专用尺寸，其余用通用比例）
-function ratioOptsForSub(sub: string): DropdownOption[] {
+export function ratioOptsForSub(sub: string): DropdownOption[] {
   if (sub === "海报") return posterOpts;
   if (sub === "易拉宝") return rollupOpts;
   if (sub === "宣传单") return flyerOpts;
@@ -178,9 +177,16 @@ export interface EventImageState {
   customH: string; // 「自定义」尺寸高（px）
   model: string;
   count: number;
+  style: string; // 画面风格名（「智能匹配」= 不拼风格词）
   uploaded: boolean;
+  refImg: string; // 图生图参考图（上传或从仓库选的图 URL / data URL）
+  refName: string; // 参考图名称（来自仓库时显示）
   editInput: string;
+  editPreset: string; // 当前选中的图片处理预设名（单选）
+  presetMore: boolean; // 「更多预设选项」是否展开
+  refStrength: number; // 「生成相似图」参考强度（0=弱 / 50=中 / 100=强）
   editModel: string;
+  fromCase?: boolean; // 描述来自「套用参考灵感」：立即生成时跳过 t2i 系统提示词二次扩写，直接出图
 }
 
 export function ImageEventPanel({
@@ -189,20 +195,62 @@ export function ImageEventPanel({
   setState,
   onGenerate,
   loading,
+  onOpenImg2Text,
+  onOpenStyle,
+  onOpenLibrary,
 }: {
   type: ImageType;
   state: EventImageState;
   setState: (s: EventImageState) => void;
   onGenerate: () => void;
   loading: boolean;
+  onOpenImg2Text?: () => void; // 点「图转文」：通知父级在右侧结果区展示图转文面板
+  onOpenStyle?: () => void; // 点「画面风格」：通知父级在右侧结果区展示风格选择面板
+  onOpenLibrary?: () => void; // 点「仓库」：通知父级打开仓库选图弹窗
 }) {
   const toast = useToast();
   const set = <K extends keyof EventImageState>(k: K, v: EventImageState[K]) => setState({ ...state, [k]: v });
 
-  // 文生图·描述词辅助：联想（LLM 扩写，流式回填）+ 图转文（弹窗，调视觉模型反推）
+  // 文生图·描述词辅助：联想（LLM 扩写，流式回填）+ 图转文（右侧面板，调视觉模型反推）
   const { generate, state: assocState } = useGenerateStream();
-  const [i2tOpen, setI2tOpen] = useState(false);
   const assocBusy = assocState.loading;
+  const refFileRef = useRef<HTMLInputElement>(null); // 图生图参考图本地上传
+
+  // 点图片处理预设：单选切换。选中则把对应提示词填入「修改需求」；
+  // 「不使用预设」或再次点已选项 → 取消选中并清空修改需求。
+  function pickEditPreset(name: string) {
+    const isCancel = name === "不使用预设" || state.editPreset === name;
+    if (isCancel) {
+      setState({ ...state, editPreset: name === "不使用预设" ? "不使用预设" : "", editInput: "" });
+      return;
+    }
+    const preset = editPresets.find((p) => p.name === name);
+    setState({ ...state, editPreset: name, editInput: preset?.prompt ?? "" });
+  }
+
+  // 把联想结果收敛到约 300 字：模型常超量（500+字）。在 target 附近找一个标点收尾、不切半句：
+  // 先在较宽窗口里挑离 300 最近的句末标点；没有就挑最近的逗号/顿号；都没有才硬切到 target。
+  function clampAssoc(text: string, target = 300, hardMax = 400): string {
+    const t = text.trim();
+    if (t.length <= hardMax) return t;
+    // 收集 [lo, hi] 内所有匹配位置（标点之后的下标），返回离 target 最近的一个，找不到返回 -1
+    const nearest = (re: RegExp, lo: number, hi: number): number => {
+      let best = -1, bestD = Infinity, m: RegExpExecArray | null;
+      const g = new RegExp(re.source, "g");
+      while ((m = g.exec(t))) {
+        const idx = m.index + 1;
+        if (idx > hi) break;
+        if (idx < lo) continue;
+        const d = Math.abs(idx - target);
+        if (d < bestD) { bestD = d; best = idx; }
+      }
+      return best;
+    };
+    const enderCut = nearest(/[。！？…；!?;]/, target - 80, target + 80); // [220,380] 找句末
+    const commaCut = enderCut > 0 ? enderCut : nearest(/[，、,]/, target - 60, target + 60); // 退而求逗号
+    const cut = commaCut > 0 ? commaCut : target;
+    return t.slice(0, cut).replace(/[，、,]$/, "").trim();
+  }
 
   async function onAssociate() {
     if (assocBusy) return;
@@ -211,7 +259,9 @@ export function ImageEventPanel({
       setState({ ...state, input: full });
     });
     if (result.trim()) {
-      setState({ ...state, input: result.trim() });
+      // 模型常超出 300 字，落定时收敛到约 300 字（句末收尾，不切半句）；
+      // 联想结果已是扩写成品 → 标记 fromCase，立即生成时不再二次扩写
+      setState({ ...state, input: clampAssoc(result), fromCase: true });
       toast("已联想扩写画面描述");
     }
   }
@@ -219,23 +269,23 @@ export function ImageEventPanel({
   return (
     <>
       <div className="ws-scroll">
-      <div className="ev-tabs">
-        <span className={state.tab === "t2i" ? "ev-tab on" : "ev-tab"} onClick={() => set("tab", "t2i")}>
-          文生图
-        </span>
-        <span className={state.tab === "i2i" ? "ev-tab on" : "ev-tab"} onClick={() => set("tab", "i2i")}>
-          图生图
-        </span>
-      </div>
-
-      {state.tab === "t2i" ? (
-        <>
+      {/* 固定在顶部：文生图/图生图 tab + 成图类型（仅文生图），其余内容向下滚动 */}
+      <div className="ev-sticky-top">
+        <div className="ev-tabs">
+          <span className={state.tab === "t2i" ? "ev-tab on" : "ev-tab"} onClick={() => set("tab", "t2i")}>
+            文生图
+          </span>
+          <span className={state.tab === "i2i" ? "ev-tab on" : "ev-tab"} onClick={() => set("tab", "i2i")}>
+            图生图
+          </span>
+        </div>
+        {state.tab === "t2i" && (
           <div className="field">
             <div className="ws-label">成图类型</div>
             <div className="preset-grid" id="iEventSub">
               <button
                 className={state.sub === "自定义" ? "preset-chip on" : "preset-chip"}
-                onClick={() => set("sub", "自定义")}
+                onClick={() => setState({ ...state, sub: "自定义", fromCase: false })}
               >
                 自定义
               </button>
@@ -244,10 +294,11 @@ export function ImageEventPanel({
                   key={s.name}
                   className={state.sub === s.name ? "preset-chip on" : "preset-chip"}
                   onClick={() => {
-                    // 切成图类型时，同步把「图片尺寸」重置为该类型尺寸组里第一个实际尺寸
+                    // 切成图类型时，同步把「图片尺寸」重置为该类型尺寸组里第一个实际尺寸；
+                    // 用户主动切类型 → 不再视作「套用灵感原样张」，清除 fromCase（恢复扩写）
                     const opts = ratioOptsForSub(s.name);
                     const firstReal = opts.find((o) => o.name !== "自定义") ?? opts[0];
-                    setState({ ...state, sub: s.name, ratio: firstReal?.name ?? state.ratio });
+                    setState({ ...state, sub: s.name, ratio: firstReal?.name ?? state.ratio, fromCase: false });
                   }}
                 >
                   {s.name}
@@ -255,14 +306,20 @@ export function ImageEventPanel({
               ))}
             </div>
           </div>
+        )}
+      </div>
+
+      {state.tab === "t2i" ? (
+        <>
           <div className="field">
             <div className="ws-label">
               画面描述 <span className="req">*</span>
             </div>
             <ClearableTextarea
               value={state.input}
-              onChange={(e) => set("input", e.target.value)}
-              onClear={() => set("input", "")}
+              // 用户手动编辑/清空描述 → 不再是「套用灵感原样张」，清除 fromCase（立即生成时恢复扩写）
+              onChange={(e) => setState({ ...state, input: e.target.value, fromCase: false })}
+              onClear={() => setState({ ...state, input: "", fromCase: false })}
               placeholder="请输入画面描述：主体、风格、氛围、文案…"
               toolbar={
                 <>
@@ -273,7 +330,7 @@ export function ImageEventPanel({
                       <><Icon name="sparkle" size={14} /> 联想</>
                     )}
                   </button>
-                  <button type="button" className="ta-tool" onClick={() => setI2tOpen(true)}>
+                  <button type="button" className="ta-tool" onClick={() => onOpenImg2Text?.()}>
                     <Icon name="image" size={14} /> 图转文
                   </button>
                 </>
@@ -327,6 +384,24 @@ export function ImageEventPanel({
               ))}
             </div>
           </div>
+          <div className="field">
+            <div className="ws-label">画面风格</div>
+            {(() => {
+              const cur = paintStyles.find((s) => s.name === state.style) ?? paintStyles[0];
+              return (
+                <button type="button" className="style-card" onClick={() => onOpenStyle?.()}>
+                  <span className={`sc-ico ${cur.grad}`}>{cur.emoji}</span>
+                  <span className="sc-text">
+                    <span className="sc-name">{cur.name}</span>
+                    <span className="sc-sub">点击更换风格</span>
+                  </span>
+                  <span className="sc-arrow">
+                    <Icon name="chevron" size={16} />
+                  </span>
+                </button>
+              );
+            })()}
+          </div>
         </>
       ) : (
         <>
@@ -335,24 +410,56 @@ export function ImageEventPanel({
               <div className="ws-label">
                 参考图片 <span className="req">*</span>
               </div>
-              <a className="ws-link" onClick={() => toast("从「我的素材」选图（演示）")}>
-                我的素材
+              <a className="ws-link" onClick={() => onOpenLibrary?.()}>
+                仓库
               </a>
             </div>
+            <input
+              ref={refFileRef}
+              type="file"
+              accept="image/jpeg,image/png"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) {
+                  const url = URL.createObjectURL(f);
+                  setState({ ...state, refImg: url, refName: f.name, uploaded: true });
+                }
+                e.target.value = "";
+              }}
+            />
             <div
-              className={`upload-box ${state.uploaded ? "filled thumb-grad-3" : ""}`}
-              style={state.uploaded ? { minHeight: 120, display: "grid", placeItems: "center", fontSize: 40, color: "#fff" } : undefined}
-              onClick={() => set("uploaded", !state.uploaded)}
+              className={`upload-box ${state.refImg ? "filled" : ""}`}
+              style={state.refImg ? { minHeight: 120, padding: 0, overflow: "hidden", position: "relative" } : undefined}
+              onClick={() => refFileRef.current?.click()}
             >
-              {state.uploaded ? (
-                "🖼️"
+              {state.refImg ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={state.refImg}
+                    alt={state.refName || "参考图"}
+                    style={{ width: "100%", height: 160, objectFit: "contain", display: "block", background: "#f3f4f6" }}
+                  />
+                  <button
+                    type="button"
+                    className="upload-clear"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (state.refImg.startsWith("blob:")) URL.revokeObjectURL(state.refImg);
+                      setState({ ...state, refImg: "", refName: "", uploaded: false });
+                    }}
+                  >
+                    <Icon name="close" size={14} />
+                  </button>
+                </>
               ) : (
                 <>
                   <span className="ub-ico">
                     <Icon name="image" size={26} />
                   </span>
                   <div className="ub-main">点击 / 拖拽上传图片</div>
-                  <div className="ub-sub">支持 jpg / jpeg / png</div>
+                  <div className="ub-sub">支持 jpg / jpeg / png，或从「仓库」选图</div>
                 </>
               )}
             </div>
@@ -367,6 +474,62 @@ export function ImageEventPanel({
             />
           </div>
           <div className="field">
+            <div className="ws-label">图片处理预设</div>
+            <div className="preset-grid">
+              {editPresets.slice(0, 6).map((p) => (
+                <button
+                  key={p.name}
+                  type="button"
+                  className={state.editPreset === p.name ? "preset-chip on" : "preset-chip"}
+                  onClick={() => pickEditPreset(p.name)}
+                >
+                  {p.name}
+                </button>
+              ))}
+              {state.presetMore && (
+                <div className="preset-more">
+                  {editPresets.slice(6).map((p) => (
+                    <button
+                      key={p.name}
+                      type="button"
+                      className={state.editPreset === p.name ? "preset-chip on" : "preset-chip"}
+                      onClick={() => pickEditPreset(p.name)}
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              className={`preset-toggle ${state.presetMore ? "open" : ""}`}
+              onClick={() => set("presetMore", !state.presetMore)}
+            >
+              <span className="pt-arrow"><Icon name="chevron" size={14} /></span>
+              <span className="pt-text">{state.presetMore ? "收起" : "更多预设选项"}</span>
+            </button>
+          </div>
+          {state.editPreset === "生成相似图" && (
+            <div className="field">
+              <div className="ws-label">参考强度</div>
+              <input
+                type="range"
+                className="slider"
+                min={0}
+                max={100}
+                step={50}
+                value={state.refStrength}
+                onChange={(e) => set("refStrength", Number(e.target.value))}
+              />
+              <div className="range-marks">
+                <span>弱</span>
+                <span>中</span>
+                <span>强</span>
+              </div>
+            </div>
+          )}
+          <div className="field">
             <div className="ws-label">编辑模型</div>
             <Dropdown title="编辑模型" triggerIcon="storage" options={editOpts} value={state.editModel} onChange={(o) => set("editModel", o.name)} />
           </div>
@@ -379,15 +542,6 @@ export function ImageEventPanel({
           <Icon name="sparkle" size={16} /> 立即生成
         </button>
       </div>
-      {i2tOpen && (
-        <Img2TextModal
-          onClose={() => setI2tOpen(false)}
-          onResult={(text) => {
-            // 图转文结果填入画面描述（替换当前内容）
-            setState({ ...state, input: text });
-          }}
-        />
-      )}
     </>
   );
 }

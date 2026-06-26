@@ -5,10 +5,10 @@ import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { fontCases, fontStories } from "@/data/image";
 import type { FontCase, FontStory, Grad, AssetCard, FontHistoryGroup } from "@/lib/types";
-import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { FontEditModal } from "./FontEditModal";
+import { ResultCardActions } from "./ResultCardActions";
 import { AutoBgImg } from "./AutoBgImg";
 import { asset as assetUrl } from "@/lib/asset";
 
@@ -420,10 +420,7 @@ function FontResultCard({
   fav?: boolean;
   onToggleFav?: () => void;
 }) {
-  const { addWork, addMaterial, toggleFavorite } = useLibrary();
   const [editOpen, setEditOpen] = useState(false);
-  // 「储存为我的素材」二次确认弹框（与 logo 卡片一致）
-  const [confirmSave, setConfirmSave] = useState(false);
   const asset = (kind: string): AssetCard => ({
     emoji: "🔤",
     grad: grad as AssetCard["grad"],
@@ -433,63 +430,21 @@ function FontResultCard({
     time: nowStamp(),
   });
 
-  // 收藏：本地切换（控制「只看收藏」筛选）+ 同步写入仓库（存为作品并标记收藏）
-  function handleToggleFav() {
-    onToggleFav?.();
-    const a = asset("图片");
-    addWork(a); // 确保该字在「我的作品」里（已存在则去重忽略）
-    toggleFavorite(a);
-    toast(fav ? "已取消收藏" : "已收藏，可在「仓库 · 我的作品」用「只看收藏」筛选");
-  }
-
   return (
     <div className={`lh-img ${grad}`}>
       <span className="lh-font-text">{text}</span>
-      {/* 右上角收藏按钮：hover 显示，点亮后可用「只看收藏」筛选 */}
-      <button
-        className={fav ? "lh-fav on" : "lh-fav"}
-        title={fav ? "取消收藏" : "收藏"}
-        onClick={(e) => {
-          e.stopPropagation();
-          handleToggleFav();
-        }}
-      >
-        <Icon name="heart" size={15} />
-      </button>
       <div className="lh-hover lh-hover-bottom">
         <button className="btn btn-ghost btn-sm" onClick={() => setEditOpen(true)}>
           换色/下载
         </button>
       </div>
-      {/* 右下角「另存为」图标按钮（hover 显示）：交互与 logo 卡片一致 */}
-      <button
-        className="lh-saveas"
-        title="保存为我的素材"
-        onClick={(e) => {
-          e.stopPropagation();
-          setConfirmSave(true);
-        }}
-      >
-        <Icon name="share" size={16} />
-      </button>
+      {/* 收藏 + 另存为：全局通用组件（受控收藏，联动「只看收藏」筛选） */}
+      <ResultCardActions asset={asset} fav={fav} onToggleFav={onToggleFav} />
       <span className="lh-mark">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img className="lh-mark-logo" src={assetUrl("/brand-logo.png")} alt="魔方智绘" />
         由 AI 生成
       </span>
-      {confirmSave && (
-        <ConfirmModal
-          title="是否保存为我的素材？"
-          cancelText="取消"
-          confirmText="保存"
-          onCancel={() => setConfirmSave(false)}
-          onConfirm={() => {
-            addMaterial(asset("素材"));
-            setConfirmSave(false);
-            toast("已保存为「仓库 · 我的素材」");
-          }}
-        />
-      )}
       {editOpen && (
         <FontEditModal text={text} effect={effect} dir={dir} grad={grad} onClose={() => setEditOpen(false)} />
       )}

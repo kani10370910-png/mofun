@@ -139,6 +139,16 @@ export const ICON_PATHS = {
     '<path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/>',
   outline:
     '<path d="M5 4h14"/><path d="M5 9h14"/><path d="M5 14h9"/><path d="M5 19h9"/>',
+  // 图层可见：眼睛
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.6"/>',
+  // 图层隐藏：眼睛带斜杠
+  eyeOff: '<path d="M3 3l18 18"/><path d="M10.6 6.1A9.5 9.5 0 0 1 12 6c6 0 9.5 6 9.5 6a16 16 0 0 1-2.5 3.1M6.4 7.4A15.7 15.7 0 0 0 2.5 12S6 18 12 18a9 9 0 0 0 3.3-.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
+  // 锁定图层
+  lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  // 移到最后（底层）：图钉朝下
+  pinBottom: '<path d="M9 20h6"/><path d="M10 20l-.5-7-3-2V9.5h11V11l-3 2-.5 7"/><path d="M12 9.5V3"/>',
+  // 三个点（更多操作）
+  dots: '<circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18" cy="12" r="1.4"/>',
 } as const;
 
 export type IconName = keyof typeof ICON_PATHS;

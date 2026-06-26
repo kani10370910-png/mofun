@@ -4,7 +4,6 @@ import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import type { AssetCard } from "@/lib/types";
-import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { ipCases, type IpCase } from "@/data/image";
@@ -12,6 +11,7 @@ import { AutoBgImg } from "./AutoBgImg";
 import { asset as assetUrl } from "@/lib/asset";
 import { IpStoryModal } from "./IpStoryModal";
 import { IpDownloadModal } from "./IpDownloadModal";
+import { ResultCardActions } from "./ResultCardActions";
 import type { IpGenPayload, IpCopyPayload } from "./ImageIpPanel";
 
 /* 延展设计：把当前图片信息带到 IP扩展设计功能 */
@@ -400,12 +400,10 @@ function IpResultCard({
   onExtend: (seed: IpExtendSeed) => void;
   onGenerate: (payload: IpGenPayload) => void;
 }) {
-  const [confirmSave, setConfirmSave] = useState(false);
   const [zoom, setZoom] = useState(false); // 点击图片放大预览
   const [imgError, setImgError] = useState(false); // 图片加载失败（URL 失效/超时）
   const [story, setStory] = useState(false); // IP 故事弹窗
   const [dlOpen, setDlOpen] = useState(false); // 编辑/下载（生成信息）弹窗
-  const { addMaterial, addWork, toggleFavorite } = useLibrary();
 
   const asset = (kind: string): AssetCard => ({
     emoji: "🧸",
@@ -416,15 +414,6 @@ function IpResultCard({
     img,
     time: nowStamp(),
   });
-
-  // 收藏：本地切换（控制「只看收藏」筛选）+ 同步写入仓库（存为作品并标记收藏）
-  function handleToggleFav() {
-    onToggleFav?.();
-    const a = asset("图片");
-    addWork(a); // 确保该图在「我的作品」里（已存在则去重忽略）
-    toggleFavorite(a);
-    toast(fav ? "已取消收藏" : "已收藏，可在「仓库 · 我的作品」用「只看收藏」筛选");
-  }
 
   // 下载当前图片到本地：走 /api/download 同源代理（跨域图床无 CORS，直连会被拦/跳转）
   function download() {
@@ -459,17 +448,6 @@ function IpResultCard({
       ) : (
         <span className="lh-emoji">{imgError ? "🖼️" : "🧸"}</span>
       )}
-      {/* 右上角收藏按钮：hover 显示，点亮后可用「只看收藏」筛选 */}
-      <button
-        className={fav ? "lh-fav on" : "lh-fav"}
-        title={fav ? "取消收藏" : "收藏"}
-        onClick={(e) => {
-          e.stopPropagation();
-          handleToggleFav();
-        }}
-      >
-        <Icon name="heart" size={15} />
-      </button>
       {/* hover 遮罩：居中「编辑/下载」胶囊按钮（结构 1:1 对齐 logo / AI 字体卡片） */}
       <div className="lh-hover lh-hover-bottom">
         <button
@@ -483,74 +461,56 @@ function IpResultCard({
           编辑/下载
         </button>
       </div>
-      {/* 右下角功能图标行（hover 显示）：IP故事 / 延展设计 / 下载 / 另存为，样式同 logo 的 .lh-saveas */}
-      <div className="lh-corner-acts">
-        <button
-          className="lh-saveas lh-tip"
-          data-tip="IP故事"
-          aria-label="IP故事"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (!img) return;
-            setStory(true);
-          }}
-        >
-          <Icon name="content" size={16} />
-        </button>
-        <button
-          className="lh-saveas lh-tip"
-          data-tip="延展设计"
-          aria-label="延展设计"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (!img) return;
-            onExtend({ img, name });
-          }}
-        >
-          <Icon name="toolExpand" size={16} />
-        </button>
-        <button
-          className="lh-saveas lh-tip"
-          data-tip="下载"
-          aria-label="下载"
-          onClick={(e) => {
-            e.stopPropagation();
-            download();
-          }}
-        >
-          <Icon name="download" size={16} />
-        </button>
-        <button
-          className="lh-saveas lh-tip"
-          data-tip="另存为我的素材"
-          aria-label="另存为"
-          onClick={(e) => {
-            e.stopPropagation();
-            setConfirmSave(true);
-          }}
-        >
-          <Icon name="share" size={16} />
-        </button>
-      </div>
+      {/* 收藏 + 另存为：全局通用组件（受控收藏 + IP 专属图标 IP故事/延展/下载作为额外按钮） */}
+      <ResultCardActions
+        asset={asset}
+        fav={fav}
+        onToggleFav={onToggleFav}
+        extraActions={
+          <>
+            <button
+              className="lh-saveas lh-tip"
+              data-tip="IP故事"
+              aria-label="IP故事"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!img) return;
+                setStory(true);
+              }}
+            >
+              <Icon name="content" size={16} />
+            </button>
+            <button
+              className="lh-saveas lh-tip"
+              data-tip="延展设计"
+              aria-label="延展设计"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!img) return;
+                onExtend({ img, name });
+              }}
+            >
+              <Icon name="toolExpand" size={16} />
+            </button>
+            <button
+              className="lh-saveas lh-tip"
+              data-tip="下载"
+              aria-label="下载"
+              onClick={(e) => {
+                e.stopPropagation();
+                download();
+              }}
+            >
+              <Icon name="download" size={16} />
+            </button>
+          </>
+        }
+      />
       <span className="lh-mark">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img className="lh-mark-logo" src={assetUrl("/brand-logo.png")} alt="魔方智绘" />
         由 AI 生成
       </span>
-      {confirmSave && (
-        <ConfirmModal
-          title="是否另存为我的素材？"
-          cancelText="取消"
-          confirmText="储存"
-          onCancel={() => setConfirmSave(false)}
-          onConfirm={() => {
-            addMaterial(asset("素材"));
-            addWork(asset("图片"));
-            setConfirmSave(false);
-            toast("已另存为「仓库 · 我的素材」");
-          }}
-        />
-      )}
       {/* 点击图片放大预览：点遮罩或关闭按钮收起 */}
       {zoom && img && (
         <div className="img-zoom-mask" onClick={(e) => { e.stopPropagation(); setZoom(false); }}>

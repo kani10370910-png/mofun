@@ -9,9 +9,11 @@ import { useToast } from "@/components/ui/Toast";
 import { useSimGenerate } from "@/lib/useSimGenerate";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
+import { imgToDataUrl } from "@/lib/image";
+import { collectGenerate } from "@/lib/useGenerateStream";
 import { logoSvgDataUrl } from "@/lib/logoSvg";
 import type { AssetCard } from "@/lib/types";
-import { imageTypes, imageModels, imageRatios, posterRatios, rollupRatios, flyerRatios, logoStyles, fontEffects, productGalleryItems, signageGalleryItems } from "@/data/image";
+import { imageTypes, imageModels, imageRatios, posterRatios, rollupRatios, flyerRatios, logoStyles, fontEffects, productGalleryItems, signageGalleryItems, paintStyles } from "@/data/image";
 import { genStages } from "@/data/genStages";
 import { IMG_ICON } from "@/data/icons";
 import type { IconName } from "@/data/icons";
@@ -20,6 +22,7 @@ import {
   ImageDefaultPanel,
   ImageEventPanel,
   ImageLogoPanel,
+  ratioOptsForSub,
   type DefaultImageState,
   type EventImageState,
   type LogoImageState,
@@ -28,6 +31,9 @@ import { ImageResult } from "./ImageResult";
 import { ImageIpPanel, ProposePanel, type IpGenPayload, type IpCopyPayload } from "./ImageIpPanel";
 import { IpGallery, type IpRunRow, type IpExtendSeed } from "./IpGallery";
 import { ActiveGallery, type EventRunRow } from "./ActiveGallery";
+import { Img2TextModal } from "./Img2TextModal";
+import { PaintStyleModal } from "./PaintStyleModal";
+import { LibraryPickerModal } from "./LibraryPickerModal";
 import { LogoGallery, type LogoRunRow } from "./LogoGallery";
 import { FontPanel, type FontImageState } from "./FontPanel";
 import { FontGallery, type FontRunRow } from "./FontGallery";
@@ -117,6 +123,12 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   const eventTimer = useRef<number | null>(null);
   // 活动右侧 tab：默认看「生成历史」（空态会引导）；生成时也停在生成历史看进度
   const [eventTab, setEventTab] = useState<"history" | "cases">("history");
+  // 活动·图转文面板：内嵌在右侧结果区（与「帮我提案」同款交互）
+  const [i2tOpen, setI2tOpen] = useState(false);
+  // 活动·画面风格选择面板：同款右侧浮层
+  const [styleOpen, setStyleOpen] = useState(false);
+  // 活动·图生图「仓库」选图弹窗（与 IP 设计一致）
+  const [eventLibOpen, setEventLibOpen] = useState(false);
 
   // 点生成历史图片上的「延展设计」：切到 IP扩展设计并把该图作为 IP 图
   function handleIpExtend(seed: IpExtendSeed) {
@@ -147,15 +159,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   // 普通/活动：模拟生成（先校验必填）
   function runGenerate() {
     if (active === "event") {
-      if (eventForm.tab === "i2i" && !eventForm.uploaded) {
-        toast("请先上传参考图片！", "warn");
-        return;
-      }
-      if (eventForm.tab === "t2i" && !eventForm.input.trim()) {
-        toast("请输入画面描述！", "warn");
-        return;
-      }
-      // 活动：真实文生图（右侧生成历史进度卡 + 真图）
+      // 活动：真实文生图 / 图生图（右侧生成历史进度卡 + 真图）；必填校验在 runEventGenerate 内
       runEventGenerate();
       return;
     } else if (active !== "ip" && !defForm.input.trim()) {
@@ -480,13 +484,47 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     setIpRuns((prev) => prev.filter((r) => r.id !== id));
   }
 
-  // 活动：点「立即生成」→ 右侧生成历史进度卡 → 调文生图出 N 张真图（N 取生成数量）
+  // 活动：点「立即生成」→ 右侧生成历史进度卡 → 调文生图/图生图出 N 张真图（N 取生成数量）
   async function runEventGenerate() {
     if (eventBusy) return;
+    const isI2i = eventForm.tab === "i2i";
+
+    // 行头展示的描述：图生图用「修改需求」，文生图用「画面描述」
+    const prompt = (isI2i ? eventForm.editInput : eventForm.input).trim();
+
+    // 图生图：参考图转 data URL（模型 image 参数需公网 URL / data URL；本地 blob 必须转）
+    let refDataUrl = "";
+    if (isI2i) {
+      if (!eventForm.refImg) {
+        toast("请先上传或从仓库选参考图片！", "warn");
+        return;
+      }
+      if (!eventForm.editInput.trim()) {
+        toast("请输入修改需求或选择一个图片处理预设！", "warn");
+        return;
+      }
+    } else if (!eventForm.input.trim()) {
+      toast("请输入画面描述！", "warn");
+      return;
+    }
+
     setEventBusy(true);
     setEventTab("history"); // 切到生成历史看进度
-    const prompt = eventForm.input.trim();
-    const n = Math.max(1, Math.min(4, eventForm.count || 4));
+
+    if (isI2i) {
+      refDataUrl = await imgToDataUrl(eventForm.refImg);
+      if (!refDataUrl) {
+        setEventBusy(false);
+        toast("参考图读取失败，请重新上传或换一张。", "warn");
+        return;
+      }
+    }
+
+    // 出图实际用的提示词：文生图在描述后追加画面风格词；图生图直接用修改需求
+    // （文生图会在进度卡出现后，用「成图类型」专属系统提示词把简短描述扩写成完整画面描述词，见下方 await）
+    const stylePrompt = isI2i ? "" : (paintStyles.find((s) => s.name === eventForm.style)?.prompt || "");
+    let genPrompt = stylePrompt ? `${prompt}，${stylePrompt}` : prompt;
+    const n = isI2i ? 1 : Math.max(1, Math.min(4, eventForm.count || 4)); // 图生图一次出 1 张
     const allGrads = ["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-grad-4"];
     const grads = allGrads.slice(0, n);
     const size = eventRatioToSize(eventForm.ratio, eventForm.customW, eventForm.customH);
@@ -495,7 +533,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     const row: EventRunRow = {
       id,
       prompt,
-      sub: eventForm.sub || "自定义",
+      sub: isI2i ? "图生图" : (eventForm.sub || "自定义"),
       ratioName: eventForm.ratio,
       time: nowStamp(),
       pct: 8,
@@ -503,6 +541,23 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       grads,
     };
     setEventRuns((prev) => [row, ...prev]);
+
+    // 文生图：按「成图类型」专属系统提示词，把用户简短描述扩写成完整画面描述词再出图
+    // （扩写失败/超时则回退用原始描述 + 风格词，不阻断出图）。
+    // fromCase=true（套用参考灵感 / 图转文 / 联想得到的成品描述）→ 跳过扩写，直接用现成描述出图。
+    if (!isI2i && !eventForm.fromCase) {
+      const expanded = await collectGenerate({
+        scene: "t2i-event",
+        input: prompt,
+        eventSub: eventForm.sub || "海报",
+        imageRatio: eventRatioLabel(eventForm.ratio, eventForm.customW, eventForm.customH),
+        artStyle: eventForm.style || "智能匹配",
+        county: "", // 县域/地区暂留空
+      });
+      if (expanded) {
+        genPrompt = stylePrompt ? `${expanded}，${stylePrompt}` : expanded;
+      }
+    }
 
     // 进度推进到 90%，剩余等真图返回
     let pct = 8;
@@ -521,7 +576,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         const r = await fetch("/api/image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt, size }),
+          // 图生图：带参考图（data URL）让模型据其改图；文生图不带 image
+          body: JSON.stringify({ prompt: genPrompt, size, ...(refDataUrl ? { image: refDataUrl } : {}) }),
         });
         const j = await r.json();
         const url = (j?.images?.[0] as string) || "";
@@ -622,7 +678,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
 
   const panel =
     active === "event" ? (
-      <ImageEventPanel type={type} state={eventForm} setState={setEventForm} onGenerate={runGenerate} loading={sim.state.open} />
+      <ImageEventPanel type={type} state={eventForm} setState={setEventForm} onGenerate={runGenerate} loading={sim.state.open} onOpenImg2Text={() => setI2tOpen(true)} onOpenStyle={() => setStyleOpen(true)} onOpenLibrary={() => setEventLibOpen(true)} />
     ) : active === "logo" ? (
       <ImageLogoPanel state={logoForm} setState={setLogoForm} onGenerate={runLogoGenerate} loading={logoBusy} />
     ) : active === "ip" ? (
@@ -720,14 +776,52 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     );
   } else if (active === "event") {
     resultArea = (
-      <ActiveGallery
-        sub={eventForm.sub === "自定义" ? "" : eventForm.sub}
-        tab={eventTab}
-        setTab={setEventTab}
-        runRows={eventRuns}
-        onDeleteRun={deleteEventRun}
-        onCopyRun={copyEventRun}
-      />
+      <>
+        <ActiveGallery
+          sub={eventForm.sub === "自定义" ? "" : eventForm.sub}
+          tab={eventTab}
+          setTab={setEventTab}
+          runRows={eventRuns}
+          onDeleteRun={deleteEventRun}
+          onCopyRun={copyEventRun}
+          onUseCase={(it) => {
+            // 套用灵感模版：回填画面描述 + 成图类型 + 该样张原图尺寸（自定义宽高还原比例）。
+            // 样张提示词本就是完整画面描述 → 标记 fromCase，立即生成时不再走系统提示词二次扩写。
+            setEventForm({ ...eventForm, tab: "t2i", sub: it.sub, input: it.prompt ?? eventForm.input, fromCase: !!it.prompt, ...caseSizeFields(it) });
+          }}
+          onPickCate={(it) => {
+            // 点灵感卡片：左侧成图类型 + 该样张原图尺寸跳转（不动画面描述）
+            setEventForm({ ...eventForm, tab: "t2i", sub: it.sub, ...caseSizeFields(it) });
+          }}
+        />
+        {i2tOpen && (
+          <Img2TextModal
+            onClose={() => setI2tOpen(false)}
+            onResult={(text) => {
+              // 图转文结果填入左侧画面描述；该结果已是完整画面描述 → fromCase，跳过二次扩写
+              setEventForm({ ...eventForm, tab: "t2i", input: text, fromCase: true });
+            }}
+          />
+        )}
+        {styleOpen && (
+          <PaintStyleModal
+            current={eventForm.style}
+            onClose={() => setStyleOpen(false)}
+            onPick={(styleName) => setEventForm({ ...eventForm, style: styleName })}
+          />
+        )}
+        {eventLibOpen && (
+          <LibraryPickerModal
+            onClose={() => setEventLibOpen(false)}
+            onPick={(img, name) => {
+              // 从仓库选图作为图生图参考图（远程 URL，自动切到图生图 tab）
+              setEventForm({ ...eventForm, tab: "i2i", refImg: img, refName: name, uploaded: true });
+              setEventLibOpen(false);
+              toast(`已从仓库选用「${name}」作为参考图`);
+            }}
+          />
+        )}
+      </>
     );
   } else if (active === "product") {
     // 商拍：右侧用通用画廊（生成历史 / 参考灵感），按图片尺寸子类筛选
@@ -790,6 +884,37 @@ function ipRatioToSize(ratioName: string): string {
 /* 活动「图片尺寸」名 → 文生图尺寸（保持宽高比，放大到 ≥369 万像素，取整到 8 的倍数）。
    - 「自定义」用 customW:customH 的比例
    - 其余按各尺寸组里该项的 size 字段（如「1080 × 1920 px」「13 × 18 cm」）解析出宽:高比 */
+/* 套用/点选灵感卡片时，把该样张原图尺寸映射成活动表单的尺寸字段：
+   - 有真实宽高 → 用「自定义」尺寸 + 填入宽高，100% 还原原图比例（各成图类型尺寸下拉常对不上样张 px 值）
+   - 无宽高 → 回退为该成图类型尺寸组里第一个实际尺寸 */
+function caseSizeFields(it: { sub: string; w?: number; h?: number }): { ratio: string; customW: string; customH: string } {
+  if (it.w && it.h) {
+    return { ratio: "自定义", customW: String(it.w), customH: String(it.h) };
+  }
+  const opts = ratioOptsForSub(it.sub);
+  const firstReal = opts.find((o) => o.name !== "自定义") ?? opts[0];
+  return { ratio: firstReal?.name ?? "自定义", customW: "", customH: "" };
+}
+
+/* 把尺寸名解析成给 LLM 的干净比例标签（如 "3:4"）：取宽高数字按最大公约数化简。
+   自定义用 customW/H；解析不到则回退 "1:1"。 */
+function eventRatioLabel(ratioName: string, customW = "", customH = ""): string {
+  let w = 0, h = 0;
+  if (ratioName === "自定义") {
+    w = Number(customW) || 0;
+    h = Number(customH) || 0;
+  } else {
+    const all = [...imageRatios, ...posterRatios, ...rollupRatios, ...flyerRatios];
+    const hit = all.find((s) => s.name === ratioName);
+    const m = hit?.size.match(/(\d+(?:\.\d+)?)\s*[×x:：]\s*(\d+(?:\.\d+)?)/);
+    if (m) { w = Number(m[1]) || 0; h = Number(m[2]) || 0; }
+  }
+  if (!w || !h) return "1:1";
+  const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+  const g = gcd(Math.round(w), Math.round(h)) || 1;
+  return `${Math.round(w / g)}:${Math.round(h / g)}`;
+}
+
 function eventRatioToSize(ratioName: string, customW = "", customH = ""): string {
   const MIN_PIXELS = 3686400;
   let w = 0,
@@ -839,8 +964,14 @@ function initEvent(type: ImageType): EventImageState {
     customH: "1920",
     model: imageModels[0].name,
     count: 4,
+    style: "智能匹配",
     uploaded: false,
+    refImg: "",
+    refName: "",
     editInput: "",
+    editPreset: "不使用预设",
+    presetMore: false,
+    refStrength: 0,
     editModel: "基础编辑模型",
   };
 }
