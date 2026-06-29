@@ -1,85 +1,10 @@
-/* 播放器声轨引擎：旁白优先用真实云端 TTS（/api/tts），失败回退浏览器 speechSynthesis；
-   背景音乐 / 环境声用 Web Audio 合成。所有声轨（含真实 TTS）都汇入同一 master 增益，
-   故播放/暂停=ctx.suspend/resume、静音=master.gain、循环=重起旁白，行为统一。 */
+/* 播放器声轨引擎：旁白优先用真实云端 TTS（/api/tts），失败回退浏览器 speechSynthesis。
+   BGM / 环境声合成已移除（Web Audio 振荡器/噪声会产生嗡嗡声），待接入真实音乐/音效模型后再加。 */
 
 interface PlayerAudioOpts {
   prompt: string;
   voice?: string; // 配音音色：不配音 / 温柔女声 / 沉稳男声 / 活力男声
-  bgm?: string; // 背景音乐：无 / 舒缓 / 轻快 / 大气 / 国风
-}
-
-// 背景音乐心情 → 基频 / 颤音速率（全部用正弦波：谐波少、声音柔和不嗡）
-const MOODS: Record<string, { root: number; tremolo: number }> = {
-  舒缓: { root: 220.0, tremolo: 0.10 },
-  轻快: { root: 261.63, tremolo: 0.16 },
-  大气: { root: 130.81, tremolo: 0.06 },
-  国风: { root: 196.0,  tremolo: 0.09 },
-};
-
-// 柔和和声 pad 接到 dest，返回停止函数（播放器与导出混音共用）
-function attachPad(ctx: AudioContext, dest: AudioNode, mood: { root: number; tremolo: number }): () => void {
-  const padGain = ctx.createGain();
-  padGain.gain.setValueAtTime(0, ctx.currentTime);
-  padGain.gain.linearRampToValueAtTime(0.10, ctx.currentTime + 2.0); // 音量降低、淡入更慢
-  padGain.connect(dest);
-
-  const oscs = [0, 1, 2].map((i) => {
-    const o = ctx.createOscillator();
-    o.type = "sine"; // 统一正弦波，无高次谐波
-    o.frequency.value = mood.root * [1, 1.5, 2][i];
-    o.detune.value = (i - 1) * 5;
-    // 每个振荡器过低通（截 700 Hz），消除因 detune 差拍产生的嗡嗡感
-    const lp = ctx.createBiquadFilter();
-    lp.type = "lowpass";
-    lp.frequency.value = 700;
-    lp.Q.value = 0.5;
-    o.connect(lp);
-    lp.connect(padGain);
-    o.start();
-    return o;
-  });
-
-  // 极慢颤音（<0.2 Hz），幅度很小，不产生可闻调制噪声
-  const lfo = ctx.createOscillator();
-  lfo.frequency.value = mood.tremolo;
-  const lfoGain = ctx.createGain();
-  lfoGain.gain.value = 0.03; // 从 0.06 减到 0.03
-  lfo.connect(lfoGain);
-  lfoGain.connect(padGain.gain);
-  lfo.start();
-
-  return () => {
-    oscs.forEach((o) => o.stop());
-    lfo.stop();
-  };
-}
-
-// 环境声（布朗噪声→低通）接到 dest，返回停止函数
-function attachAmbient(ctx: AudioContext, dest: AudioNode): () => void {
-  const size = 2 * ctx.sampleRate;
-  const buffer = ctx.createBuffer(1, size, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  let last = 0;
-  for (let i = 0; i < size; i++) {
-    const white = Math.random() * 2 - 1;
-    last = (last + 0.02 * white) / 1.02;
-    // 从 3.2 降到 1.4，避免样本超过 ±1 削波失真
-    data[i] = Math.max(-1, Math.min(1, last * 1.4));
-  }
-  const src = ctx.createBufferSource();
-  src.buffer = buffer;
-  src.loop = true;
-  const lp = ctx.createBiquadFilter();
-  lp.type = "lowpass";
-  lp.frequency.value = 400; // 从 720 降到 400，滤掉嗡嗡的中高频噪声
-  lp.Q.value = 0.3;
-  const g = ctx.createGain();
-  g.gain.value = 0.04; // 从 0.05 微降
-  src.connect(lp);
-  lp.connect(g);
-  g.connect(dest);
-  src.start();
-  return () => src.stop();
+  bgm?: string;   // 保留字段兼容调用方，当前不产生合成声音
 }
 
 // 拉取真实 TTS 并解码为 AudioBuffer；未配置/失败返回 null
@@ -100,8 +25,8 @@ async function fetchTtsBuffer(ctx: AudioContext, prompt: string, voice?: string)
   }
 }
 
-/* 导出混音：构建一条含 BGM+环境声(+真实 TTS 旁白) 的音频流，供 MediaRecorder 与画面轨合成。
-   说明：浏览器 speechSynthesis 不经 AudioContext、无法被捕获进文件，故仅当真实 TTS 就绪时旁白才入文件。 */
+/* 导出混音：仅当真实 TTS 旁白就绪时才建立音频流，供 MediaRecorder 与画面轨合成。
+   无 TTS 时返回 null，下载文件为纯视频轨（无声）。 */
 export interface ExportAudio {
   stream: MediaStream;
   hasNarration: boolean;
@@ -111,46 +36,30 @@ export async function buildExportAudio(opts: { bgm?: string; voice?: string; pro
   if (typeof AudioContext === "undefined") return null;
   const ctx = new AudioContext();
   const master = ctx.createGain();
-  master.gain.value = 0.85;
+  master.gain.value = 1.0;
   const dest = ctx.createMediaStreamDestination();
   master.connect(dest);
 
-  const stops: Array<() => void> = [];
-  if (opts.bgm && opts.bgm !== "无") stops.push(attachPad(ctx, master, MOODS[opts.bgm] ?? MOODS["舒缓"]));
-  stops.push(attachAmbient(ctx, master));
-
-  let hasNarration = false;
   const ttsBuf = await fetchTtsBuffer(ctx, opts.prompt, opts.voice);
-  if (ttsBuf) {
-    const narr = ctx.createGain();
-    narr.gain.value = 1.0;
-    narr.connect(master);
-    const src = ctx.createBufferSource();
-    src.buffer = ttsBuf;
-    src.connect(narr);
-    src.start();
-    stops.push(() => {
-      try {
-        src.stop();
-      } catch {
-        /* 已停止 */
-      }
-    });
-    hasNarration = true;
+  if (!ttsBuf) {
+    void ctx.close();
+    return null; // 无真实 TTS → 不混音，下载纯视频
   }
+
+  const narr = ctx.createGain();
+  narr.gain.value = 1.0;
+  narr.connect(master);
+  const src = ctx.createBufferSource();
+  src.buffer = ttsBuf;
+  src.connect(narr);
+  src.start();
 
   await ctx.resume();
   return {
     stream: dest.stream,
-    hasNarration,
+    hasNarration: true,
     dispose: () => {
-      stops.forEach((s) => {
-        try {
-          s();
-        } catch {
-          /* 忽略 */
-        }
-      });
+      try { src.stop(); } catch { /* 已停止 */ }
       void ctx.close();
     },
   };
@@ -159,17 +68,15 @@ export async function buildExportAudio(opts: { bgm?: string; voice?: string; pro
 export class PlayerAudio {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
-  private narrGain: GainNode | null = null; // 旁白专用增益（汇入 master）
-  private stops: Array<() => void> = [];
+  private narrGain: GainNode | null = null;
 
-  private started = false; // 是否已首次起播
+  private started = false;
   private muted = false;
 
-  // 真实 TTS
   private ttsBuffer: AudioBuffer | null = null;
   private ttsSource: AudioBufferSourceNode | null = null;
-  private ttsTried = false; // 是否已尝试过拉取（失败则不再重试，转浏览器语音）
-  private useTts = false; // 真实 TTS 是否就绪并启用
+  private ttsTried = false;
+  private useTts = false;
 
   constructor(private opts: PlayerAudioOpts) {}
 
@@ -189,16 +96,13 @@ export class PlayerAudio {
     if (this.ctx || typeof window === "undefined" || typeof AudioContext === "undefined") return;
     this.ctx = new AudioContext();
     this.master = this.ctx.createGain();
-    this.master.gain.value = this.muted ? 0 : 0.6;
+    this.master.gain.value = this.muted ? 0 : 1.0;
     this.master.connect(this.ctx.destination);
     this.narrGain = this.ctx.createGain();
-    this.narrGain.gain.value = 1.0; // 旁白比背景音乐更突出
+    this.narrGain.gain.value = 1.0;
     this.narrGain.connect(this.master);
-    if (this.opts.bgm && this.opts.bgm !== "无") this.stops.push(attachPad(this.ctx, this.master, MOODS[this.opts.bgm] ?? MOODS["舒缓"]));
-    this.stops.push(attachAmbient(this.ctx, this.master)); // 环境声始终生成
   }
 
-  // —— 真实 TTS —— //
   private async ensureTtsBuffer(): Promise<boolean> {
     if (this.ttsBuffer) return true;
     if (this.ttsTried) return false;
@@ -220,30 +124,24 @@ export class PlayerAudio {
 
   private stopTtsSource() {
     if (this.ttsSource) {
-      try {
-        this.ttsSource.stop();
-      } catch {
-        /* 已停止 */
-      }
+      try { this.ttsSource.stop(); } catch { /* 已停止 */ }
       this.ttsSource.disconnect();
       this.ttsSource = null;
     }
   }
 
-  // 首次起播旁白：先试真实 TTS，失败回退浏览器语音
   private beginNarration() {
     if (!this.hasVoice) return;
     this.ensureTtsBuffer().then((ok) => {
       if (ok) {
         this.useTts = true;
-        this.startTtsSource(); // 静音由 master 处理，无需特判
+        this.startTtsSource();
       } else {
         this.speakBrowser();
       }
     });
   }
 
-  // —— 浏览器语音回退 —— //
   private speakBrowser() {
     if (this.muted || !this.hasVoice || !this.hasSpeech) return;
     const start = () => {
@@ -269,25 +167,22 @@ export class PlayerAudio {
     }
   }
 
-  // —— 对外控制 —— //
   play() {
     this.ensure();
-    void this.ctx?.resume(); // 恢复音乐/环境声/真实 TTS 时钟
+    void this.ctx?.resume();
     if (!this.started) {
       this.started = true;
       this.beginNarration();
       return;
     }
-    // 已起播过：真实 TTS 随 ctx.resume 自动续播；浏览器语音需手动 resume
     if (!this.useTts && this.hasSpeech && window.speechSynthesis.paused) window.speechSynthesis.resume();
   }
 
   pause() {
-    void this.ctx?.suspend(); // 一并暂停音乐/环境声/真实 TTS
+    void this.ctx?.suspend();
     if (!this.useTts && this.hasSpeech && window.speechSynthesis.speaking) window.speechSynthesis.pause();
   }
 
-  // 循环回到片头：重读旁白
   restart() {
     if (this.useTts) {
       this.startTtsSource();
@@ -300,23 +195,14 @@ export class PlayerAudio {
 
   setMuted(m: boolean, playing: boolean) {
     this.muted = m;
-    if (this.master) this.master.gain.value = m ? 0 : 0.6; // 真实 TTS 走 master，静音即生效
+    if (this.master) this.master.gain.value = m ? 0 : 1.0;
     if (this.useTts || !this.hasSpeech) return;
-    // 浏览器语音回退：静音取消，取消静音时若在播则重读
     if (m) window.speechSynthesis.cancel();
     else if (playing) this.speakBrowser();
   }
 
   destroy() {
     this.stopTtsSource();
-    this.stops.forEach((s) => {
-      try {
-        s();
-      } catch {
-        /* 忽略已停止节点 */
-      }
-    });
-    this.stops = [];
     void this.ctx?.close();
     this.ctx = null;
     if (this.hasSpeech) window.speechSynthesis.cancel();
