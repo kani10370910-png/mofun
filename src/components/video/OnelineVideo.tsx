@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/Toast";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
+import { PlayerAudio } from "@/lib/playerAudio";
 import {
   videoSceneTpls,
   videoSceneCats,
@@ -1180,19 +1181,48 @@ function VideoPlayerModal({
   const total = durSeconds(row.dur);
   const tracks = tracksFor(row.voice, row.bgm);
   const [playing, setPlaying] = useState(true);
+  const [muted, setMuted] = useState(false);
   const [t, setT] = useState(0); // 当前播放秒（浮点）
   const raf = useRef(0);
   const last = useRef(0);
   const seeking = useRef(false);
+  const audio = useRef<PlayerAudio | null>(null);
 
-  // rAF 推进播放时间，到结尾循环回 0
+  // 声轨引擎：随播放器开关创建/销毁（旁白+BGM+环境声，浏览器原生合成）
+  useEffect(() => {
+    audio.current = new PlayerAudio({ prompt: row.prompt, voice: row.voice, bgm: row.bgm });
+    return () => {
+      audio.current?.destroy();
+      audio.current = null;
+    };
+  }, [row.prompt, row.voice, row.bgm]);
+
+  // 播放/暂停 → 声音同步
+  useEffect(() => {
+    if (playing) audio.current?.play();
+    else audio.current?.pause();
+  }, [playing]);
+
+  // 静音开关
+  useEffect(() => {
+    audio.current?.setMuted(muted, playing);
+  }, [muted]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // rAF 推进播放时间，到结尾循环回 0（循环时重读旁白）
   useEffect(() => {
     if (!playing) return;
     last.current = performance.now();
     const tick = (now: number) => {
       const dt = (now - last.current) / 1000;
       last.current = now;
-      if (!seeking.current) setT((cur) => (cur + dt >= total ? 0 : cur + dt));
+      if (!seeking.current)
+        setT((cur) => {
+          if (cur + dt >= total) {
+            audio.current?.restart();
+            return 0;
+          }
+          return cur + dt;
+        });
       raf.current = requestAnimationFrame(tick);
     };
     raf.current = requestAnimationFrame(tick);
@@ -1284,6 +1314,14 @@ function VideoPlayerModal({
             <span className="vp-knob" style={{ left: `${prog * 100}%` }} />
           </div>
           <span className="vp-time">{fmt(total)}</span>
+          <button
+            className="vp-ctrl vp-mute"
+            onClick={() => setMuted((m) => !m)}
+            aria-label={muted ? "取消静音" : "静音"}
+            title={muted ? "取消静音" : "静音"}
+          >
+            {muted ? "🔇" : "🔊"}
+          </button>
         </div>
 
         <div className="vp-tracks">

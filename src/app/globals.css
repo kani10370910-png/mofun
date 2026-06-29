@@ -3619,6 +3619,8 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 .vp-controls { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
 .vp-ctrl { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; border: none; background: var(--c-primary); color: #fff; cursor: pointer; font-size: 12px; display: grid; place-items: center; }
 .vp-ctrl:hover { filter: brightness(.95); }
+.vp-mute { background: var(--c-bg); border: 1px solid var(--c-line); color: var(--c-ink); font-size: 15px; }
+.vp-mute:hover { background: var(--c-white); filter: none; }
 .vp-time { flex: 0 0 auto; font-size: 12px; color: var(--c-muted); font-variant-numeric: tabular-nums; }
 .vp-track { flex: 1; height: 6px; background: var(--c-line); border-radius: 4px; cursor: pointer; position: relative; touch-action: none; }
 .vp-fill { position: absolute; left: 0; top: 0; height: 100%; background: var(--c-primary); border-radius: 4px; }
