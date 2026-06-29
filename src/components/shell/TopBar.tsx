@@ -51,7 +51,8 @@ export function TopBar() {
 
         <div className="topbar-right">
           {/* 风格切换下拉（暂为 UI 占位，后续接真实主题切换） */}
-          <select className="style-select" defaultValue={THEMES[0]} aria-label="风格切换">
+          <select className="style-select" defaultValue="风格切换" aria-label="风格切换">
+            <option value="风格切换" disabled hidden>风格切换</option>
             {THEMES.map((t) => (
               <option key={t} value={t}>{t}</option>
             ))}
