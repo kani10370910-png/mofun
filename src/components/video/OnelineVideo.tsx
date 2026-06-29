@@ -84,6 +84,12 @@ function posterFor(row: VideoRunRow): string {
   for (let i = 0; i < row.id.length; i++) h = (h * 31 + row.id.charCodeAt(i)) >>> 0;
   return POSTER_POOL[h % POSTER_POOL.length];
 }
+// 参考灵感：取前 6 个县域场景模板 + 海报样张，供右栏一键套用到提示词
+const INSPIRE = videoSceneTpls.slice(0, 6).map((t, i) => ({
+  ...t,
+  poster: POSTER_POOL[i % POSTER_POOL.length],
+}));
+
 // "5秒" → 5
 function durSeconds(dur: string): number {
   return parseInt(dur.match(/\d+/)?.[0] ?? "5", 10);
@@ -174,6 +180,15 @@ export function OnelineVideo() {
     setScene(s);
     setPrompt(p);
     if (/【.+?】/.test(p)) toast("引导词含县域变量，发布时将从县域知识库自动填充（演示）");
+  }
+
+  // 套用右栏参考灵感：切到文生视频并填入对应场景提示词
+  function useInspire(it: (typeof INSPIRE)[number]) {
+    setTab("t2v");
+    setSceneCat(it.cat);
+    setScene(it.scene);
+    setPrompt(it.prompt);
+    toast("已套用参考灵感到提示词");
   }
 
   // AI 扩写（演示）：在原描述后补一段镜头/光影细节
@@ -502,7 +517,7 @@ export function OnelineVideo() {
   return (
     <>
         {/* 左侧表单 */}
-        <div className="workspace">
+        <div className="workspace ov-workspace">
           <div className="ws-panel sticky">
             <div className="ws-scroll">
               {/* 文生 / 图生 双 Tab + 顶部吸顶 */}
@@ -604,21 +619,12 @@ export function OnelineVideo() {
                     </div>
                   </div>
 
-                  {/* 运动描述 + 参考词库 */}
+                  {/* 视频预设（在前）+ 运动描述（在后） */}
                   <div className="field">
                     <div className="ws-label">
-                      运动描述 <span className="req">*</span>
+                      视频预设 <span className="ws-label-hint">点选预设快速填入运动描述</span>
                     </div>
-                    <ClearableTextarea
-                      value={motion}
-                      onChange={(e) => setMotion(e.target.value)}
-                      onClear={() => setMotion("")}
-                      placeholder="描述画面如何运动，例如：花朵随风轻轻摆动，镜头缓缓推近"
-                    />
-                    <div className="ws-label" style={{ marginTop: 12 }}>
-                      视频预设 <span className="ws-label-hint">点选下方预设快速填入运动描述</span>
-                    </div>
-                    <div className="filter-row" style={{ margin: "10px 0 6px" }}>
+                    <div className="filter-row" style={{ margin: "0 0 6px" }}>
                       {motionWords.map((m) => (
                         <span key={m.cat} className={motionCat === m.cat ? "sel-chip on" : "sel-chip"} onClick={() => setMotionCat(m.cat)}>
                           {m.cat}
@@ -643,6 +649,15 @@ export function OnelineVideo() {
                         );
                       })}
                     </div>
+                    <div className="ws-label" style={{ marginTop: 14 }}>
+                      运动描述 <span className="req">*</span>
+                    </div>
+                    <ClearableTextarea
+                      value={motion}
+                      onChange={(e) => setMotion(e.target.value)}
+                      onClear={() => setMotion("")}
+                      placeholder="描述画面如何运动，例如：花朵随风轻轻摆动，镜头缓缓推近"
+                    />
                   </div>
                 </>
               )}
@@ -750,6 +765,32 @@ export function OnelineVideo() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* 最右：参考灵感 */}
+        <div className="ws-panel ov-inspire">
+          <div className="lg-head">
+            <div className="tabs">
+              <div className="tab on">参考灵感</div>
+            </div>
+          </div>
+          <div className="ov-inspire-list">
+            {INSPIRE.map((it) => (
+              <div className="ov-insp-card" key={it.scene}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img className="ov-insp-thumb" src={it.poster} alt={it.scene} />
+                <div className="ov-insp-body">
+                  <div className="ov-insp-scene">
+                    {it.emoji} {it.scene}
+                  </div>
+                  <div className="ov-insp-prompt">{it.prompt}</div>
+                  <button className="btn btn-soft btn-sm ov-insp-use" onClick={() => useInspire(it)}>
+                    <Icon name="sparkle" size={13} /> 用此灵感
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -994,6 +1035,11 @@ function VideoPlayerModal({
         <div className="vp-head">
           <span className="ov-run-mode">{row.mode === "i2v" ? "图生视频" : "文生视频"}</span>
           <span className="vp-title">{row.prompt}</span>
+          <span className="vp-meta-chips">
+            <span className="vp-chip">{row.style}</span>
+            <span className="vp-chip">{row.ratio}</span>
+            <span className="vp-chip">{row.dur}</span>
+          </span>
           <button className="vp-close" onClick={onClose} aria-label="关闭">
             <Icon name="close" size={18} />
           </button>
@@ -1041,7 +1087,6 @@ function VideoPlayerModal({
             <span className="vp-knob" style={{ left: `${prog * 100}%` }} />
           </div>
           <span className="vp-time">{fmt(total)}</span>
-          <span className="vp-meta">{row.style} · {row.ratio}</span>
         </div>
 
         <div className="vp-foot">
