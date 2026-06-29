@@ -48,6 +48,7 @@ const SEED_RUNS: VideoRunRow[] = [
     grad: "thumb-grad-1",
     voice: "温柔女声",
     bgm: "舒缓",
+    withAudio: true,
   },
   {
     id: "seed-2",
@@ -63,6 +64,7 @@ const SEED_RUNS: VideoRunRow[] = [
     grad: "thumb-grad-3",
     voice: "沉稳男声",
     bgm: "大气",
+    withAudio: true,
   },
   {
     id: "seed-3",
@@ -78,6 +80,7 @@ const SEED_RUNS: VideoRunRow[] = [
     grad: "thumb-grad-2",
     voice: "不配音",
     bgm: "国风",
+    withAudio: true,
   },
 ];
 
@@ -335,6 +338,7 @@ export function OnelineVideo() {
       poster: isI2v ? firstFrame : undefined,
       voice: genAudio ? voice : "不配音",
       bgm: genAudio ? bgm : "无",
+      withAudio: genAudio,
     });
   }
 
@@ -349,6 +353,7 @@ export function OnelineVideo() {
     poster?: string;
     voice?: string;
     bgm?: string;
+    withAudio?: boolean;
   }) {
     setBusy(true);
     const id = "v-" + ++seq.current;
@@ -368,6 +373,7 @@ export function OnelineVideo() {
       grad,
       voice: p.voice,
       bgm: p.bgm,
+      withAudio: p.withAudio !== false, // 默认 true，显式传 false 时关闭
     };
     setRuns((prev) => [row, ...prev]);
 
@@ -406,18 +412,23 @@ export function OnelineVideo() {
       // 混音封装完成 → MP4 有声视频
       upd({ status: "done", pct: 100, poster: finalPoster });
       setBusy(false);
-      const tracks = tracksFor(p.voice, p.bgm);
+      const hasAudio = row.withAudio !== false;
+      const tracks = hasAudio ? tracksFor(p.voice, p.bgm) : [];
       addWork({
         emoji: "🎬",
         grad,
         kind: "视频",
         name: `${p.text.slice(0, 12) || "一句话视频"} · ${p.dur}`,
-        sub: "视频生成 · 一句话成片 · 有声",
+        sub: hasAudio ? "视频生成 · 一句话成片 · 有声" : "视频生成 · 一句话成片",
         img: finalPoster,
         time: nowStamp(),
         edit: { sub: "oneline", input: p.text, model, voice: p.voice ?? voice, bgm: p.bgm ?? bgm },
       });
-      toast(`🔊 有声视频已合成（${tracks.map((t) => t.name).join("·")}），已存入「我的作品」`);
+      if (hasAudio) {
+        toast(`🔊 有声视频已合成（${tracks.map((t) => t.name).join("·")}），已存入「我的作品」`);
+      } else {
+        toast("视频已生成（静音），已存入「我的作品」");
+      }
     });
   }
 
@@ -557,12 +568,14 @@ export function OnelineVideo() {
       };
 
       const videoStream = canvas.captureStream(30);
-      // 混音：把 BGM+环境声(+真实 TTS 旁白) 合成进视频文件，让下载的视频真正带声音
+      // 混音：仅在「同时生成声音=开启」时才合成音轨进文件
       let expAudio: ExportAudio | null = null;
-      try {
-        expAudio = await buildExportAudio({ bgm: row.bgm, voice: row.voice, prompt: row.prompt });
-      } catch {
-        expAudio = null;
+      if (row.withAudio !== false) {
+        try {
+          expAudio = await buildExportAudio({ bgm: row.bgm, voice: row.voice, prompt: row.prompt });
+        } catch {
+          expAudio = null;
+        }
       }
       const stream = expAudio
         ? new MediaStream([...videoStream.getVideoTracks(), ...expAudio.stream.getAudioTracks()])
@@ -1232,7 +1245,7 @@ function VideoRunCard({
             </button>
             <div className="ov-play">▶</div>
             <span className="ov-video-dur">00:{durLabel}</span>
-            <span className="ov-video-audio">🔊 有声</span>
+            {row.withAudio !== false && <span className="ov-video-audio">🔊 有声</span>}
             <span className="lh-mark">由 AI 生成</span>
           </>
         )}
@@ -1276,7 +1289,7 @@ function VideoPlayerModal({
   onStudio: () => void;
 }) {
   const total = durSeconds(row.dur);
-  const tracks = tracksFor(row.voice, row.bgm);
+  const tracks = row.withAudio !== false ? tracksFor(row.voice, row.bgm) : [];
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(false);
   const [t, setT] = useState(0); // 当前播放秒（浮点）
@@ -1285,8 +1298,9 @@ function VideoPlayerModal({
   const seeking = useRef(false);
   const audio = useRef<PlayerAudio | null>(null);
 
-  // 声轨引擎：随播放器开关创建/销毁（旁白+BGM+环境声，浏览器原生合成）
+  // 声轨引擎：仅在「同时生成声音=开启」时创建，关闭时不生成任何音轨
   useEffect(() => {
+    if (row.withAudio === false) return;
     audio.current = new PlayerAudio({ prompt: row.prompt, voice: row.voice, bgm: row.bgm });
     return () => {
       audio.current?.destroy();
@@ -1362,7 +1376,7 @@ function VideoPlayerModal({
             <span className="vp-chip">{row.style}</span>
             <span className="vp-chip">{row.ratio}</span>
             <span className="vp-chip">{row.dur}</span>
-            <span className="vp-chip vp-chip-audio">🔊 有声</span>
+            {row.withAudio !== false && <span className="vp-chip vp-chip-audio">🔊 有声</span>}
           </span>
           <button className="vp-close" onClick={onClose} aria-label="关闭">
             <Icon name="close" size={18} />

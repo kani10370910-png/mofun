@@ -305,6 +305,7 @@ export interface VideoRunRow {
   grad: Grad;
   voice?: string; // 旁白/对白音色（音画管线）
   bgm?: string; // 背景音乐（音画管线）
+  withAudio?: boolean; // 是否同时生成声音（false = 静音视频，不生成任何音轨）
 }
 
 // 音画一体生成管线阶段（一句话视频：无声视频→镜头分析→声音设计→多轨音频→对齐→混音）
