@@ -120,6 +120,30 @@ function ratioWH(ratio: string): [number, number] {
   return [parts[0] ?? 16, parts[1] ?? 9];
 }
 
+// 视频比例 → 图像模型出图尺寸：豆包 Seedream 要求 ≥3686400 像素，按比例取面积≈4M、64 对齐的尺寸
+function ratioToSize(ratio: string): string {
+  const [w, h] = ratioWH(ratio);
+  const k = Math.sqrt(4_000_000 / (w * h));
+  const align = (n: number) => Math.max(64, Math.ceil((n * k) / 64) * 64);
+  return `${align(w)}x${align(h)}`;
+}
+
+// 调真实图像模型按提示词生成视频首帧画面（文生视频「生成画面」环节）；失败返回 null 回退样张池
+async function genVideoFrame(prompt: string, ratio: string): Promise<string | null> {
+  try {
+    const r = await fetch("/api/image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, size: ratioToSize(ratio) }),
+    });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { images?: string[] };
+    return j.images?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // 由累计进度 pct 反推当前所处的音画管线阶段下标
 function stageOf(pct: number): number {
   const i = videoPipeline.findIndex((s) => pct < s.to);
@@ -351,34 +375,50 @@ export function OnelineVideo() {
     const upd = (patch: Partial<VideoRunRow>) =>
       setRuns((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 
+    // 「生成画面」：文生视频调真实图像模型按提示词出首帧；图生视频用已上传的首帧
+    const framePromise: Promise<string | null> =
+      p.mode === "i2v" ? Promise.resolve(p.poster ?? null) : genVideoFrame(p.text, p.ratio);
+    let frameReady = false;
+    let frameUrl: string | null = p.poster ?? null;
+    framePromise.then((url) => {
+      frameReady = true;
+      if (url) {
+        frameUrl = url;
+        upd({ poster: url }); // 模型出图后即时铺到卡片封面
+      }
+    });
+
     timers.current.push(window.setTimeout(() => upd({ status: "running", pct: 4 }), 800));
     let pct = 4;
     const iv = window.setInterval(() => {
-      pct = Math.min(99, pct + 4);
+      // 画面未就绪时进度封顶 90%（模型仍在出片），就绪后放行到 99%
+      const cap = frameReady ? 99 : 90;
+      pct = Math.min(cap, pct + 4);
       upd({ pct });
-      if (pct >= 99) window.clearInterval(iv);
     }, 240);
     timers.current.push(iv as unknown as number);
-    timers.current.push(
-      window.setTimeout(() => {
-        window.clearInterval(iv);
-        // 混音封装完成 → MP4 有声视频
-        upd({ status: "done", pct: 100 });
-        setBusy(false);
-        const tracks = tracksFor(p.voice, p.bgm);
-        addWork({
-          emoji: "🎬",
-          grad,
-          kind: "视频",
-          name: `${p.text.slice(0, 12) || "一句话视频"} · ${p.dur}`,
-          sub: "视频生成 · 一句话成片 · 有声",
-          img: p.poster,
-          time: nowStamp(),
-          edit: { sub: "oneline", input: p.text, model, voice: p.voice ?? voice, bgm: p.bgm ?? bgm },
-        });
-        toast(`🔊 有声视频已合成（${tracks.map((t) => t.name).join("·")}），已存入「我的作品」`);
-      }, 6400)
-    );
+
+    // 完成时机：等画面生成完成（无论成败）+ 最短演示节奏，二者都满足才封装
+    const minDelay = new Promise<void>((res) => timers.current.push(window.setTimeout(res, 3500)));
+    void Promise.all([framePromise.catch(() => null), minDelay]).then(() => {
+      window.clearInterval(iv);
+      const finalPoster = frameUrl ?? p.poster;
+      // 混音封装完成 → MP4 有声视频
+      upd({ status: "done", pct: 100, poster: finalPoster });
+      setBusy(false);
+      const tracks = tracksFor(p.voice, p.bgm);
+      addWork({
+        emoji: "🎬",
+        grad,
+        kind: "视频",
+        name: `${p.text.slice(0, 12) || "一句话视频"} · ${p.dur}`,
+        sub: "视频生成 · 一句话成片 · 有声",
+        img: finalPoster,
+        time: nowStamp(),
+        edit: { sub: "oneline", input: p.text, model, voice: p.voice ?? voice, bgm: p.bgm ?? bgm },
+      });
+      toast(`🔊 有声视频已合成（${tracks.map((t) => t.name).join("·")}），已存入「我的作品」`);
+    });
   }
 
   // 重新生成：把该记录参数回填到表单，并按原参数立即重新入队
@@ -463,7 +503,8 @@ export function OnelineVideo() {
     try {
       const img = new Image();
       img.crossOrigin = "anonymous";
-      img.src = src;
+      // 模型出图是跨域图床 URL，直接进 canvas 会污染（taint）导致无法导出，先经同源代理取字节
+      img.src = /^https?:\/\//i.test(src) ? `/api/proxy-image?url=${encodeURIComponent(src)}` : src;
       await img.decode();
 
       const [rw, rh] = ratioWH(row.ratio);
