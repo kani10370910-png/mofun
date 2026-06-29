@@ -149,6 +149,23 @@ async function genVideoFrames(prompt: string, ratio: string): Promise<string[]> 
     .filter((u): u is string => !!u);
 }
 
+// 调真实视频模型（Seedance 2.0 / MiniMax 等）生成含音画的视频文件；失败返回 null，前端自动降级 Ken Burns
+async function genRealVideo(prompt: string, ratio: string, dur: string, videoModel: string): Promise<string | null> {
+  try {
+    const r = await fetch("/api/video", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, ratio, dur, model: videoModel }),
+      signal: AbortSignal.timeout(110_000), // 稍低于后端 120s 上限
+    });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { videoUrl?: string };
+    return j.videoUrl ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // 由累计进度 pct 反推当前所处的音画管线阶段下标
 function stageOf(pct: number): number {
   const i = videoPipeline.findIndex((s) => pct < s.to);
@@ -342,6 +359,7 @@ export function OnelineVideo() {
       voice: genAudio ? voice : "不配音",
       bgm: genAudio ? bgm : "无",
       withAudio: genAudio,
+      videoModel: model,
     });
   }
 
@@ -357,6 +375,7 @@ export function OnelineVideo() {
     voice?: string;
     bgm?: string;
     withAudio?: boolean;
+    videoModel?: string; // 当前选中的视频模型（用于真实视频生成）
   }) {
     setBusy(true);
     const id = "v-" + ++seq.current;
@@ -410,6 +429,19 @@ export function OnelineVideo() {
       upd({ pct });
     }, 240);
     timers.current.push(iv as unknown as number);
+
+    // 后台静默调真实视频模型（Seedance 2.0 等）；成功后直接升级 row.videoUrl，Ken Burns 版本已可用不阻塞
+    if (p.mode === "t2v") {
+      const vm = p.videoModel ?? model;
+      genRealVideo(p.text, p.ratio, p.dur, vm)
+        .then((videoUrl) => {
+          if (videoUrl) {
+            upd({ videoUrl });
+            toast("🎬 音画视频就绪！播放器已升级为真实视频（含内置音轨）");
+          }
+        })
+        .catch(() => { /* 忽略：Ken Burns 版本已就绪 */ });
+    }
 
     // 完成时机：等画面生成完成（无论成败）+ 最短演示节奏，二者都满足才封装
     const minDelay = new Promise<void>((res) => timers.current.push(window.setTimeout(res, 3500)));
@@ -501,6 +533,19 @@ export function OnelineVideo() {
   async function downloadVideo(row: VideoRunRow) {
     if (dlRef.current) {
       toast("视频正在生成中，请稍候…");
+      return;
+    }
+    // 真实视频：直接触发浏览器下载，无需 canvas 录制
+    if (row.videoUrl) {
+      const a = document.createElement("a");
+      a.href = row.videoUrl;
+      a.download = `${row.prompt.slice(0, 16) || "video"}.mp4`;
+      a.target = "_blank";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast("已开始下载真实视频（MP4 · 含音画同步音轨）");
       return;
     }
     const src = row.poster || posterFor(row);
@@ -1436,78 +1481,102 @@ function VideoPlayerModal({
         </div>
 
         <div className="vp-stage" style={{ aspectRatio: ratioToAspect(row.ratio) }}>
-          {/* 当前帧 Ken Burns */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            className="vp-frame"
-            src={frames[segIdx]}
-            alt={row.prompt}
-            style={{ transform: `scale(${scale}) translate(${tx}%, ${ty}%)` }}
-          />
-          {/* 下一帧交叉淡入（仅多帧时且需要切换时） */}
-          {crossAlpha > 0 && nextIdx !== segIdx && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              className="vp-frame vp-frame-next"
-              src={frames[nextIdx]}
-              alt={row.prompt}
-              style={{ opacity: crossAlpha }}
+          {row.videoUrl ? (
+            /* 真实视频：原生 <video>，内置音画同步音轨 */
+            // eslint-disable-next-line jsx-a11y/media-has-caption
+            <video
+              className="vp-real-video"
+              src={row.videoUrl}
+              autoPlay
+              controls
+              playsInline
+              loop
             />
-          )}
-          <div className="vp-vignette" />
-          <div className="vp-caption">{row.prompt}</div>
-          {!playing && (
-            <button className="vp-bigplay" onClick={() => setPlaying(true)} aria-label="播放">
-              ▶
-            </button>
+          ) : (
+            <>
+              {/* Ken Burns 多帧播放（无真实视频时的降级方案） */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                className="vp-frame"
+                src={frames[segIdx]}
+                alt={row.prompt}
+                style={{ transform: `scale(${scale}) translate(${tx}%, ${ty}%)` }}
+              />
+              {crossAlpha > 0 && nextIdx !== segIdx && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  className="vp-frame vp-frame-next"
+                  src={frames[nextIdx]}
+                  alt={row.prompt}
+                  style={{ opacity: crossAlpha }}
+                />
+              )}
+              <div className="vp-vignette" />
+              <div className="vp-caption">{row.prompt}</div>
+              {!playing && (
+                <button className="vp-bigplay" onClick={() => setPlaying(true)} aria-label="播放">
+                  ▶
+                </button>
+              )}
+            </>
           )}
         </div>
 
-        <div className="vp-controls">
-          <button className="vp-ctrl" onClick={() => setPlaying((p) => !p)} aria-label={playing ? "暂停" : "播放"}>
-            {playing ? "❚❚" : "▶"}
-          </button>
-          <span className="vp-time">{fmt(t)}</span>
-          <div
-            className="vp-track"
-            onPointerDown={(e) => {
-              seeking.current = true;
-              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-              seekAt(e.clientX, e.currentTarget);
-            }}
-            onPointerMove={(e) => {
-              if (seeking.current) seekAt(e.clientX, e.currentTarget);
-            }}
-            onPointerUp={(e) => {
-              seeking.current = false;
-              last.current = performance.now();
-              (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-            }}
-          >
-            <span className="vp-fill" style={{ width: `${prog * 100}%` }} />
-            <span className="vp-knob" style={{ left: `${prog * 100}%` }} />
+        {/* 自定义控制条：仅 Ken Burns 降级模式下显示；真实视频使用 <video controls> 原生控制 */}
+        {!row.videoUrl && (
+          <div className="vp-controls">
+            <button className="vp-ctrl" onClick={() => setPlaying((p) => !p)} aria-label={playing ? "暂停" : "播放"}>
+              {playing ? "❚❚" : "▶"}
+            </button>
+            <span className="vp-time">{fmt(t)}</span>
+            <div
+              className="vp-track"
+              onPointerDown={(e) => {
+                seeking.current = true;
+                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                seekAt(e.clientX, e.currentTarget);
+              }}
+              onPointerMove={(e) => {
+                if (seeking.current) seekAt(e.clientX, e.currentTarget);
+              }}
+              onPointerUp={(e) => {
+                seeking.current = false;
+                last.current = performance.now();
+                (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+              }}
+            >
+              <span className="vp-fill" style={{ width: `${prog * 100}%` }} />
+              <span className="vp-knob" style={{ left: `${prog * 100}%` }} />
+            </div>
+            <span className="vp-time">{fmt(total)}</span>
+            <button
+              className="vp-ctrl vp-mute"
+              onClick={() => setMuted((m) => !m)}
+              aria-label={muted ? "取消静音" : "静音"}
+              title={muted ? "取消静音" : "静音"}
+            >
+              {muted ? "🔇" : "🔊"}
+            </button>
           </div>
-          <span className="vp-time">{fmt(total)}</span>
-          <button
-            className="vp-ctrl vp-mute"
-            onClick={() => setMuted((m) => !m)}
-            aria-label={muted ? "取消静音" : "静音"}
-            title={muted ? "取消静音" : "静音"}
-          >
-            {muted ? "🔇" : "🔊"}
-          </button>
-        </div>
+        )}
 
         <div className="vp-tracks">
           <span className="vp-tracks-label">音轨</span>
-          {tracks.map((t) => (
-            <span key={t.key} className="vp-atrack">
-              <span className="vp-atrack-ico">{t.ico}</span>
-              {t.name}
-              {t.key === "tts" && row.voice ? ` · ${row.voice}` : ""}
-              {t.key === "bgm" && row.bgm ? ` · ${row.bgm}` : ""}
+          {row.videoUrl ? (
+            <span className="vp-atrack">
+              <span className="vp-atrack-ico">🎬</span>
+              音画同步 · Seedance 2.0 内置音轨
             </span>
-          ))}
+          ) : (
+            tracks.map((t) => (
+              <span key={t.key} className="vp-atrack">
+                <span className="vp-atrack-ico">{t.ico}</span>
+                {t.name}
+                {t.key === "tts" && row.voice ? ` · ${row.voice}` : ""}
+                {t.key === "bgm" && row.bgm ? ` · ${row.bgm}` : ""}
+              </span>
+            ))
+          )}
         </div>
 
         <div className="vp-foot">

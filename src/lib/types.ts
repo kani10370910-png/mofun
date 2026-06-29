@@ -303,6 +303,7 @@ export interface VideoRunRow {
   pct: number;
   poster?: string; // 演示用占位封面（首帧图 / 渐变）
   frames?: string[]; // AI 生成的多帧关键图数组（T2V 并行生成 2 帧，用于多段 Ken Burns + 交叉淡入）
+  videoUrl?: string; // 真实视频 URL（Seedance 2.0 等模型生成，含音画同步音轨，优先于 Ken Burns 播放）
   grad: Grad;
   voice?: string; // 旁白/对白音色（音画管线）
   bgm?: string; // 背景音乐（音画管线）
