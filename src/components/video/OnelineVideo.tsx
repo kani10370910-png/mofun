@@ -18,6 +18,8 @@ import {
   videoVoices,
   videoBgms,
   videoModels,
+  videoPipeline,
+  audioTracks,
 } from "@/data/video";
 import type { VideoRunRow, Grad, AssetCard } from "@/lib/types";
 
@@ -43,6 +45,8 @@ const SEED_RUNS: VideoRunRow[] = [
     status: "done",
     pct: 100,
     grad: "thumb-grad-1",
+    voice: "温柔女声",
+    bgm: "舒缓",
   },
   {
     id: "seed-2",
@@ -56,6 +60,8 @@ const SEED_RUNS: VideoRunRow[] = [
     status: "done",
     pct: 100,
     grad: "thumb-grad-3",
+    voice: "沉稳男声",
+    bgm: "大气",
   },
   {
     id: "seed-3",
@@ -69,6 +75,8 @@ const SEED_RUNS: VideoRunRow[] = [
     pct: 100,
     poster: "/poster-samples/20251219175905342092j5c2dj.jpg",
     grad: "thumb-grad-2",
+    voice: "不配音",
+    bgm: "国风",
   },
 ];
 
@@ -96,6 +104,21 @@ const INSPIRE = videoSceneTpls.slice(0, 6).map((t, i) => ({
 // "5秒" → 5
 function durSeconds(dur: string): number {
   return parseInt(dur.match(/\d+/)?.[0] ?? "5", 10);
+}
+
+// 由累计进度 pct 反推当前所处的音画管线阶段下标
+function stageOf(pct: number): number {
+  const i = videoPipeline.findIndex((s) => pct < s.to);
+  return i === -1 ? videoPipeline.length - 1 : i;
+}
+
+// 据配音/BGM 选择推导本次实际生成的音轨：旁白随配音、BGM随背景音乐，音效+环境声始终自动生成
+function tracksFor(voice?: string, bgm?: string) {
+  return audioTracks.filter((t) => {
+    if (t.key === "tts") return !!voice && voice !== "不配音";
+    if (t.key === "bgm") return !!bgm && bgm !== "无";
+    return true; // sfx / amb 始终生成
+  });
 }
 
 // canvas 字幕换行绘制：按字符折行，超过 maxLines 行末尾省略号，从底部向上排版
@@ -271,10 +294,12 @@ export function OnelineVideo() {
       dur,
       style,
       poster: isI2v ? firstFrame : undefined,
+      voice,
+      bgm,
     });
   }
 
-  // 入队 + 进度状态机（文生 / 图生 / 重新生成 三处共用）
+  // 入队 + 音画管线进度状态机（文生 / 图生 / 重新生成 三处共用）
   function enqueue(p: {
     mode: "t2v" | "i2v";
     text: string;
@@ -283,6 +308,8 @@ export function OnelineVideo() {
     dur: string;
     style: string;
     poster?: string;
+    voice?: string;
+    bgm?: string;
   }) {
     setBusy(true);
     const id = "v-" + ++seq.current;
@@ -300,38 +327,42 @@ export function OnelineVideo() {
       pct: 0,
       poster: p.poster,
       grad,
+      voice: p.voice,
+      bgm: p.bgm,
     };
     setRuns((prev) => [row, ...prev]);
 
-    // 排队中 → 生成中 → 进度推进 → 安全复检 → 完成（演示节奏）
+    // 排队 → 无声视频 → 镜头分析 → 声音设计 → 多轨音频 → 对齐 → 混音封装（音画管线节奏）
     const upd = (patch: Partial<VideoRunRow>) =>
       setRuns((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 
-    timers.current.push(window.setTimeout(() => upd({ status: "running", pct: 8 }), 1000));
-    let pct = 8;
+    timers.current.push(window.setTimeout(() => upd({ status: "running", pct: 4 }), 800));
+    let pct = 4;
     const iv = window.setInterval(() => {
-      pct = Math.min(92, pct + 9);
+      pct = Math.min(99, pct + 4);
       upd({ pct });
-    }, 700);
+      if (pct >= 99) window.clearInterval(iv);
+    }, 240);
     timers.current.push(iv as unknown as number);
     timers.current.push(
       window.setTimeout(() => {
         window.clearInterval(iv);
-        // F10-10 安全复检（演示通过）→ 完成
+        // 混音封装完成 → MP4 有声视频
         upd({ status: "done", pct: 100 });
         setBusy(false);
+        const tracks = tracksFor(p.voice, p.bgm);
         addWork({
           emoji: "🎬",
           grad,
           kind: "视频",
           name: `${p.text.slice(0, 12) || "一句话视频"} · ${p.dur}`,
-          sub: "视频生成 · 一句话成片",
+          sub: "视频生成 · 一句话成片 · 有声",
           img: p.poster,
           time: nowStamp(),
-          edit: { sub: "oneline", input: p.text, model, voice, bgm },
+          edit: { sub: "oneline", input: p.text, model, voice: p.voice ?? voice, bgm: p.bgm ?? bgm },
         });
-        toast(`视频已生成（${voice}${bgm === "无" ? "" : " · " + bgm}），已存入「我的作品」`);
-      }, 5200)
+        toast(`🔊 有声视频已合成（${tracks.map((t) => t.name).join("·")}），已存入「我的作品」`);
+      }, 6400)
     );
   }
 
@@ -356,6 +387,8 @@ export function OnelineVideo() {
       dur: row.dur,
       style: row.style,
       poster: row.poster,
+      voice: row.voice ?? voice,
+      bgm: row.bgm ?? bgm,
     });
     toast("已按原参数重新生成");
   }
@@ -1043,12 +1076,50 @@ function VideoRunCard({
           <img className="ov-video-poster" src={row.poster || posterFor(row)} alt="视频封面" />
         ) : null}
         {loading ? (
-          <div className="ov-video-loading">
-            <Icon name="refresh" size={26} className="ico-spin" />
-            <div className="ov-video-status">{STATUS_TEXT[row.status]}</div>
-            <div className="ov-video-bar"><span style={{ width: `${row.pct}%` }} /></div>
-            <div className="ov-video-pct">{row.pct}%</div>
-          </div>
+          row.status === "pending" ? (
+            <div className="ov-video-loading">
+              <Icon name="refresh" size={26} className="ico-spin" />
+              <div className="ov-video-status">{STATUS_TEXT.pending}</div>
+            </div>
+          ) : (
+            (() => {
+              const si = stageOf(row.pct);
+              const st = videoPipeline[si];
+              const tracks = tracksFor(row.voice, row.bgm);
+              return (
+                <div className="ov-video-loading ov-pipe">
+                  <div className="ov-pipe-now">
+                    <span className="ov-pipe-ico">{st.ico}</span>
+                    <span className="ov-pipe-text">
+                      <b>{st.name}</b>
+                      <i>{st.desc}</i>
+                    </span>
+                  </div>
+                  <div className="ov-pipe-steps">
+                    {videoPipeline.map((s, i) => (
+                      <span
+                        key={s.key}
+                        className={`ov-pipe-dot ${i < si ? "done" : i === si ? "on" : ""}`}
+                        title={s.name}
+                      />
+                    ))}
+                  </div>
+                  {st.key === "audio" && (
+                    <div className="ov-pipe-tracks">
+                      {tracks.map((t) => (
+                        <span key={t.key} className="ov-track">
+                          <span className="ov-track-ico">{t.ico}</span>
+                          {t.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="ov-video-bar"><span style={{ width: `${row.pct}%` }} /></div>
+                  <div className="ov-video-pct">{row.pct}% · 合成有声视频</div>
+                </div>
+              );
+            })()
+          )
         ) : (
           <>
             <button
@@ -1063,6 +1134,7 @@ function VideoRunCard({
             </button>
             <div className="ov-play">▶</div>
             <span className="ov-video-dur">00:{durLabel}</span>
+            <span className="ov-video-audio">🔊 有声</span>
             <span className="lh-mark">由 AI 生成</span>
           </>
         )}
@@ -1106,6 +1178,7 @@ function VideoPlayerModal({
   onStudio: () => void;
 }) {
   const total = durSeconds(row.dur);
+  const tracks = tracksFor(row.voice, row.bgm);
   const [playing, setPlaying] = useState(true);
   const [t, setT] = useState(0); // 当前播放秒（浮点）
   const raf = useRef(0);
@@ -1162,6 +1235,7 @@ function VideoPlayerModal({
             <span className="vp-chip">{row.style}</span>
             <span className="vp-chip">{row.ratio}</span>
             <span className="vp-chip">{row.dur}</span>
+            <span className="vp-chip vp-chip-audio">🔊 有声</span>
           </span>
           <button className="vp-close" onClick={onClose} aria-label="关闭">
             <Icon name="close" size={18} />
@@ -1210,6 +1284,18 @@ function VideoPlayerModal({
             <span className="vp-knob" style={{ left: `${prog * 100}%` }} />
           </div>
           <span className="vp-time">{fmt(total)}</span>
+        </div>
+
+        <div className="vp-tracks">
+          <span className="vp-tracks-label">音轨</span>
+          {tracks.map((t) => (
+            <span key={t.key} className="vp-atrack">
+              <span className="vp-atrack-ico">{t.ico}</span>
+              {t.name}
+              {t.key === "tts" && row.voice ? ` · ${row.voice}` : ""}
+              {t.key === "bgm" && row.bgm ? ` · ${row.bgm}` : ""}
+            </span>
+          ))}
         </div>
 
         <div className="vp-foot">

@@ -1,4 +1,13 @@
-import type { VideoEntry, VideoType, StudioStep, VideoSceneTpl, MotionWordGroup, VideoStyle } from "@/lib/types";
+import type {
+  VideoEntry,
+  VideoType,
+  StudioStep,
+  VideoSceneTpl,
+  MotionWordGroup,
+  VideoStyle,
+  VideoPipelineStage,
+  AudioTrack,
+} from "@/lib/types";
 
 /* ---------- 视频生成模型库（网格选择器） ---------- */
 export interface VideoModel {
@@ -33,6 +42,26 @@ export const videoModels: VideoModel[] = [
   { name: "Vidu Q1", desc: "参考生视频，精准保持角色一致性", tags: ["5s", "首尾帧", "视频特效"] },
   { name: "Seedance 1.0 Pro", desc: "高精度提示词理解，40秒生成1080P视频", tags: ["1080P", "10s", "首尾帧"] },
   { name: "可灵 2.1 大师版", desc: "大师级画面与流畅度，专业视频创作", tags: ["10s", "首帧"] },
+];
+
+/* ---------- 一句话视频：音画一体生成管线（无声视频 → 镜头分析 → 声音设计 → 多轨音频 → 对齐 → 混音 → MP4有声视频） ----------
+   说明：后端无真实视频/音频模型，前端按真实管线节奏分阶段演示，让用户看到「成片即有声」的完整链路。 */
+export const videoPipeline: VideoPipelineStage[] = [
+  { key: "input", ico: "📝", name: "解析输入", desc: "提示词 / 图片 / 脚本理解", to: 10 },
+  { key: "silent", ico: "🎬", name: "生成无声视频", desc: "视频模型生成画面", to: 40 },
+  { key: "analyze", ico: "🔍", name: "镜头分析", desc: "视频理解与镜头分镜", to: 52 },
+  { key: "design", ico: "🎚️", name: "声音设计", desc: "生成声音设计方案", to: 62 },
+  { key: "audio", ico: "🎧", name: "多轨音频", desc: "旁白·音效·环境声·BGM 并行生成", to: 85 },
+  { key: "align", ico: "⏱️", name: "时间轴对齐", desc: "音画逐帧对齐", to: 93 },
+  { key: "mix", ico: "🎛️", name: "混音封装", desc: "混音并封装 MP4 有声视频", to: 100 },
+];
+
+// 声音设计四路并行音轨（E/F/G/H）
+export const audioTracks: AudioTrack[] = [
+  { key: "tts", ico: "🎙️", name: "旁白/对白", model: "TTS 语音合成" },
+  { key: "sfx", ico: "💥", name: "动作音效", model: "音效模型" },
+  { key: "amb", ico: "🌿", name: "环境声", model: "环境声模型" },
+  { key: "bgm", ico: "🎵", name: "背景音乐", model: "音乐模型" },
 ];
 
 /* ---------- 视频「制作大片」6 步流程（参考 360 漫剧） ---------- */

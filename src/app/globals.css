@@ -3579,7 +3579,24 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 .ov-video-pct { font-size: 12px; }
 .ov-play { width: 56px; height: 56px; border-radius: 50%; background: rgba(255,255,255,.92); color: var(--c-primary-dark); display: grid; place-items: center; font-size: 22px; padding-left: 4px; box-shadow: var(--shadow); cursor: pointer; position: relative; z-index: 2; }
 .ov-video-dur { position: absolute; bottom: 10px; right: 12px; z-index: 2; font-size: 12px; color: #fff; background: rgba(0,0,0,.5); padding: 2px 8px; border-radius: 6px; }
+.ov-video-audio { position: absolute; bottom: 10px; left: 12px; z-index: 2; font-size: 12px; color: #fff; background: rgba(34,102,68,.62); padding: 2px 8px; border-radius: 6px; }
 .ov-run-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+/* —— 音画一体生成管线（生成中卡片）—— */
+.ov-pipe { gap: 9px; width: 84%; padding: 14px 12px; border-radius: 12px; background: rgba(0,0,0,.42); backdrop-filter: blur(2px); }
+.ov-pipe-now { display: flex; align-items: center; gap: 8px; }
+.ov-pipe-ico { font-size: 22px; line-height: 1; }
+.ov-pipe-text { display: flex; flex-direction: column; line-height: 1.25; text-align: left; }
+.ov-pipe-text b { font-size: 14px; font-weight: 700; }
+.ov-pipe-text i { font-size: 11px; font-style: normal; opacity: .82; }
+.ov-pipe-steps { display: flex; align-items: center; gap: 6px; }
+.ov-pipe-dot { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,.32); transition: background .25s, transform .25s; }
+.ov-pipe-dot.done { background: rgba(255,255,255,.85); }
+.ov-pipe-dot.on { background: #fff; transform: scale(1.35); box-shadow: 0 0 0 3px rgba(255,255,255,.25); }
+.ov-pipe-tracks { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.ov-track { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #fff; background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.3); border-radius: 999px; padding: 2px 9px; animation: ov-track-in .3s ease-out both; }
+.ov-track-ico { font-size: 12px; line-height: 1; }
+@keyframes ov-track-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
 /* —— 视频预览播放器（点击生成历史卡片打开）—— */
 .ov-video.clickable { cursor: pointer; }
@@ -3613,6 +3630,11 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 /* 播放器顶部元信息 chip（风格/比例/时长） */
 .vp-meta-chips { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; }
 .vp-chip { font-size: 11.5px; color: var(--c-muted); background: var(--c-bg); border: 1px solid var(--c-line); border-radius: 6px; padding: 2px 8px; white-space: nowrap; }
+.vp-chip-audio { color: #1f7a52; background: #e7f6ee; border-color: #bfe6d2; }
+.vp-tracks { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 4px 4px; }
+.vp-tracks-label { font-size: 12px; font-weight: 600; color: var(--c-muted); }
+.vp-atrack { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--c-ink); background: var(--c-bg); border: 1px solid var(--c-line); border-radius: 999px; padding: 3px 10px; }
+.vp-atrack-ico { font-size: 13px; line-height: 1; }
 
 /* —— 视频模型选择器（触发器 + 网格弹窗）—— */
 .vm-trigger { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px; background: var(--c-white); border: 1px solid var(--c-line); border-radius: 10px; cursor: pointer; font-family: var(--font); text-align: left; transition: border-color .15s; }

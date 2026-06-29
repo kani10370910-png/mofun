@@ -303,6 +303,25 @@ export interface VideoRunRow {
   pct: number;
   poster?: string; // 演示用占位封面（首帧图 / 渐变）
   grad: Grad;
+  voice?: string; // 旁白/对白音色（音画管线）
+  bgm?: string; // 背景音乐（音画管线）
+}
+
+// 音画一体生成管线阶段（一句话视频：无声视频→镜头分析→声音设计→多轨音频→对齐→混音）
+export interface VideoPipelineStage {
+  key: string;
+  ico: string;
+  name: string;
+  desc: string;
+  to: number; // 该阶段完成时的累计进度百分比（用于由 pct 反推当前阶段）
+}
+
+// 声音设计四路并行音轨（TTS旁白 / 动作音效 / 环境声 / 音乐BGM）
+export interface AudioTrack {
+  key: string;
+  ico: string;
+  name: string;
+  model: string;
 }
 
 /* ---------- 市场调研 ---------- */
