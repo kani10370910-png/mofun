@@ -60,5 +60,9 @@ export const videoStyles: VideoStyle[] = [
 
 /* 视频比例 / 时长 / 画质（F10-05） */
 export const videoRatios = ["16:9", "9:16", "1:1"] as const;
-export const videoDurations = ["5秒", "10秒"] as const;
+export const videoDurations = ["5秒", "10秒", "15秒"] as const;
 export const videoQualities = ["标准 720P", "高清 1080P"] as const;
+
+/* 音频：配音音色 + 背景音乐（F10 音频部分） */
+export const videoVoices = ["不配音", "温柔女声", "沉稳男声", "活力男声"] as const;
+export const videoBgms = ["无", "舒缓", "轻快", "大气", "国风"] as const;

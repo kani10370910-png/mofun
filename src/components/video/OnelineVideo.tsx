@@ -15,6 +15,8 @@ import {
   videoRatios,
   videoDurations,
   videoQualities,
+  videoVoices,
+  videoBgms,
 } from "@/data/video";
 import type { VideoRunRow, Grad, AssetCard } from "@/lib/types";
 
@@ -149,6 +151,8 @@ export function OnelineVideo() {
   const [dur, setDur] = useState<string>(videoDurations[0]);
   const [quality, setQuality] = useState<string>(videoQualities[0]);
   const [style, setStyle] = useState(videoStyles[0].name);
+  const [voice, setVoice] = useState<string>(videoVoices[1]); // 配音音色，默认温柔女声
+  const [bgm, setBgm] = useState<string>(videoBgms[1]); // 背景音乐，默认舒缓
   const [count, setCount] = useState(1);
 
   const [runs, setRuns] = useState<VideoRunRow[]>(SEED_RUNS);
@@ -321,9 +325,9 @@ export function OnelineVideo() {
           sub: "视频生成 · 一句话成片",
           img: p.poster,
           time: nowStamp(),
-          edit: { sub: "oneline", input: p.text },
+          edit: { sub: "oneline", input: p.text, voice, bgm },
         });
-        toast("视频已生成，已存入「我的作品」");
+        toast(`视频已生成（${voice}${bgm === "无" ? "" : " · " + bgm}），已存入「我的作品」`);
       }, 5200)
     );
   }
@@ -708,6 +712,28 @@ export function OnelineVideo() {
                   ))}
                 </div>
               </div>
+              {/* —— 音频：配音 + 背景音乐 —— */}
+              <div className="field">
+                <div className="ws-label">配音</div>
+                <div className="chip-row">
+                  {videoVoices.map((v) => (
+                    <span key={v} className={voice === v ? "sel-chip on" : "sel-chip"} onClick={() => setVoice(v)}>
+                      {v}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="field">
+                <div className="ws-label">背景音乐</div>
+                <div className="chip-row">
+                  {videoBgms.map((b) => (
+                    <span key={b} className={bgm === b ? "sel-chip on" : "sel-chip"} onClick={() => setBgm(b)}>
+                      {b === "无" ? "无背景音乐" : b}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
               {tab === "t2v" && (
                 <div className="field">
                   <div className="ws-label">生成数量</div>
