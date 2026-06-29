@@ -166,6 +166,22 @@ async function genRealVideo(prompt: string, ratio: string, dur: string, videoMod
   }
 }
 
+// 根据视频首帧画面推断匹配的背景音乐风格（调用 vision-bgm 路由，用 qwen3 多模态视觉能力）
+async function inferBgmFromFrame(frameUrl: string): Promise<string | null> {
+  try {
+    const r = await fetch("/api/vision-bgm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imageUrl: frameUrl }),
+    });
+    if (!r.ok) return null;
+    const { bgm } = (await r.json()) as { bgm?: string | null };
+    return bgm ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // 由累计进度 pct 反推当前所处的音画管线阶段下标
 function stageOf(pct: number): number {
   const i = videoPipeline.findIndex((s) => pct < s.to);
@@ -417,6 +433,15 @@ export function OnelineVideo() {
         allFrames = urls;
         frameUrl = urls[0];
         upd({ poster: urls[0], frames: urls }); // 首帧铺卡片封面，全帧存入 row
+        // 视觉驱动配乐：分析首帧画面自动匹配最佳 BGM 风格
+        if (p.withAudio !== false) {
+          void inferBgmFromFrame(urls[0]).then((bgmStyle) => {
+            if (bgmStyle) {
+              upd({ bgm: bgmStyle });
+              toast(`🎵 AI 配乐：根据画面匹配「${bgmStyle}」背景音乐`);
+            }
+          });
+        }
       }
     });
 
@@ -1451,7 +1476,7 @@ function VideoPlayerModal({
     { zoom: 0.10, tx: +3.5, ty: +2 },
     { zoom: -0.08, tx: 0, ty: 0 },
   ];
-  const curKb = KB_PRESETS[segIdx % KB_PRESETS.length];
+  const curKb = KB_PRESETS[segIdx % KB_PRESETS.length] ?? KB_PRESETS[0];
   const scale = 1 + curKb.zoom * localP;
   const tx = curKb.tx * localP;
   const ty = curKb.ty * localP;
