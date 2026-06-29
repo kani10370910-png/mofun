@@ -464,6 +464,7 @@ a { color: inherit; text-decoration: none; cursor: pointer; }
 .ws-label { font-size: 13px; font-weight: 600; color: var(--c-ink); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
 .ws-label .req { color: #e06c75; }
 .ws-label .ratio-tip { font-weight: 400; font-size: 11.5px; color: var(--c-muted); }
+.ws-label-hint { font-weight: 400; font-size: 11.5px; color: var(--c-muted); }
 .field { margin-bottom: 15px; }
 .field textarea, .field input, .field select {
   width: 100%; border: 1px solid var(--c-line); border-radius: var(--radius-sm);

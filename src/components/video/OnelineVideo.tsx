@@ -589,6 +589,9 @@ export function OnelineVideo() {
                       onClear={() => setMotion("")}
                       placeholder="描述画面如何运动，例如：花朵随风轻轻摆动，镜头缓缓推近"
                     />
+                    <div className="ws-label" style={{ marginTop: 12 }}>
+                      视频预设 <span className="ws-label-hint">点选下方预设快速填入运动描述</span>
+                    </div>
                     <div className="filter-row" style={{ margin: "10px 0 6px" }}>
                       {motionWords.map((m) => (
                         <span key={m.cat} className={motionCat === m.cat ? "sel-chip on" : "sel-chip"} onClick={() => setMotionCat(m.cat)}>
