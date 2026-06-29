@@ -131,6 +131,13 @@ export function Studio({
   const activeIdx = studioSteps.findIndex((s) => s.key === stepKey);
   const active = studioSteps[activeIdx] ?? studioSteps[0];
 
+  // 返回：回到真正的来源页（生成历史→一句话成片 / 其他入口→各自来源）；
+  // 无站内历史（如直接粘贴 URL 打开）时兜底回视频首页，避免跳出应用。
+  function goBack() {
+    if (typeof window !== "undefined" && window.history.length > 1) router.back();
+    else router.push("/video?sub=oneline");
+  }
+
   // —— 行为 ——
   function aiScript() {
     setAiBusy(true);
@@ -286,7 +293,7 @@ export function Studio({
         <div className="studio studio-inline">
           <header className="studio-top">
             <div className="st-left">
-              <button className="st-back" onClick={() => router.push("/video?sub=oneline")} title="返回视频宣传">
+              <button className="st-back" onClick={goBack} title="返回">
                 <Icon name="chevron" size={18} />
               </button>
               <span className="st-proj">
