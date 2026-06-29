@@ -16,7 +16,7 @@ import {
   videoDurations,
   videoQualities,
 } from "@/data/video";
-import type { VideoRunRow, Grad } from "@/lib/types";
+import type { VideoRunRow, Grad, AssetCard } from "@/lib/types";
 
 /* F10 一句话视频：文生视频(T2V) / 图生视频(I2V) 双 Tab。
    演示骨架：场景引导词库 + 参数 + 首尾帧 + 内容安全预检/复检 + 进度状态机 + 后处理/审核流。
@@ -123,7 +123,7 @@ function drawWrappedText(
 
 export function OnelineVideo() {
   const toast = useToast();
-  const { addWork } = useLibrary();
+  const { addWork, isFavorite, toggleFavorite } = useLibrary();
   const router = useRouter();
 
   const [tab, setTab] = useState<"t2v" | "i2v">("t2v");
@@ -336,9 +336,9 @@ export function OnelineVideo() {
     toast("已按原参数重新生成");
   }
 
-  // 存内容库：写入「仓库 · 我的作品」并跳转到仓库页
-  function saveToLibrary(row: VideoRunRow) {
-    addWork({
+  // 视频记录 → 作品卡（收藏/存库口径一致；assetKey 取 类型+名称，name 对单条稳定）
+  function videoAsset(row: VideoRunRow): AssetCard {
+    return {
       emoji: "🎬",
       grad: row.grad,
       kind: "视频",
@@ -347,9 +347,23 @@ export function OnelineVideo() {
       img: row.poster || posterFor(row),
       time: nowStamp(),
       edit: { sub: "oneline", input: row.prompt },
-    });
+    };
+  }
+
+  // 存内容库：写入「仓库 · 我的作品」并跳转到仓库页
+  function saveToLibrary(row: VideoRunRow) {
+    addWork(videoAsset(row));
     toast("已保存到「仓库 · 我的作品」，正在跳转…");
     router.push("/storage");
+  }
+
+  // 收藏：与品牌设计一致——写入「我的作品」并标记收藏，和仓库「只看收藏」互通
+  function toggleFav(row: VideoRunRow) {
+    const a = videoAsset(row);
+    const was = isFavorite(a);
+    addWork(a);
+    toggleFavorite(a);
+    toast(was ? "已取消收藏" : "已收藏，可在「仓库 · 我的作品」用「只看收藏」筛选");
   }
 
   // 下载视频：用 canvas 实时重放封面的 Ken Burns 运镜（与播放器一致），
@@ -729,6 +743,8 @@ export function OnelineVideo() {
                   onRegenerate={() => regenerate(r)}
                   onSave={() => saveToLibrary(r)}
                   onDownload={() => downloadVideo(r)}
+                  fav={isFavorite(videoAsset(r))}
+                  onFav={() => toggleFav(r)}
                   toast={toast}
                 />
               ))}
@@ -819,6 +835,8 @@ function VideoRunCard({
   onRegenerate,
   onSave,
   onDownload,
+  fav,
+  onFav,
   toast,
 }: {
   row: VideoRunRow;
@@ -827,6 +845,8 @@ function VideoRunCard({
   onRegenerate: () => void;
   onSave: () => void;
   onDownload: () => void;
+  fav: boolean;
+  onFav: () => void;
   toast: (s: string) => void;
 }) {
   const [reviewing, setReviewing] = useState(false);
@@ -867,6 +887,16 @@ function VideoRunCard({
           </div>
         ) : (
           <>
+            <button
+              className={fav ? "lh-fav on" : "lh-fav"}
+              title={fav ? "取消收藏" : "收藏"}
+              onClick={(e) => {
+                e.stopPropagation();
+                onFav();
+              }}
+            >
+              <Icon name="heart" size={15} />
+            </button>
             <div className="ov-play">▶</div>
             <span className="ov-video-dur">00:{durLabel}</span>
             <span className="lh-mark">由 AI 生成</span>

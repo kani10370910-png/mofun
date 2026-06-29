@@ -3582,6 +3582,7 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 
 /* —— 视频预览播放器（点击生成历史卡片打开）—— */
 .ov-video.clickable { cursor: pointer; }
+.ov-video:hover .lh-fav { opacity: 1; }
 .ov-video.clickable:hover .ov-play { transform: scale(1.08); }
 .ov-play { transition: transform .15s ease; }
 .vp-panel {
