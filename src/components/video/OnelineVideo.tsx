@@ -7,7 +7,7 @@ import { useToast } from "@/components/ui/Toast";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
-import { PlayerAudio } from "@/lib/playerAudio";
+import { PlayerAudio, buildExportAudio, type ExportAudio } from "@/lib/playerAudio";
 import {
   videoSceneTpls,
   videoSceneCats,
@@ -501,11 +501,22 @@ export function OnelineVideo() {
         ctx.shadowBlur = 0;
       };
 
-      const stream = canvas.captureStream(30);
-      const mime =
-        ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm"].find((m) =>
-          MediaRecorder.isTypeSupported(m)
-        ) || "";
+      const videoStream = canvas.captureStream(30);
+      // 混音：把 BGM+环境声(+真实 TTS 旁白) 合成进视频文件，让下载的视频真正带声音
+      let expAudio: ExportAudio | null = null;
+      try {
+        expAudio = await buildExportAudio({ bgm: row.bgm, voice: row.voice, prompt: row.prompt });
+      } catch {
+        expAudio = null;
+      }
+      const stream = expAudio
+        ? new MediaStream([...videoStream.getVideoTracks(), ...expAudio.stream.getAudioTracks()])
+        : videoStream;
+      // 含音轨时 webm/opus 兼容性最稳；无音轨时优先 mp4
+      const candidates = expAudio
+        ? ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"]
+        : ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm"];
+      const mime = candidates.find((m) => MediaRecorder.isTypeSupported(m)) || "";
       const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
       const chunks: BlobPart[] = [];
       rec.ondataavailable = (e) => {
@@ -524,7 +535,9 @@ export function OnelineVideo() {
           a.click();
           a.remove();
           window.setTimeout(() => URL.revokeObjectURL(url), 5000);
-          toast(`已下载视频到本地（.${ext}）`);
+          const sound = expAudio ? `含${row.bgm && row.bgm !== "无" ? "背景音乐·" : ""}环境声${expAudio.hasNarration ? "·旁白" : ""}` : "无声";
+          toast(`已下载视频到本地（.${ext} · ${sound}）`);
+          expAudio?.dispose();
           resolve();
         };
       });
