@@ -794,13 +794,6 @@ export function OnelineVideo() {
                 {quality === "1080P" && <div className="field-hint">高清消耗 2 倍额度</div>}
               </div>
               <div className="field">
-                <div className="ws-label">同时生成声音</div>
-                <div className="seg">
-                  <div className={genAudio ? "seg-item on" : "seg-item"} onClick={() => setGenAudio(true)}>开启</div>
-                  <div className={!genAudio ? "seg-item on" : "seg-item"} onClick={() => setGenAudio(false)}>关闭</div>
-                </div>
-              </div>
-              <div className="field">
                 <div className="ws-label">视频风格</div>
                 <div className="ov-style-row">
                   {videoStyles.map((s) => (
@@ -809,6 +802,13 @@ export function OnelineVideo() {
                       {s.name}
                     </button>
                   ))}
+                </div>
+              </div>
+              <div className="field">
+                <div className="ws-label">同时生成声音</div>
+                <div className="seg">
+                  <div className={genAudio ? "seg-item on" : "seg-item"} onClick={() => setGenAudio(true)}>开启</div>
+                  <div className={!genAudio ? "seg-item on" : "seg-item"} onClick={() => setGenAudio(false)}>关闭</div>
                 </div>
               </div>
               {/* —— 音频：配音 + 背景音乐（仅在「同时生成声音」开启时显示） —— */}
