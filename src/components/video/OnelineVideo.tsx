@@ -89,6 +89,38 @@ function durSeconds(dur: string): number {
   return parseInt(dur.match(/\d+/)?.[0] ?? "5", 10);
 }
 
+// canvas 字幕换行绘制：按字符折行，超过 maxLines 行末尾省略号，从底部向上排版
+function drawWrappedText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  yBottom: number,
+  maxW: number,
+  lineH: number,
+  maxLines: number
+) {
+  const lines: string[] = [];
+  let line = "";
+  for (const chr of Array.from(text)) {
+    if (ctx.measureText(line + chr).width > maxW && line) {
+      lines.push(line);
+      line = chr;
+    } else {
+      line += chr;
+    }
+  }
+  if (line) lines.push(line);
+
+  const shown = lines.slice(0, maxLines);
+  if (lines.length > maxLines && shown.length) {
+    let last = shown[maxLines - 1];
+    while (last && ctx.measureText(last + "…").width > maxW) last = last.slice(0, -1);
+    shown[maxLines - 1] = last + "…";
+  }
+  const startY = yBottom - (shown.length - 1) * lineH;
+  shown.forEach((l, i) => ctx.fillText(l, x, startY + i * lineH));
+}
+
 export function OnelineVideo() {
   const toast = useToast();
   const { addWork } = useLibrary();
@@ -119,6 +151,7 @@ export function OnelineVideo() {
   const [safe, setSafe] = useState<null | "checking" | "blocked">(null); // 安全预检状态
   const timers = useRef<number[]>([]);
   const seq = useRef(0); // 自增序号，保证新生成记录 id 唯一
+  const dlRef = useRef(false); // 视频录制中标志，防止并发下载
   const firstRef = useRef<HTMLInputElement>(null);
   const lastRef = useRef<HTMLInputElement>(null);
 
@@ -307,16 +340,130 @@ export function OnelineVideo() {
     router.push("/storage");
   }
 
-  // 下载封面帧：同源静态图，用 <a download> 直接落盘
-  function downloadFrame(row: VideoRunRow) {
+  // 下载视频：用 canvas 实时重放封面的 Ken Burns 运镜（与播放器一致），
+  // 经 MediaRecorder 按视频时长录制为真实视频文件（mp4/webm）落盘到本地。
+  async function downloadVideo(row: VideoRunRow) {
+    if (dlRef.current) {
+      toast("视频正在生成中，请稍候…");
+      return;
+    }
     const src = row.poster || posterFor(row);
-    const a = document.createElement("a");
-    a.href = src;
-    a.download = `${row.prompt.slice(0, 16) || "video-frame"}.jpg`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    toast("已下载视频封面帧");
+    // 极老浏览器兜底：不支持录制则退回下载封面图
+    if (typeof MediaRecorder === "undefined" || !document.createElement("canvas").captureStream) {
+      const a = document.createElement("a");
+      a.href = src;
+      a.download = `${row.prompt.slice(0, 16) || "video"}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast("当前浏览器不支持视频录制，已下载封面图");
+      return;
+    }
+
+    dlRef.current = true;
+    toast(`正在生成视频（约 ${durSeconds(row.dur)} 秒），请稍候…`);
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = src;
+      await img.decode();
+
+      const [rw, rh] = row.ratio.split(":").map(Number);
+      const base = 720;
+      const cw = rw >= rh ? Math.round((base * rw) / rh) : base;
+      const ch = rw >= rh ? base : Math.round((base * rh) / rw);
+      const canvas = document.createElement("canvas");
+      canvas.width = cw;
+      canvas.height = ch;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("no 2d context");
+
+      const total = durSeconds(row.dur);
+      const drawFrame = (p: number) => {
+        const z = 1 + 0.14 * p; // 随进度缓慢放大
+        const ir = img.width / img.height;
+        const cr = cw / ch;
+        let dw: number, dh: number;
+        if (ir > cr) {
+          dh = ch;
+          dw = ch * ir;
+        } else {
+          dw = cw;
+          dh = cw / ir;
+        }
+        dw *= z;
+        dh *= z;
+        const dx = (cw - dw) / 2 - 0.04 * p * cw; // 轻微左上平移
+        const dy = (ch - dh) / 2 - 0.025 * p * ch;
+        ctx.clearRect(0, 0, cw, ch);
+        ctx.drawImage(img, dx, dy, dw, dh);
+        // 底部暗角
+        const g = ctx.createLinearGradient(0, 0, 0, ch);
+        g.addColorStop(0, "rgba(0,0,0,0.18)");
+        g.addColorStop(0.3, "rgba(0,0,0,0)");
+        g.addColorStop(0.62, "rgba(0,0,0,0)");
+        g.addColorStop(1, "rgba(0,0,0,0.58)");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, cw, ch);
+        // 字幕（提示词，最多两行）
+        const pad = Math.round(cw * 0.045);
+        const fs = Math.round(ch * 0.04);
+        ctx.fillStyle = "#fff";
+        ctx.font = `600 ${fs}px system-ui, -apple-system, sans-serif`;
+        ctx.textBaseline = "bottom";
+        ctx.shadowColor = "rgba(0,0,0,0.7)";
+        ctx.shadowBlur = 10;
+        drawWrappedText(ctx, row.prompt, pad, ch - pad, cw - 2 * pad, fs * 1.35, 2);
+        ctx.shadowBlur = 0;
+      };
+
+      const stream = canvas.captureStream(30);
+      const mime =
+        ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm"].find((m) =>
+          MediaRecorder.isTypeSupported(m)
+        ) || "";
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      const chunks: BlobPart[] = [];
+      rec.ondataavailable = (e) => {
+        if (e.data.size) chunks.push(e.data);
+      };
+      const finished = new Promise<void>((resolve) => {
+        rec.onstop = () => {
+          const type = rec.mimeType || "video/webm";
+          const ext = type.includes("mp4") ? "mp4" : "webm";
+          const blob = new Blob(chunks, { type });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `${row.prompt.slice(0, 16) || "video"}.${ext}`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+          toast(`已下载视频到本地（.${ext}）`);
+          resolve();
+        };
+      });
+
+      rec.start();
+      const t0 = performance.now();
+      await new Promise<void>((resolve) => {
+        const tick = () => {
+          const p = Math.min(1, (performance.now() - t0) / 1000 / total);
+          drawFrame(p);
+          if (p >= 1) resolve();
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+      await new Promise((r) => window.setTimeout(r, 150)); // 多录一点确保末帧入流
+      rec.stop();
+      await finished;
+    } catch {
+      toast("视频生成失败，请重试");
+    } finally {
+      dlRef.current = false;
+    }
   }
 
   function deleteRun(id: string) {
@@ -560,7 +707,7 @@ export function OnelineVideo() {
                   onPlay={() => setPlaying(r)}
                   onRegenerate={() => regenerate(r)}
                   onSave={() => saveToLibrary(r)}
-                  onDownload={() => downloadFrame(r)}
+                  onDownload={() => downloadVideo(r)}
                   toast={toast}
                 />
               ))}
@@ -573,7 +720,7 @@ export function OnelineVideo() {
         <VideoPlayerModal
           row={playing}
           onClose={() => setPlaying(null)}
-          onDownload={() => downloadFrame(playing)}
+          onDownload={() => downloadVideo(playing)}
           onSave={() => {
             saveToLibrary(playing);
             setPlaying(null);
@@ -708,7 +855,7 @@ function VideoRunCard({
 
       {row.status === "done" && (
         <div className="ov-run-acts">
-          <button className="btn btn-soft btn-sm" onClick={onDownload}>下载封面</button>
+          <button className="btn btn-soft btn-sm" onClick={onDownload}>下载视频</button>
           <button className="btn btn-ghost btn-sm" onClick={onRegenerate}>重新生成</button>
           <button className="btn btn-ghost btn-sm" onClick={onSave}>存内容库</button>
           <button
@@ -848,7 +995,7 @@ function VideoPlayerModal({
 
         <div className="vp-foot">
           <button className="btn btn-soft btn-sm" onClick={onDownload}>
-            <Icon name="download" size={14} /> 下载封面
+            <Icon name="download" size={14} /> 下载视频
           </button>
           <button className="btn btn-ghost btn-sm" onClick={onSave}>
             存内容库
