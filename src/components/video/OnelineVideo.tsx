@@ -157,6 +157,18 @@ export function OnelineVideo() {
 
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), []);
 
+  // 运动预设词开关：已在描述中则移除该词，否则追加（按「，」分词，顺带去重）
+  function toggleMotionWord(w: string) {
+    setMotion((cur) => {
+      const tokens = cur
+        .split(/[，,]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (tokens.includes(w)) return tokens.filter((t) => t !== w).join("，");
+      return [...tokens, w].join("，");
+    });
+  }
+
   // 选场景模板：填充引导词（保留【变量】占位，模拟「县域知识库未录入」提示）
   function pickScene(s: string, p: string) {
     setScene(s);
@@ -600,16 +612,22 @@ export function OnelineVideo() {
                       ))}
                     </div>
                     <div className="ov-word-row">
-                      {motionGroup.words.map((w) => (
-                        <button
-                          key={w}
-                          type="button"
-                          className="ov-word"
-                          onClick={() => setMotion((cur) => (cur ? `${cur}，${w}` : w))}
-                        >
-                          {w}
-                        </button>
-                      ))}
+                      {motionGroup.words.map((w) => {
+                        const on = motion
+                          .split(/[，,]/)
+                          .map((s) => s.trim())
+                          .includes(w);
+                        return (
+                          <button
+                            key={w}
+                            type="button"
+                            className={on ? "ov-word on" : "ov-word"}
+                            onClick={() => toggleMotionWord(w)}
+                          >
+                            {w}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </>
