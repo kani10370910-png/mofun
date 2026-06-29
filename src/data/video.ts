@@ -1,11 +1,38 @@
-import type { VideoEntry, VideoType, StudioStep, VideoSceneTpl, MotionWordGroup, VideoStyle, ModelOption } from "@/lib/types";
+import type { VideoEntry, VideoType, StudioStep, VideoSceneTpl, MotionWordGroup, VideoStyle } from "@/lib/types";
 
-/* ---------- 视频生成模型（下拉选择，参考品牌设计「生图模型」） ---------- */
-export const videoModels: ModelOption[] = [
-  { name: "Seedance 1.5 Pro", desc: "高质量 · 运镜自然，推荐" },
-  { name: "Seedance 1.0", desc: "速度快 · 日常出片" },
-  { name: "Vidu Q1", desc: "国风/动画见长" },
-  { name: "Kling 1.6", desc: "写实人物 · 表情细腻" },
+/* ---------- 视频生成模型库（网格选择器） ---------- */
+export interface VideoModel {
+  name: string;
+  desc: string;
+  tags: string[]; // 能力标签：图生视频 / 音画同步 / 首尾帧 / 1080P / 10s 等
+  badge?: "NEW" | "会员专享"; // 角标
+}
+export const videoModels: VideoModel[] = [
+  { name: "Seedance 2.0 VIP", desc: "最强视频模型，会员专属通道，15s音画同步", tags: ["全能参考", "音画同步"], badge: "NEW" },
+  { name: "Seedance 2.0 Fast VIP", desc: "最强视频模型快速版，会员专属通道，15s音画同步", tags: ["全能参考", "音画同步"], badge: "NEW" },
+  { name: "Happy Horse 1.0", desc: "阿里最新视频模型，支持多参生成", tags: ["图生视频", "15s"], badge: "NEW" },
+  { name: "海螺 2.3", desc: "更好的指令遵循，动作、表情、物理表现新升级", tags: ["1080P", "10s", "首帧", "视频特效"] },
+  { name: "可灵 3.0", desc: "可灵最新多模态视频模型，最强一致性", tags: ["图生视频", "音画同步", "15s"], badge: "会员专享" },
+  { name: "可灵 3.0 Omni", desc: "可灵O1全面升级，兼具参考一致性，音画同出能力", tags: ["10s", "视频参考", "首尾帧"], badge: "会员专享" },
+  { name: "Seedance 1.5 Pro", desc: "音画同步，支持多机位镜头，最长可生12秒视频", tags: ["首尾帧", "音画同步"] },
+  { name: "PixVerse V5.5", desc: "音画同步，多机位镜头，表情更丰富，运动幅度更大", tags: ["图生视频", "音画同步"] },
+  { name: "可灵 2.6", desc: "可灵最新模型，直出音画同步", tags: ["图生视频", "音画同步", "10s"] },
+  { name: "通义万相 2.6", desc: "音画同步，支持多机位镜头，最长可生15秒视频", tags: ["视频参考", "音画同步", "图生视频"] },
+  { name: "可灵 O1", desc: "支持自然语言编辑、视频图片多模态参考", tags: ["10s", "视频参考", "首尾帧"] },
+  { name: "Vidu Q2 Pro", desc: "强大的视频编辑模型，实现视频素材反复创作", tags: ["视频参考", "视频编辑"] },
+  { name: "海螺 2.0", desc: "画质超稳定，打造运动特效场景", tags: ["1080P", "10s", "首尾帧", "视频特效"] },
+  { name: "Vidu Q2", desc: "多图主体参考，精准控制效果佳", tags: ["1080P", "8s", "首尾帧", "多图参考", "视频特效"] },
+  { name: "可灵 2.5", desc: "速度快，效果稳定，性价比高", tags: ["10s", "首帧", "视频特效"] },
+  { name: "通义万相 2.5", desc: "直出音画同步，效果稳定", tags: ["1080P", "10s", "首帧", "视频特效"] },
+  { name: "通义万相 2.2", desc: "独家特效+开放生态，玩法千变万化", tags: ["720P", "8s", "首尾帧", "视频特效"] },
+  { name: "可灵 2.1", desc: "支持首尾帧，图生视频效果更出色", tags: ["10s", "首尾帧"] },
+  { name: "PixVerse V5", desc: "特效丰富多样", tags: ["1080P", "8s", "首尾帧", "视频特效"] },
+  { name: "Youtu-Video 2.0", desc: "图生视频，提示词精准控制", tags: ["5s", "首帧", "视频特效"] },
+  { name: "悠船 Video", desc: "图生视频效果稳定，画面表现力强", tags: ["720P", "5s", "首尾帧"] },
+  { name: "可灵 1.6", desc: "画质稳定动作自然，性价比优秀", tags: ["10s", "首尾帧", "多图参考", "视频特效"] },
+  { name: "Vidu Q1", desc: "参考生视频，精准保持角色一致性", tags: ["5s", "首尾帧", "视频特效"] },
+  { name: "Seedance 1.0 Pro", desc: "高精度提示词理解，40秒生成1080P视频", tags: ["1080P", "10s", "首尾帧"] },
+  { name: "可灵 2.1 大师版", desc: "大师级画面与流畅度，专业视频创作", tags: ["10s", "首帧"] },
 ];
 
 /* ---------- 视频「制作大片」6 步流程（参考 360 漫剧） ---------- */

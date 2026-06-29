@@ -3614,4 +3614,31 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 .vp-meta-chips { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; }
 .vp-chip { font-size: 11.5px; color: var(--c-muted); background: var(--c-bg); border: 1px solid var(--c-line); border-radius: 6px; padding: 2px 8px; white-space: nowrap; }
 
+/* —— 视频模型选择器（触发器 + 网格弹窗）—— */
+.vm-trigger { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px; background: var(--c-white); border: 1px solid var(--c-line); border-radius: 10px; cursor: pointer; font-family: var(--font); text-align: left; transition: border-color .15s; }
+.vm-trigger:hover { border-color: var(--c-primary); }
+.vm-trigger-ico { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 7px; background: var(--c-primary-bg); color: var(--c-primary-dark); display: grid; place-items: center; }
+.vm-trigger-name { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vm-trigger-arrow { flex: 0 0 auto; color: var(--c-muted); }
+.vm-panel { width: min(920px, 94vw); max-height: 86vh; display: flex; flex-direction: column; background: var(--c-white); border-radius: 18px; overflow: hidden; box-shadow: var(--shadow-lg); animation: pop .26s cubic-bezier(.2,.9,.3,1.2); }
+.vm-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 18px; border-bottom: 1px solid var(--c-line); }
+.vm-title { font-size: 15px; font-weight: 700; color: var(--c-ink); }
+.vm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px 18px; overflow-y: auto; }
+.vm-card { display: flex; gap: 12px; align-items: flex-start; text-align: left; padding: 14px; border: 1px solid var(--c-line); border-radius: 14px; background: var(--c-white); cursor: pointer; font-family: var(--font); transition: border-color .15s, background .15s, box-shadow .15s; }
+.vm-card:hover { border-color: var(--c-primary); box-shadow: var(--shadow-sm); }
+.vm-card.on { border-color: #3b82f6; background: #eff5ff; }
+.vm-card-ico { flex: 0 0 auto; width: 40px; height: 40px; border-radius: 10px; background: var(--c-bg); color: var(--c-primary-dark); display: grid; place-items: center; }
+.vm-card.on .vm-card-ico { background: #dbeafe; color: #2563eb; }
+.vm-card-body { flex: 1; min-width: 0; }
+.vm-card-name { display: flex; align-items: center; gap: 7px; font-size: 14.5px; font-weight: 700; color: var(--c-ink); }
+.vm-card.on .vm-card-name { color: #1d4ed8; }
+.vm-badge { flex: 0 0 auto; font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 5px; }
+.vm-badge.new { background: #fef3c7; color: #b45309; }
+.vm-badge.vip { background: #fde9c8; color: #b06a16; }
+.vm-card-desc { font-size: 12px; color: var(--c-muted); line-height: 1.45; margin: 4px 0 8px; }
+.vm-card-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.vm-tag { font-size: 10.5px; color: var(--c-muted); background: var(--c-bg); border-radius: 5px; padding: 2px 7px; }
+.vm-card.on .vm-tag { background: #dbeafe; color: #2563eb; }
+@media (max-width: 720px) { .vm-grid { grid-template-columns: 1fr; } }
+
 

@@ -7,7 +7,6 @@ import { useToast } from "@/components/ui/Toast";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
-import { Dropdown } from "@/components/ui/Dropdown";
 import {
   videoSceneTpls,
   videoSceneCats,
@@ -155,7 +154,8 @@ export function OnelineVideo() {
   const [style, setStyle] = useState(videoStyles[0].name);
   const [voice, setVoice] = useState<string>(videoVoices[1]); // 配音音色，默认温柔女声
   const [bgm, setBgm] = useState<string>(videoBgms[1]); // 背景音乐，默认舒缓
-  const [model, setModel] = useState<string>(videoModels[0].name); // 视频生成模型
+  const [model, setModel] = useState<string>("Seedance 1.5 Pro"); // 视频生成模型
+  const [modelOpen, setModelOpen] = useState(false); // 模型选择弹窗
   const [count, setCount] = useState(1);
 
   const [runs, setRuns] = useState<VideoRunRow[]>(SEED_RUNS);
@@ -675,13 +675,13 @@ export function OnelineVideo() {
               {/* —— 公共参数 F10-05 / F10-06 —— */}
               <div className="field">
                 <div className="ws-label">视频模型</div>
-                <Dropdown
-                  title="选择视频模型"
-                  triggerIcon="vidModel"
-                  options={videoModels}
-                  value={model}
-                  onChange={(o) => setModel(o.name)}
-                />
+                <button type="button" className="vm-trigger" onClick={() => setModelOpen(true)}>
+                  <span className="vm-trigger-ico">
+                    <Icon name="vidModel" size={18} />
+                  </span>
+                  <span className="vm-trigger-name">{model}</span>
+                  <Icon name="chevron" size={16} className="vm-trigger-arrow" />
+                </button>
               </div>
               <div className="field">
                 <div className="ws-label">视频比例</div>
@@ -850,6 +850,18 @@ export function OnelineVideo() {
         </div>
       </div>
 
+      {modelOpen && (
+        <VideoModelPicker
+          value={model}
+          onPick={(name) => {
+            setModel(name);
+            setModelOpen(false);
+            toast(`已选择视频模型：${name}`);
+          }}
+          onClose={() => setModelOpen(false)}
+        />
+      )}
+
       {playing && (
         <VideoPlayerModal
           row={playing}
@@ -863,6 +875,61 @@ export function OnelineVideo() {
         />
       )}
     </>
+  );
+}
+
+/* 视频模型选择器：2 列网格弹窗（参考真实平台模型库：图标+名称+角标+描述+能力标签） */
+function VideoModelPicker({
+  value,
+  onPick,
+  onClose,
+}: {
+  value: string;
+  onPick: (name: string) => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="modal-mask" onClick={onClose}>
+      <div className="vm-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="vm-head">
+          <span className="vm-title">选择视频模型</span>
+          <button className="vp-close" onClick={onClose} aria-label="关闭">
+            <Icon name="close" size={18} />
+          </button>
+        </div>
+        <div className="vm-grid">
+          {videoModels.map((m) => (
+            <button type="button" key={m.name} className={`vm-card ${m.name === value ? "on" : ""}`} onClick={() => onPick(m.name)}>
+              <span className="vm-card-ico">
+                <Icon name="vidModel" size={20} />
+              </span>
+              <div className="vm-card-body">
+                <div className="vm-card-name">
+                  {m.name}
+                  {m.badge && <span className={`vm-badge ${m.badge === "NEW" ? "new" : "vip"}`}>{m.badge}</span>}
+                </div>
+                <div className="vm-card-desc">{m.desc}</div>
+                <div className="vm-card-tags">
+                  {m.tags.map((t) => (
+                    <span className="vm-tag" key={t}>
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
