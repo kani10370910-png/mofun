@@ -152,6 +152,8 @@ export function OnelineVideo() {
   const [count, setCount] = useState(1);
 
   const [runs, setRuns] = useState<VideoRunRow[]>(SEED_RUNS);
+  const [resultTab, setResultTab] = useState<"history" | "inspire">("history"); // 右侧面板 Tab
+  const [onlyFav, setOnlyFav] = useState(false); // 只看收藏
   const [playing, setPlaying] = useState<VideoRunRow | null>(null); // 当前在播放器中预览的记录
   const [busy, setBusy] = useState(false);
   const [safe, setSafe] = useState<null | "checking" | "blocked">(null); // 安全预检状态
@@ -513,11 +515,12 @@ export function OnelineVideo() {
 
   const scenes = videoSceneTpls.filter((t) => t.cat === sceneCat);
   const motionGroup = motionWords.find((m) => m.cat === motionCat) ?? motionWords[0];
+  const shownRuns = onlyFav ? runs.filter((r) => isFavorite(videoAsset(r))) : runs;
 
   return (
     <>
         {/* 左侧表单 */}
-        <div className="workspace ov-workspace">
+        <div className="workspace">
           <div className="ws-panel sticky">
             <div className="ws-scroll">
               {/* 文生 / 图生 双 Tab + 顶部吸顶 */}
@@ -731,66 +734,80 @@ export function OnelineVideo() {
             </div>
           </div>
 
-        {/* 右侧：生成历史 */}
+        {/* 右侧：生成历史 / 参考灵感 双 Tab（与品牌设计一致） */}
         <div className="ws-panel ov-result">
           <div className="lg-head">
             <div className="tabs">
-              <div className="tab on">生成历史</div>
-            </div>
-          </div>
-          {runs.length === 0 ? (
-            <div className="preview-empty">
-              <div>
-                <div className="pe-ico">
-                  <Icon name="video" size={42} />
-                </div>
-                还没有生成记录，填好左侧点「立即生成」试试
+              <div className={resultTab === "history" ? "tab on" : "tab"} onClick={() => setResultTab("history")}>
+                生成历史
+              </div>
+              <div className={resultTab === "inspire" ? "tab on" : "tab"} onClick={() => setResultTab("inspire")}>
+                参考灵感
               </div>
             </div>
+            {resultTab === "history" && runs.length > 0 && (
+              <label className="lg-fav-switch">
+                <input type="checkbox" checked={onlyFav} onChange={(e) => setOnlyFav(e.target.checked)} />
+                <span className="lg-switch" />
+                只看收藏
+              </label>
+            )}
+          </div>
+
+          {resultTab === "history" ? (
+            shownRuns.length === 0 ? (
+              <div className="preview-empty">
+                <div>
+                  <div className="pe-ico">
+                    <Icon name={onlyFav ? "heart" : "video"} size={42} />
+                  </div>
+                  {onlyFav ? "还没有收藏，把鼠标移到卡片上点右上角♡收藏" : "还没有生成记录，填好左侧点「立即生成」试试"}
+                </div>
+              </div>
+            ) : (
+              <div className="ov-runs">
+                {shownRuns.map((r) => (
+                  <VideoRunCard
+                    key={r.id}
+                    row={r}
+                    onDelete={() => deleteRun(r.id)}
+                    onPlay={() => setPlaying(r)}
+                    onRegenerate={() => regenerate(r)}
+                    onSave={() => saveToLibrary(r)}
+                    onDownload={() => downloadVideo(r)}
+                    fav={isFavorite(videoAsset(r))}
+                    onFav={() => toggleFav(r)}
+                    toast={toast}
+                  />
+                ))}
+              </div>
+            )
           ) : (
-            <div className="ov-runs">
-              {runs.map((r) => (
-                <VideoRunCard
-                  key={r.id}
-                  row={r}
-                  onDelete={() => deleteRun(r.id)}
-                  onPlay={() => setPlaying(r)}
-                  onRegenerate={() => regenerate(r)}
-                  onSave={() => saveToLibrary(r)}
-                  onDownload={() => downloadVideo(r)}
-                  fav={isFavorite(videoAsset(r))}
-                  onFav={() => toggleFav(r)}
-                  toast={toast}
-                />
+            <div className="ag-grid">
+              {INSPIRE.map((it) => (
+                <div className="ag-card" key={it.scene} style={{ cursor: "pointer" }} onClick={() => useInspire(it)}>
+                  <div className="ag-thumb">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img className="ag-img" src={it.poster} alt={it.scene} loading="lazy" />
+                    <div className="case-hover">
+                      <button
+                        className="btn btn-primary btn-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          useInspire(it);
+                        }}
+                      >
+                        套用灵感
+                      </button>
+                    </div>
+                  </div>
+                  <div className="ag-name">
+                    {it.emoji} {it.scene}
+                  </div>
+                </div>
               ))}
             </div>
           )}
-        </div>
-
-        {/* 最右：参考灵感 */}
-        <div className="ws-panel ov-inspire">
-          <div className="lg-head">
-            <div className="tabs">
-              <div className="tab on">参考灵感</div>
-            </div>
-          </div>
-          <div className="ov-inspire-list">
-            {INSPIRE.map((it) => (
-              <div className="ov-insp-card" key={it.scene}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img className="ov-insp-thumb" src={it.poster} alt={it.scene} />
-                <div className="ov-insp-body">
-                  <div className="ov-insp-scene">
-                    {it.emoji} {it.scene}
-                  </div>
-                  <div className="ov-insp-prompt">{it.prompt}</div>
-                  <button className="btn btn-soft btn-sm ov-insp-use" onClick={() => useInspire(it)}>
-                    <Icon name="sparkle" size={13} /> 用此灵感
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
 
