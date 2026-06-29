@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/Toast";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
+import { Dropdown } from "@/components/ui/Dropdown";
 import {
   videoSceneTpls,
   videoSceneCats,
@@ -17,6 +18,7 @@ import {
   videoQualities,
   videoVoices,
   videoBgms,
+  videoModels,
 } from "@/data/video";
 import type { VideoRunRow, Grad, AssetCard } from "@/lib/types";
 
@@ -153,6 +155,7 @@ export function OnelineVideo() {
   const [style, setStyle] = useState(videoStyles[0].name);
   const [voice, setVoice] = useState<string>(videoVoices[1]); // 配音音色，默认温柔女声
   const [bgm, setBgm] = useState<string>(videoBgms[1]); // 背景音乐，默认舒缓
+  const [model, setModel] = useState<string>(videoModels[0].name); // 视频生成模型
   const [count, setCount] = useState(1);
 
   const [runs, setRuns] = useState<VideoRunRow[]>(SEED_RUNS);
@@ -325,7 +328,7 @@ export function OnelineVideo() {
           sub: "视频生成 · 一句话成片",
           img: p.poster,
           time: nowStamp(),
-          edit: { sub: "oneline", input: p.text, voice, bgm },
+          edit: { sub: "oneline", input: p.text, model, voice, bgm },
         });
         toast(`视频已生成（${voice}${bgm === "无" ? "" : " · " + bgm}），已存入「我的作品」`);
       }, 5200)
@@ -670,6 +673,16 @@ export function OnelineVideo() {
               )}
 
               {/* —— 公共参数 F10-05 / F10-06 —— */}
+              <div className="field">
+                <div className="ws-label">视频模型</div>
+                <Dropdown
+                  title="选择视频模型"
+                  triggerIcon="vidModel"
+                  options={videoModels}
+                  value={model}
+                  onChange={(o) => setModel(o.name)}
+                />
+              </div>
               <div className="field">
                 <div className="ws-label">视频比例</div>
                 <div className="chip-row">

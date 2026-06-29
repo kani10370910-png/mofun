@@ -1,4 +1,12 @@
-import type { VideoEntry, VideoType, StudioStep, VideoSceneTpl, MotionWordGroup, VideoStyle } from "@/lib/types";
+import type { VideoEntry, VideoType, StudioStep, VideoSceneTpl, MotionWordGroup, VideoStyle, ModelOption } from "@/lib/types";
+
+/* ---------- 视频生成模型（下拉选择，参考品牌设计「生图模型」） ---------- */
+export const videoModels: ModelOption[] = [
+  { name: "Seedance 1.5 Pro", desc: "高质量 · 运镜自然，推荐" },
+  { name: "Seedance 1.0", desc: "速度快 · 日常出片" },
+  { name: "Vidu Q1", desc: "国风/动画见长" },
+  { name: "Kling 1.6", desc: "写实人物 · 表情细腻" },
+];
 
 /* ---------- 视频「制作大片」6 步流程（参考 360 漫剧） ---------- */
 export const studioSteps: StudioStep[] = [
