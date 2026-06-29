@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { useLibrary } from "@/lib/store";
@@ -68,9 +69,30 @@ const SEED_RUNS: VideoRunRow[] = [
   },
 ];
 
+// 演示海报池：无首帧的记录回退到这些样张，让预览/播放有真实画面
+const POSTER_POOL = [
+  "/poster-samples/20251219150028966406xict5e.jpg",
+  "/poster-samples/20251222150201108065evwftz.jpg",
+  "/poster-samples/20251223153921706507udqknx.jpg",
+  "/poster-samples/20251225143202617562fe2mzh.jpg",
+  "/poster-samples/202512251516181258973mq1jx.jpg",
+];
+// 按 id 稳定散列取一张回退海报（同一条记录每次取到同一张）
+function posterFor(row: VideoRunRow): string {
+  if (row.poster) return row.poster;
+  let h = 0;
+  for (let i = 0; i < row.id.length; i++) h = (h * 31 + row.id.charCodeAt(i)) >>> 0;
+  return POSTER_POOL[h % POSTER_POOL.length];
+}
+// "5秒" → 5
+function durSeconds(dur: string): number {
+  return parseInt(dur.match(/\d+/)?.[0] ?? "5", 10);
+}
+
 export function OnelineVideo() {
   const toast = useToast();
   const { addWork } = useLibrary();
+  const router = useRouter();
 
   const [tab, setTab] = useState<"t2v" | "i2v">("t2v");
   // —— 文生视频 ——
@@ -92,9 +114,11 @@ export function OnelineVideo() {
   const [count, setCount] = useState(1);
 
   const [runs, setRuns] = useState<VideoRunRow[]>(SEED_RUNS);
+  const [playing, setPlaying] = useState<VideoRunRow | null>(null); // 当前在播放器中预览的记录
   const [busy, setBusy] = useState(false);
   const [safe, setSafe] = useState<null | "checking" | "blocked">(null); // 安全预检状态
   const timers = useRef<number[]>([]);
+  const seq = useRef(0); // 自增序号，保证新生成记录 id 唯一
   const firstRef = useRef<HTMLInputElement>(null);
   const lastRef = useRef<HTMLInputElement>(null);
 
@@ -170,21 +194,42 @@ export function OnelineVideo() {
   }
 
   function startGenerate(isI2v: boolean, text: string) {
-    setBusy(true);
-    const id = "v-" + runs.length + "-" + text.length;
-    const grad = GRADS[runs.length % GRADS.length];
-    const row: VideoRunRow = {
-      id,
+    enqueue({
       mode: isI2v ? "i2v" : "t2v",
-      prompt: text,
+      text,
       scene: isI2v ? undefined : scene || undefined,
       ratio,
       dur,
       style,
+      poster: isI2v ? firstFrame : undefined,
+    });
+  }
+
+  // 入队 + 进度状态机（文生 / 图生 / 重新生成 三处共用）
+  function enqueue(p: {
+    mode: "t2v" | "i2v";
+    text: string;
+    scene?: string;
+    ratio: string;
+    dur: string;
+    style: string;
+    poster?: string;
+  }) {
+    setBusy(true);
+    const id = "v-" + ++seq.current;
+    const grad = GRADS[seq.current % GRADS.length];
+    const row: VideoRunRow = {
+      id,
+      mode: p.mode,
+      prompt: p.text,
+      scene: p.scene,
+      ratio: p.ratio,
+      dur: p.dur,
+      style: p.style,
       time: nowStamp(),
       status: "pending",
       pct: 0,
-      poster: isI2v ? firstFrame : undefined,
+      poster: p.poster,
       grad,
     };
     setRuns((prev) => [row, ...prev]);
@@ -210,14 +255,68 @@ export function OnelineVideo() {
           emoji: "🎬",
           grad,
           kind: "视频",
-          name: `${text.slice(0, 12) || "一句话视频"} · ${dur}`,
+          name: `${p.text.slice(0, 12) || "一句话视频"} · ${p.dur}`,
           sub: "视频生成 · 一句话成片",
+          img: p.poster,
           time: nowStamp(),
-          edit: { sub: "oneline", input: text },
+          edit: { sub: "oneline", input: p.text },
         });
-        toast("视频已生成（演示），已存入「我的作品」");
+        toast("视频已生成，已存入「我的作品」");
       }, 5200)
     );
+  }
+
+  // 重新生成：把该记录参数回填到表单，并按原参数立即重新入队
+  function regenerate(row: VideoRunRow) {
+    if (busy) return;
+    setTab(row.mode);
+    if (row.mode === "t2v") {
+      setScene(row.scene ?? "");
+      setPrompt(row.prompt);
+    } else {
+      setMotion(row.prompt);
+    }
+    setRatio(row.ratio);
+    setDur(row.dur);
+    setStyle(row.style);
+    enqueue({
+      mode: row.mode,
+      text: row.prompt,
+      scene: row.scene,
+      ratio: row.ratio,
+      dur: row.dur,
+      style: row.style,
+      poster: row.poster,
+    });
+    toast("已按原参数重新生成");
+  }
+
+  // 存内容库：写入「仓库 · 我的作品」并跳转到仓库页
+  function saveToLibrary(row: VideoRunRow) {
+    addWork({
+      emoji: "🎬",
+      grad: row.grad,
+      kind: "视频",
+      name: `${row.prompt.slice(0, 12) || "一句话视频"} · ${row.dur}`,
+      sub: "视频生成 · 一句话成片",
+      img: row.poster || posterFor(row),
+      time: nowStamp(),
+      edit: { sub: "oneline", input: row.prompt },
+    });
+    toast("已保存到「仓库 · 我的作品」，正在跳转…");
+    router.push("/storage");
+  }
+
+  // 下载封面帧：同源静态图，用 <a download> 直接落盘
+  function downloadFrame(row: VideoRunRow) {
+    const src = row.poster || posterFor(row);
+    const a = document.createElement("a");
+    a.href = src;
+    a.download = `${row.prompt.slice(0, 16) || "video-frame"}.jpg`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    toast("已下载视频封面帧");
   }
 
   function deleteRun(id: string) {
@@ -454,12 +553,34 @@ export function OnelineVideo() {
           ) : (
             <div className="ov-runs">
               {runs.map((r) => (
-                <VideoRunCard key={r.id} row={r} onDelete={() => deleteRun(r.id)} toast={toast} />
+                <VideoRunCard
+                  key={r.id}
+                  row={r}
+                  onDelete={() => deleteRun(r.id)}
+                  onPlay={() => setPlaying(r)}
+                  onRegenerate={() => regenerate(r)}
+                  onSave={() => saveToLibrary(r)}
+                  onDownload={() => downloadFrame(r)}
+                  toast={toast}
+                />
               ))}
             </div>
           )}
         </div>
       </div>
+
+      {playing && (
+        <VideoPlayerModal
+          row={playing}
+          onClose={() => setPlaying(null)}
+          onDownload={() => downloadFrame(playing)}
+          onSave={() => {
+            saveToLibrary(playing);
+            setPlaying(null);
+          }}
+          onStudio={() => router.push("/video?sub=studio")}
+        />
+      )}
     </>
   );
 }
@@ -523,9 +644,26 @@ const STATUS_TEXT: Record<VideoRunRow["status"], string> = {
   failed: "生成遇到问题，额度已退还",
 };
 
-function VideoRunCard({ row, onDelete, toast }: { row: VideoRunRow; onDelete: () => void; toast: (s: string) => void }) {
+function VideoRunCard({
+  row,
+  onDelete,
+  onPlay,
+  onRegenerate,
+  onSave,
+  onDownload,
+  toast,
+}: {
+  row: VideoRunRow;
+  onDelete: () => void;
+  onPlay: () => void;
+  onRegenerate: () => void;
+  onSave: () => void;
+  onDownload: () => void;
+  toast: (s: string) => void;
+}) {
   const [reviewing, setReviewing] = useState(false);
   const loading = row.status === "pending" || row.status === "running";
+  const done = row.status === "done";
   const durLabel = (row.dur.match(/\d+/)?.[0] ?? "5").padStart(2, "0");
 
   return (
@@ -542,10 +680,15 @@ function VideoRunCard({ row, onDelete, toast }: { row: VideoRunRow; onDelete: ()
         <span className="ov-run-time">{row.time}</span>
       </div>
 
-      <div className={`ov-video ${row.grad}`}>
-        {row.poster ? (
+      <div
+        className={`ov-video ${row.grad} ${done ? "clickable" : ""}`}
+        onClick={done ? onPlay : undefined}
+        role={done ? "button" : undefined}
+        title={done ? "点击播放预览" : undefined}
+      >
+        {(row.poster || done) ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img className="ov-video-poster" src={row.poster} alt="首帧" />
+          <img className="ov-video-poster" src={row.poster || posterFor(row)} alt="视频封面" />
         ) : null}
         {loading ? (
           <div className="ov-video-loading">
@@ -558,28 +701,164 @@ function VideoRunCard({ row, onDelete, toast }: { row: VideoRunRow; onDelete: ()
           <>
             <div className="ov-play">▶</div>
             <span className="ov-video-dur">00:{durLabel}</span>
-            <span className="lh-mark">由 AI 生成（演示）</span>
+            <span className="lh-mark">由 AI 生成</span>
           </>
         )}
       </div>
 
       {row.status === "done" && (
         <div className="ov-run-acts">
-          <button className="btn btn-soft btn-sm" onClick={() => toast("下载 MP4（演示）")}>下载 MP4</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => toast("已发起重新生成（演示）")}>重新生成</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => toast("已保存至县域内容库（演示）")}>存内容库</button>
+          <button className="btn btn-soft btn-sm" onClick={onDownload}>下载封面</button>
+          <button className="btn btn-ghost btn-sm" onClick={onRegenerate}>重新生成</button>
+          <button className="btn btn-ghost btn-sm" onClick={onSave}>存内容库</button>
           <button
             className="btn btn-primary btn-sm"
             disabled={reviewing}
             onClick={() => {
               setReviewing(true);
-              toast("已提交审核，进入审核队列（演示）");
+              toast("已提交审核，进入审核队列");
             }}
           >
             {reviewing ? "审核中…" : "提交审核"}
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/* 视频预览播放器：点击生成历史卡片打开。
+   无真实视频模型，这里用海报图 + 实时 transform（Ken Burns 推拉）模拟一段可播放预览，
+   播放时间由 requestAnimationFrame 驱动，播放/暂停/拖动进度条与画面运动严格同步、循环播放。 */
+function VideoPlayerModal({
+  row,
+  onClose,
+  onDownload,
+  onSave,
+  onStudio,
+}: {
+  row: VideoRunRow;
+  onClose: () => void;
+  onDownload: () => void;
+  onSave: () => void;
+  onStudio: () => void;
+}) {
+  const total = durSeconds(row.dur);
+  const [playing, setPlaying] = useState(true);
+  const [t, setT] = useState(0); // 当前播放秒（浮点）
+  const raf = useRef(0);
+  const last = useRef(0);
+  const seeking = useRef(false);
+
+  // rAF 推进播放时间，到结尾循环回 0
+  useEffect(() => {
+    if (!playing) return;
+    last.current = performance.now();
+    const tick = (now: number) => {
+      const dt = (now - last.current) / 1000;
+      last.current = now;
+      if (!seeking.current) setT((cur) => (cur + dt >= total ? 0 : cur + dt));
+      raf.current = requestAnimationFrame(tick);
+    };
+    raf.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf.current);
+  }, [playing, total]);
+
+  // Esc 关闭
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === " ") {
+        e.preventDefault();
+        setPlaying((p) => !p);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const prog = Math.min(1, t / total);
+  // Ken Burns：随播放进度缓慢放大 + 轻微平移，与进度条同步
+  const scale = 1 + 0.14 * prog;
+  const tx = -4 * prog;
+  const ty = -2.5 * prog;
+  const fmt = (s: number) => `00:${String(Math.floor(s)).padStart(2, "0")}`;
+
+  function seekAt(clientX: number, el: HTMLElement) {
+    const rect = el.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    setT(ratio * total);
+  }
+
+  return (
+    <div className="modal-mask" onClick={onClose}>
+      <div className="vp-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="vp-head">
+          <span className="ov-run-mode">{row.mode === "i2v" ? "图生视频" : "文生视频"}</span>
+          <span className="vp-title">{row.prompt}</span>
+          <button className="vp-close" onClick={onClose} aria-label="关闭">
+            <Icon name="close" size={18} />
+          </button>
+        </div>
+
+        <div className="vp-stage" style={{ aspectRatio: row.ratio.replace(":", "/") }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            className="vp-frame"
+            src={posterFor(row)}
+            alt={row.prompt}
+            style={{ transform: `scale(${scale}) translate(${tx}%, ${ty}%)` }}
+          />
+          <div className="vp-vignette" />
+          <div className="vp-caption">{row.prompt}</div>
+          {!playing && (
+            <button className="vp-bigplay" onClick={() => setPlaying(true)} aria-label="播放">
+              ▶
+            </button>
+          )}
+        </div>
+
+        <div className="vp-controls">
+          <button className="vp-ctrl" onClick={() => setPlaying((p) => !p)} aria-label={playing ? "暂停" : "播放"}>
+            {playing ? "❚❚" : "▶"}
+          </button>
+          <span className="vp-time">{fmt(t)}</span>
+          <div
+            className="vp-track"
+            onPointerDown={(e) => {
+              seeking.current = true;
+              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+              seekAt(e.clientX, e.currentTarget);
+            }}
+            onPointerMove={(e) => {
+              if (seeking.current) seekAt(e.clientX, e.currentTarget);
+            }}
+            onPointerUp={(e) => {
+              seeking.current = false;
+              last.current = performance.now();
+              (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+            }}
+          >
+            <span className="vp-fill" style={{ width: `${prog * 100}%` }} />
+            <span className="vp-knob" style={{ left: `${prog * 100}%` }} />
+          </div>
+          <span className="vp-time">{fmt(total)}</span>
+          <span className="vp-meta">{row.style} · {row.ratio}</span>
+        </div>
+
+        <div className="vp-foot">
+          <button className="btn btn-soft btn-sm" onClick={onDownload}>
+            <Icon name="download" size={14} /> 下载封面
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={onSave}>
+            存内容库
+          </button>
+          <div className="vp-foot-spacer" />
+          <button className="btn btn-primary btn-sm" onClick={onStudio}>
+            去制作大片 <Icon name="chevron" size={14} />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
