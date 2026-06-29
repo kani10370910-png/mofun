@@ -8,36 +8,46 @@ interface PlayerAudioOpts {
   bgm?: string; // 背景音乐：无 / 舒缓 / 轻快 / 大气 / 国风
 }
 
-// 背景音乐心情 → 基频 / 波形 / 颤音速率
-const MOODS: Record<string, { root: number; type: OscillatorType; tremolo: number }> = {
-  舒缓: { root: 220.0, type: "sine", tremolo: 0.12 },
-  轻快: { root: 293.66, type: "triangle", tremolo: 0.2 },
-  大气: { root: 146.83, type: "sine", tremolo: 0.07 },
-  国风: { root: 196.0, type: "sine", tremolo: 0.1 },
+// 背景音乐心情 → 基频 / 颤音速率（全部用正弦波：谐波少、声音柔和不嗡）
+const MOODS: Record<string, { root: number; tremolo: number }> = {
+  舒缓: { root: 220.0, tremolo: 0.10 },
+  轻快: { root: 261.63, tremolo: 0.16 },
+  大气: { root: 130.81, tremolo: 0.06 },
+  国风: { root: 196.0,  tremolo: 0.09 },
 };
 
 // 柔和和声 pad 接到 dest，返回停止函数（播放器与导出混音共用）
-function attachPad(ctx: AudioContext, dest: AudioNode, mood: { root: number; type: OscillatorType; tremolo: number }): () => void {
+function attachPad(ctx: AudioContext, dest: AudioNode, mood: { root: number; tremolo: number }): () => void {
   const padGain = ctx.createGain();
   padGain.gain.setValueAtTime(0, ctx.currentTime);
-  padGain.gain.linearRampToValueAtTime(0.16, ctx.currentTime + 1.4);
+  padGain.gain.linearRampToValueAtTime(0.10, ctx.currentTime + 2.0); // 音量降低、淡入更慢
   padGain.connect(dest);
+
   const oscs = [0, 1, 2].map((i) => {
     const o = ctx.createOscillator();
-    o.type = mood.type;
+    o.type = "sine"; // 统一正弦波，无高次谐波
     o.frequency.value = mood.root * [1, 1.5, 2][i];
-    o.detune.value = (i - 1) * 4;
-    o.connect(padGain);
+    o.detune.value = (i - 1) * 5;
+    // 每个振荡器过低通（截 700 Hz），消除因 detune 差拍产生的嗡嗡感
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 700;
+    lp.Q.value = 0.5;
+    o.connect(lp);
+    lp.connect(padGain);
     o.start();
     return o;
   });
+
+  // 极慢颤音（<0.2 Hz），幅度很小，不产生可闻调制噪声
   const lfo = ctx.createOscillator();
   lfo.frequency.value = mood.tremolo;
   const lfoGain = ctx.createGain();
-  lfoGain.gain.value = 0.06;
+  lfoGain.gain.value = 0.03; // 从 0.06 减到 0.03
   lfo.connect(lfoGain);
   lfoGain.connect(padGain.gain);
   lfo.start();
+
   return () => {
     oscs.forEach((o) => o.stop());
     lfo.stop();
@@ -53,16 +63,18 @@ function attachAmbient(ctx: AudioContext, dest: AudioNode): () => void {
   for (let i = 0; i < size; i++) {
     const white = Math.random() * 2 - 1;
     last = (last + 0.02 * white) / 1.02;
-    data[i] = last * 3.2;
+    // 从 3.2 降到 1.4，避免样本超过 ±1 削波失真
+    data[i] = Math.max(-1, Math.min(1, last * 1.4));
   }
   const src = ctx.createBufferSource();
   src.buffer = buffer;
   src.loop = true;
   const lp = ctx.createBiquadFilter();
   lp.type = "lowpass";
-  lp.frequency.value = 720;
+  lp.frequency.value = 400; // 从 720 降到 400，滤掉嗡嗡的中高频噪声
+  lp.Q.value = 0.3;
   const g = ctx.createGain();
-  g.gain.value = 0.05;
+  g.gain.value = 0.04; // 从 0.05 微降
   src.connect(lp);
   lp.connect(g);
   g.connect(dest);
