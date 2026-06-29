@@ -117,18 +117,20 @@ export function Studio({
   const totalDur = shots.reduce((a, s) => a + s.dur, 0);
   const doneShots = shots.filter((s) => s.status === "done");
 
-  // 制作大片：全屏沉浸模式（隐藏顶栏），离开时还原 + 清理定时器
+  // 仅「从生成历史进入」时启用全屏沉浸模式（隐藏顶栏，配合返回按钮）；
+  // 直接进入是一级功能，保留顶栏作为导航，避免无顶栏又无返回而出不去。
   useEffect(() => {
-    document.body.classList.add("studio-mode");
+    const immersive = showBack;
+    if (immersive) document.body.classList.add("studio-mode");
     const t = timers.current;
     return () => {
-      document.body.classList.remove("studio-mode");
+      if (immersive) document.body.classList.remove("studio-mode");
       t.forEach((id) => {
         window.clearTimeout(id);
         window.clearInterval(id);
       });
     };
-  }, []);
+  }, [showBack]);
 
   const activeIdx = studioSteps.findIndex((s) => s.key === stepKey);
   const active = studioSteps[activeIdx] ?? studioSteps[0];
