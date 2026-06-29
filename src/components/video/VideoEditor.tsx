@@ -21,7 +21,15 @@ import { OnelineVideo } from "./OnelineVideo";
 const iconOf = (k: string): IconName => VID_ICON[k] ?? "video";
 const MOTION = (v: number) => (v < 33 ? "轻微" : v < 67 ? "适中" : "强烈");
 
-export function VideoEditor({ initialSub, initialInput }: { initialSub?: string; initialInput?: string }) {
+export function VideoEditor({
+  initialSub,
+  initialInput,
+  initialFrom,
+}: {
+  initialSub?: string;
+  initialInput?: string;
+  initialFrom?: string;
+}) {
   const router = useRouter();
   const toast = useToast();
   const sim = useSimGenerate();
@@ -57,7 +65,15 @@ export function VideoEditor({ initialSub, initialInput }: { initialSub?: string;
   }
 
   if (active === "studio" || isStudio) {
-    return <Studio initialStep={(initialSub ?? "").split(":")[1] || "script"} railItems={railItems} iconOf={iconOf} onPickType={switchType} />;
+    return (
+      <Studio
+        initialStep={(initialSub ?? "").split(":")[1] || "script"}
+        railItems={railItems}
+        iconOf={iconOf}
+        onPickType={switchType}
+        showBack={initialFrom === "history"}
+      />
+    );
   }
 
   const type = videoTypes.find((t) => t.key === active) ?? videoTypes[0];

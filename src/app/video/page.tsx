@@ -6,7 +6,13 @@ import { VideoEditor } from "@/components/video/VideoEditor";
 
 function VideoInner() {
   const sp = useSearchParams();
-  return <VideoEditor initialSub={sp.get("sub") ?? undefined} initialInput={sp.get("input") ?? undefined} />;
+  return (
+    <VideoEditor
+      initialSub={sp.get("sub") ?? undefined}
+      initialInput={sp.get("input") ?? undefined}
+      initialFrom={sp.get("from") ?? undefined}
+    />
+  );
 }
 
 export default function VideoPage() {

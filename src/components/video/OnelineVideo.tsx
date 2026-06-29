@@ -905,7 +905,7 @@ export function OnelineVideo() {
             saveToLibrary(playing);
             setPlaying(null);
           }}
-          onStudio={() => router.push("/video?sub=studio")}
+          onStudio={() => router.push("/video?sub=studio&from=history")}
         />
       )}
     </>

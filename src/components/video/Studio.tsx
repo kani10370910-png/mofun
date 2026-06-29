@@ -83,11 +83,13 @@ export function Studio({
   railItems,
   iconOf,
   onPickType,
+  showBack = false,
 }: {
   initialStep?: string;
   railItems: RailItem[];
   iconOf: (k: string) => IconName;
   onPickType: (k: string) => void;
+  showBack?: boolean; // 仅从生成历史进入时显示返回按钮；直接进入（一级功能）不显示
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -293,9 +295,11 @@ export function Studio({
         <div className="studio studio-inline">
           <header className="studio-top">
             <div className="st-left">
-              <button className="st-back" onClick={goBack} title="返回">
-                <Icon name="chevron" size={18} />
-              </button>
+              {showBack && (
+                <button className="st-back" onClick={goBack} title="返回">
+                  <Icon name="chevron" size={18} />
+                </button>
+              )}
               <span className="st-proj">
                 未命名项目 · {active.name} · {shots.length} 镜 / {totalDur}s
               </span>
