@@ -60,7 +60,6 @@ export const videoPipeline: VideoPipelineStage[] = [
 export const audioTracks: AudioTrack[] = [
   { key: "tts", ico: "🎙️", name: "旁白/对白", model: "TTS 语音合成" },
   { key: "sfx", ico: "💥", name: "动作音效", model: "音效模型" },
-  { key: "amb", ico: "🌿", name: "环境声", model: "环境声模型" },
   { key: "bgm", ico: "🎵", name: "背景音乐", model: "音乐模型" },
 ];
 

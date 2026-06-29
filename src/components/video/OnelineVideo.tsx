@@ -158,7 +158,8 @@ function tracksFor(voice?: string, bgm?: string) {
   return audioTracks.filter((t) => {
     if (t.key === "tts") return !!voice && voice !== "不配音";
     if (t.key === "bgm") return !!bgm && bgm !== "无";
-    return true; // sfx / amb 始终生成
+    if (t.key === "sfx") return true; // 音效始终生成
+    return false; // 其他音轨（已删除的 amb 等）不显示
   });
 }
 
