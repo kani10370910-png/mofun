@@ -37,10 +37,8 @@ export function VideoEditor({
 
   // 「制作大片」：sub === "studio" 或 "studio:step"
   const isStudio = initialSub === "studio" || (initialSub ?? "").startsWith("studio");
-
-  const [active, setActive] = useState<string>(
-    isStudio ? "studio" : videoTypes.find((t) => t.key === initialSub)?.key ?? videoTypes[0].key
-  );
+  // 当前视频类型完全以 URL（initialSub）为准，避免本地 state 与 URL 冲突导致切不出 Studio
+  const current = isStudio ? "studio" : videoTypes.find((t) => t.key === initialSub)?.key ?? videoTypes[0].key;
 
   const [input, setInput] = useState(
     initialInput || "安吉明前白茶产品介绍：海拔800米高山茶园产地、氨基酸高鲜爽回甘的特点、限量预订产地直发的购买方式"
@@ -55,16 +53,13 @@ export function VideoEditor({
   const railItems: RailItem[] = videoTypes.map((t) => ({ key: t.key, name: t.name }));
 
   function switchType(key: string) {
-    if (key === "studio") {
-      router.push("/video?sub=studio");
-      return;
-    }
-    setActive(key);
+    if (key === current) return;
     setResult(null);
     sim.close();
+    router.push(`/video?sub=${key}`); // 统一走 URL，URL 即当前工具的唯一来源
   }
 
-  if (active === "studio" || isStudio) {
+  if (isStudio) {
     return (
       <Studio
         initialStep={(initialSub ?? "").split(":")[1] || "script"}
@@ -76,14 +71,14 @@ export function VideoEditor({
     );
   }
 
-  const type = videoTypes.find((t) => t.key === active) ?? videoTypes[0];
+  const type = videoTypes.find((t) => t.key === current) ?? videoTypes[0];
 
   // 一句话成片：走完整 F10 模块（文生/图生双 Tab + 场景词 + 首尾帧 + 进度/后处理）
-  if (active === "oneline") {
+  if (current === "oneline") {
     return (
       <div className="page">
         <div className="editor-layout">
-          <EditorRail items={railItems} activeKey={active} iconOf={iconOf} onPick={switchType} />
+          <EditorRail items={railItems} activeKey={current} iconOf={iconOf} onPick={switchType} />
           <OnelineVideo />
         </div>
       </div>
@@ -106,7 +101,7 @@ export function VideoEditor({
         name,
         sub: "视频生成 · AI 生成",
         time: nowStamp(),
-        edit: { sub: active, input: input.trim() },
+        edit: { sub: current, input: input.trim() },
       });
       toast("视频生成完成，已存入「我的作品」");
     });
@@ -115,7 +110,7 @@ export function VideoEditor({
   return (
     <div className="page">
       <div className="editor-layout">
-        <EditorRail items={railItems} activeKey={active} iconOf={iconOf} onPick={switchType} />
+        <EditorRail items={railItems} activeKey={current} iconOf={iconOf} onPick={switchType} />
         <div className="workspace">
           <div className="ws-panel sticky">
             <div className="ws-scroll">
