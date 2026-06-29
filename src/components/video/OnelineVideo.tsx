@@ -14,13 +14,13 @@ import {
   motionWords,
   videoStyles,
   videoRatios,
-  videoDurations,
   videoQualities,
   videoVoices,
   videoBgms,
   videoModels,
   videoPipeline,
   audioTracks,
+  videoDurationRange,
 } from "@/data/video";
 import type { VideoRunRow, Grad, AssetCard } from "@/lib/types";
 
@@ -107,6 +107,19 @@ function durSeconds(dur: string): number {
   return parseInt(dur.match(/\d+/)?.[0] ?? "5", 10);
 }
 
+// "智能" / "16:9" → "16/9"（CSS aspect-ratio 格式）
+function ratioToAspect(ratio: string): string {
+  if (ratio === "智能") return "16/9";
+  return ratio.replace(":", "/");
+}
+
+// "智能" / "16:9" → [16, 9]（下载时画布比例）
+function ratioWH(ratio: string): [number, number] {
+  if (ratio === "智能") return [16, 9];
+  const parts = ratio.split(":").map(Number);
+  return [parts[0] ?? 16, parts[1] ?? 9];
+}
+
 // 由累计进度 pct 反推当前所处的音画管线阶段下标
 function stageOf(pct: number): number {
   const i = videoPipeline.findIndex((s) => pct < s.to);
@@ -173,8 +186,9 @@ export function OnelineVideo() {
   const [motionCat, setMotionCat] = useState(motionWords[0].cat);
   // —— 公共参数 ——
   const [ratio, setRatio] = useState<string>(videoRatios[0]);
-  const [dur, setDur] = useState<string>(videoDurations[0]);
-  const [quality, setQuality] = useState<string>(videoQualities[0]);
+  const [durSec, setDurSec] = useState(5); // 视频时长（秒），滑杆控制
+  const [quality, setQuality] = useState<string>(videoQualities[1]); // 默认 720P
+  const [genAudio, setGenAudio] = useState(true); // 是否同时生成声音
   const [style, setStyle] = useState(videoStyles[0].name);
   const [voice, setVoice] = useState<string>(videoVoices[1]); // 配音音色，默认温柔女声
   const [bgm, setBgm] = useState<string>(videoBgms[1]); // 背景音乐，默认舒缓
@@ -292,11 +306,11 @@ export function OnelineVideo() {
       text,
       scene: isI2v ? undefined : scene || undefined,
       ratio,
-      dur,
+      dur: `${durSec}秒`,
       style,
       poster: isI2v ? firstFrame : undefined,
-      voice,
-      bgm,
+      voice: genAudio ? voice : "不配音",
+      bgm: genAudio ? bgm : "无",
     });
   }
 
@@ -378,7 +392,7 @@ export function OnelineVideo() {
       setMotion(row.prompt);
     }
     setRatio(row.ratio);
-    setDur(row.dur);
+    setDurSec(durSeconds(row.dur));
     setStyle(row.style);
     enqueue({
       mode: row.mode,
@@ -452,7 +466,7 @@ export function OnelineVideo() {
       img.src = src;
       await img.decode();
 
-      const [rw, rh] = row.ratio.split(":").map(Number);
+      const [rw, rh] = ratioWH(row.ratio);
       const base = 720;
       const cw = rw >= rh ? Math.round((base * rw) / rh) : base;
       const ch = rw >= rh ? base : Math.round((base * rh) / rw);
@@ -732,26 +746,44 @@ export function OnelineVideo() {
               </div>
               <div className="field">
                 <div className="ws-label">视频比例</div>
-                <div className="chip-row">
-                  {videoRatios.map((r) => (
-                    <span key={r} className={ratio === r ? "sel-chip on" : "sel-chip"} onClick={() => setRatio(r)}>
-                      {r}
-                    </span>
-                  ))}
+                <div className="ov-ratio-row">
+                  {videoRatios.map((r) => {
+                    const [rw, rh] = ratioWH(r);
+                    const H = 14;
+                    const W = Math.min(Math.round(H * rw / rh), 30);
+                    return (
+                      <button
+                        key={r}
+                        type="button"
+                        className={`ov-ratio-btn ${ratio === r ? "on" : ""}`}
+                        onClick={() => setRatio(r)}
+                      >
+                        <span className="ov-ratio-ico" style={{ width: W, height: H }}>
+                          {r === "智能" && <span className="ov-ratio-star">✦</span>}
+                        </span>
+                        <span className="ov-ratio-label">{r}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
               <div className="field">
                 <div className="ws-label">视频时长</div>
-                <div className="chip-row">
-                  {videoDurations.map((d) => (
-                    <span key={d} className={dur === d ? "sel-chip on" : "sel-chip"} onClick={() => setDur(d)}>
-                      {d}
-                    </span>
-                  ))}
+                <div className="ov-dur-row">
+                  <input
+                    type="range"
+                    className="slider"
+                    min={videoDurationRange.min}
+                    max={videoDurationRange.max}
+                    step={1}
+                    value={durSec}
+                    onChange={(e) => setDurSec(Number(e.target.value))}
+                  />
+                  <span className="ov-dur-val">{durSec} s</span>
                 </div>
               </div>
               <div className="field">
-                <div className="ws-label">画质</div>
+                <div className="ws-label">视频质量</div>
                 <div className="chip-row">
                   {videoQualities.map((q) => (
                     <span key={q} className={quality === q ? "sel-chip on" : "sel-chip"} onClick={() => setQuality(q)}>
@@ -759,7 +791,14 @@ export function OnelineVideo() {
                     </span>
                   ))}
                 </div>
-                {quality.includes("1080") && <div className="field-hint">高清消耗 2 倍额度</div>}
+                {quality === "1080P" && <div className="field-hint">高清消耗 2 倍额度</div>}
+              </div>
+              <div className="field">
+                <div className="ws-label">同时生成声音</div>
+                <div className="seg">
+                  <div className={genAudio ? "seg-item on" : "seg-item"} onClick={() => setGenAudio(true)}>开启</div>
+                  <div className={!genAudio ? "seg-item on" : "seg-item"} onClick={() => setGenAudio(false)}>关闭</div>
+                </div>
               </div>
               <div className="field">
                 <div className="ws-label">视频风格</div>
@@ -772,27 +811,31 @@ export function OnelineVideo() {
                   ))}
                 </div>
               </div>
-              {/* —— 音频：配音 + 背景音乐 —— */}
-              <div className="field">
-                <div className="ws-label">配音</div>
-                <div className="chip-row">
-                  {videoVoices.map((v) => (
-                    <span key={v} className={voice === v ? "sel-chip on" : "sel-chip"} onClick={() => setVoice(v)}>
-                      {v}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div className="field">
-                <div className="ws-label">背景音乐</div>
-                <div className="chip-row">
-                  {videoBgms.map((b) => (
-                    <span key={b} className={bgm === b ? "sel-chip on" : "sel-chip"} onClick={() => setBgm(b)}>
-                      {b === "无" ? "无背景音乐" : b}
-                    </span>
-                  ))}
-                </div>
-              </div>
+              {/* —— 音频：配音 + 背景音乐（仅在「同时生成声音」开启时显示） —— */}
+              {genAudio && (
+                <>
+                  <div className="field">
+                    <div className="ws-label">配音</div>
+                    <div className="chip-row">
+                      {videoVoices.map((v) => (
+                        <span key={v} className={voice === v ? "sel-chip on" : "sel-chip"} onClick={() => setVoice(v)}>
+                          {v}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="field">
+                    <div className="ws-label">背景音乐</div>
+                    <div className="chip-row">
+                      {videoBgms.map((b) => (
+                        <span key={b} className={bgm === b ? "sel-chip on" : "sel-chip"} onClick={() => setBgm(b)}>
+                          {b === "无" ? "无背景音乐" : b}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
 
               {tab === "t2v" && (
                 <div className="field">
@@ -1285,7 +1328,7 @@ function VideoPlayerModal({
           </button>
         </div>
 
-        <div className="vp-stage" style={{ aspectRatio: row.ratio.replace(":", "/") }}>
+        <div className="vp-stage" style={{ aspectRatio: ratioToAspect(row.ratio) }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             className="vp-frame"

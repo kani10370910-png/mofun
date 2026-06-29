@@ -3598,6 +3598,21 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 .ov-track-ico { font-size: 12px; line-height: 1; }
 @keyframes ov-track-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
+/* 视频比例：带比例示意图标的按钮组 */
+.ov-ratio-row { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.ov-ratio-row::-webkit-scrollbar { display: none; }
+.ov-ratio-btn { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 7px 6px 6px; border: 1.5px solid var(--border); border-radius: 8px; background: none; cursor: pointer; color: var(--c-muted); min-width: 42px; flex: 0 0 auto; transition: border-color .15s, background .15s, color .15s; }
+.ov-ratio-btn:hover { border-color: var(--c-primary); color: var(--c-ink); }
+.ov-ratio-btn.on { border-color: var(--c-primary); background: var(--c-primary-bg); color: var(--c-primary-dark); }
+.ov-ratio-ico { display: block; border: 1.5px solid currentColor; border-radius: 2px; position: relative; flex: 0 0 auto; }
+.ov-ratio-star { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 7px; line-height: 1; }
+.ov-ratio-label { font-size: 11px; white-space: nowrap; font-weight: 500; }
+
+/* 视频时长：滑杆 + 数值显示框 */
+.ov-dur-row { display: flex; align-items: center; gap: 10px; }
+.ov-dur-row .slider { flex: 1; }
+.ov-dur-val { flex: 0 0 auto; min-width: 48px; text-align: center; background: var(--bg-2, var(--bg)); border: 1.5px solid var(--border); border-radius: 8px; padding: 5px 8px; font-size: 14px; font-weight: 600; color: var(--c-ink); }
+
 /* —— 视频预览播放器（点击生成历史卡片打开）—— */
 .ov-video.clickable { cursor: pointer; }
 .ov-video:hover .lh-fav { opacity: 1; }
