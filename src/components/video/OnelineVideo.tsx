@@ -131,20 +131,22 @@ function ratioToSize(ratio: string): string {
   return `${align(w)}x${align(h)}`;
 }
 
-// 调真实图像模型按提示词生成视频首帧画面（文生视频「生成画面」环节）；失败返回 null 回退样张池
-async function genVideoFrame(prompt: string, ratio: string): Promise<string | null> {
-  try {
-    const r = await fetch("/api/image", {
+// 并行生成 2 张关键帧（开场 + 中景），为视频提供真实画面变化；任一失败则返回成功的帧，全失败返回 []
+async function genVideoFrames(prompt: string, ratio: string): Promise<string[]> {
+  const size = ratioToSize(ratio);
+  const prompts = [prompt, `${prompt}，近景特写，不同机位视角`];
+  const fetchFrame = (p: string) =>
+    fetch("/api/image", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, size: ratioToSize(ratio) }),
-    });
-    if (!r.ok) return null;
-    const j = (await r.json()) as { images?: string[] };
-    return j.images?.[0] ?? null;
-  } catch {
-    return null;
-  }
+      body: JSON.stringify({ prompt: p, size }),
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((j: { images?: string[] }) => j.images?.[0] ?? null);
+  const results = await Promise.allSettled(prompts.map(fetchFrame));
+  return results
+    .map((r) => (r.status === "fulfilled" ? r.value : null))
+    .filter((u): u is string => !!u);
 }
 
 // 由累计进度 pct 反推当前所处的音画管线阶段下标
@@ -382,16 +384,20 @@ export function OnelineVideo() {
     const upd = (patch: Partial<VideoRunRow>) =>
       setRuns((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 
-    // 「生成画面」：文生视频调真实图像模型按提示词出首帧；图生视频用已上传的首帧
-    const framePromise: Promise<string | null> =
-      p.mode === "i2v" ? Promise.resolve(p.poster ?? null) : genVideoFrame(p.text, p.ratio);
+    // 「生成画面」：文生视频并行生成 2 帧关键图；图生视频用已上传的首帧
+    const framesPromise: Promise<string[]> =
+      p.mode === "i2v"
+        ? Promise.resolve(p.poster ? [p.poster] : [])
+        : genVideoFrames(p.text, p.ratio);
     let frameReady = false;
     let frameUrl: string | null = p.poster ?? null;
-    framePromise.then((url) => {
+    let allFrames: string[] = p.poster ? [p.poster] : [];
+    framesPromise.then((urls) => {
       frameReady = true;
-      if (url) {
-        frameUrl = url;
-        upd({ poster: url }); // 模型出图后即时铺到卡片封面
+      if (urls.length) {
+        allFrames = urls;
+        frameUrl = urls[0];
+        upd({ poster: urls[0], frames: urls }); // 首帧铺卡片封面，全帧存入 row
       }
     });
 
@@ -407,11 +413,11 @@ export function OnelineVideo() {
 
     // 完成时机：等画面生成完成（无论成败）+ 最短演示节奏，二者都满足才封装
     const minDelay = new Promise<void>((res) => timers.current.push(window.setTimeout(res, 3500)));
-    void Promise.all([framePromise.catch(() => null), minDelay]).then(() => {
+    void Promise.all([framesPromise.catch(() => []), minDelay]).then(() => {
       window.clearInterval(iv);
       const finalPoster = frameUrl ?? p.poster;
       // 混音封装完成 → MP4 有声视频
-      upd({ status: "done", pct: 100, poster: finalPoster });
+      upd({ status: "done", pct: 100, poster: finalPoster, frames: allFrames.length ? allFrames : undefined });
       setBusy(false);
       const hasAudio = row.withAudio !== false;
       const tracks = hasAudio ? tracksFor(p.voice, p.bgm) : [];
@@ -513,11 +519,18 @@ export function OnelineVideo() {
     dlRef.current = true;
     toast(`正在生成视频（约 ${durSeconds(row.dur)} 秒），请稍候…`);
     try {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      // 模型出图是跨域图床 URL，直接进 canvas 会污染（taint）导致无法导出，先经同源代理取字节
-      img.src = /^https?:\/\//i.test(src) ? `/api/proxy-image?url=${encodeURIComponent(src)}` : src;
-      await img.decode();
+      // 加载所有帧（多帧时并行加载），跨域 URL 走同源代理防 canvas taint
+      const srcFrames = (row.frames?.length ? row.frames : [src]).filter(Boolean);
+      const proxyUrl = (u: string) =>
+        /^https?:\/\//i.test(u) ? `/api/proxy-image?url=${encodeURIComponent(u)}` : u;
+      const imgs = await Promise.all(
+        srcFrames.map((u) => {
+          const el = new Image();
+          el.crossOrigin = "anonymous";
+          el.src = proxyUrl(u);
+          return el.decode().then(() => el);
+        })
+      );
 
       const [rw, rh] = ratioWH(row.ratio);
       const base = 720;
@@ -530,25 +543,48 @@ export function OnelineVideo() {
       if (!ctx) throw new Error("no 2d context");
 
       const total = durSeconds(row.dur);
-      const drawFrame = (p: number) => {
-        const z = 1 + 0.14 * p; // 随进度缓慢放大
+      const n = imgs.length;
+
+      // 各帧 Ken Burns 运镜方向（循环使用）
+      const KB = [
+        { zoom: 0.14, tx: -0.04, ty: -0.025 }, // 推近 + 左上平移
+        { zoom: 0.10, tx: +0.035, ty: +0.02 },  // 推近 + 右下平移
+        { zoom: -0.08, tx: 0, ty: 0 },            // 缓缓拉远
+      ];
+
+      // 将单帧绘制到 canvas（含 alpha 合成，用于交叉淡入）
+      const paintImg = (img: HTMLImageElement, localP: number, alpha: number, kbIdx: number) => {
+        const m = KB[kbIdx % KB.length];
+        const z = 1 + m.zoom * localP;
         const ir = img.width / img.height;
         const cr = cw / ch;
         let dw: number, dh: number;
-        if (ir > cr) {
-          dh = ch;
-          dw = ch * ir;
-        } else {
-          dw = cw;
-          dh = cw / ir;
-        }
-        dw *= z;
-        dh *= z;
-        const dx = (cw - dw) / 2 - 0.04 * p * cw; // 轻微左上平移
-        const dy = (ch - dh) / 2 - 0.025 * p * ch;
-        ctx.clearRect(0, 0, cw, ch);
+        if (ir > cr) { dh = ch; dw = ch * ir; }
+        else { dw = cw; dh = cw / ir; }
+        dw *= z; dh *= z;
+        const dx = (cw - dw) / 2 + m.tx * localP * cw;
+        const dy = (ch - dh) / 2 + m.ty * localP * ch;
+        ctx.globalAlpha = alpha;
         ctx.drawImage(img, dx, dy, dw, dh);
-        // 底部暗角
+        ctx.globalAlpha = 1;
+      };
+
+      const drawFrame = (p: number) => {
+        // 当前处于哪一帧段
+        const raw = p * n;
+        const segIdx = Math.min(Math.floor(raw), n - 1);
+        const localP = raw - segIdx; // 0-1（在本帧段内的进度）
+        const nextIdx = Math.min(segIdx + 1, n - 1);
+        // 末尾 25% 开始交叉淡入下一帧
+        const crossAlpha = localP > 0.75 ? (localP - 0.75) / 0.25 : 0;
+
+        ctx.clearRect(0, 0, cw, ch);
+        paintImg(imgs[segIdx], localP, 1, segIdx);
+        if (crossAlpha > 0 && nextIdx !== segIdx) {
+          paintImg(imgs[nextIdx], 0, crossAlpha, nextIdx);
+        }
+
+        // 暗角
         const g = ctx.createLinearGradient(0, 0, 0, ch);
         g.addColorStop(0, "rgba(0,0,0,0.18)");
         g.addColorStop(0.3, "rgba(0,0,0,0)");
@@ -556,7 +592,7 @@ export function OnelineVideo() {
         g.addColorStop(1, "rgba(0,0,0,0.58)");
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, cw, ch);
-        // 字幕（提示词，最多两行）
+        // 字幕
         const pad = Math.round(cw * 0.045);
         const fs = Math.round(ch * 0.04);
         ctx.fillStyle = "#fff";
@@ -1355,10 +1391,25 @@ function VideoPlayerModal({
   }, [onClose]);
 
   const prog = Math.min(1, t / total);
-  // Ken Burns：随播放进度缓慢放大 + 轻微平移，与进度条同步
-  const scale = 1 + 0.14 * prog;
-  const tx = -4 * prog;
-  const ty = -2.5 * prog;
+  // 多帧支持：从 row.frames 读，降级到单张封面
+  const frames = row.frames?.length ? row.frames : [posterFor(row)];
+  const n = frames.length;
+  const segLen = 1 / n;
+  const segIdx = Math.min(Math.floor(prog / segLen), n - 1);
+  const localP = Math.min(1, (prog - segIdx * segLen) / segLen); // 0-1，当前帧段内进度
+  const nextIdx = Math.min(segIdx + 1, n - 1);
+  const crossAlpha = localP > 0.75 ? (localP - 0.75) / 0.25 : 0;
+
+  // Ken Burns 方向随帧序交替
+  const KB_PRESETS = [
+    { zoom: 0.14, tx: -4, ty: -2.5 },
+    { zoom: 0.10, tx: +3.5, ty: +2 },
+    { zoom: -0.08, tx: 0, ty: 0 },
+  ];
+  const curKb = KB_PRESETS[segIdx % KB_PRESETS.length];
+  const scale = 1 + curKb.zoom * localP;
+  const tx = curKb.tx * localP;
+  const ty = curKb.ty * localP;
   const fmt = (s: number) => `00:${String(Math.floor(s)).padStart(2, "0")}`;
 
   function seekAt(clientX: number, el: HTMLElement) {
@@ -1385,13 +1436,24 @@ function VideoPlayerModal({
         </div>
 
         <div className="vp-stage" style={{ aspectRatio: ratioToAspect(row.ratio) }}>
+          {/* 当前帧 Ken Burns */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             className="vp-frame"
-            src={posterFor(row)}
+            src={frames[segIdx]}
             alt={row.prompt}
             style={{ transform: `scale(${scale}) translate(${tx}%, ${ty}%)` }}
           />
+          {/* 下一帧交叉淡入（仅多帧时且需要切换时） */}
+          {crossAlpha > 0 && nextIdx !== segIdx && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              className="vp-frame vp-frame-next"
+              src={frames[nextIdx]}
+              alt={row.prompt}
+              style={{ opacity: crossAlpha }}
+            />
+          )}
           <div className="vp-vignette" />
           <div className="vp-caption">{row.prompt}</div>
           {!playing && (
