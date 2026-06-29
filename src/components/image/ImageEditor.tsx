@@ -40,6 +40,78 @@ import { FontGallery, type FontRunRow } from "./FontGallery";
 
 const iconOf = (k: string): IconName => IMG_ICON[k] ?? "image";
 
+/* 活动·预置生成历史（演示）：进入即有完整记录，可直接点编辑/深度编辑/下载/收藏/另存。
+   结果图借用 public/poster-samples 真图，time 用固定值避免 SSR/CSR 不一致。*/
+const SEED_EVENT_RUNS: EventRunRow[] = [
+  {
+    id: "seed-ev-1",
+    prompt: "治愈清新风森之露洗发水海报，米白背景，鲜橙切片",
+    sub: "海报",
+    ratioName: "方版1:1",
+    time: "2026-06-26 09:30",
+    pct: 100,
+    imgs: ["/poster-samples/20260204165107990130xe92i6.jpg"],
+    grads: ["thumb-grad-1"],
+  },
+  {
+    id: "seed-ev-2",
+    prompt: "简约科技风米家电动牙刷新品海报",
+    sub: "海报",
+    ratioName: "竖版3:4",
+    time: "2026-06-26 09:12",
+    pct: 100,
+    imgs: ["/poster-samples/202602041724199902428j5nhr.jpg"],
+    grads: ["thumb-grad-3"],
+  },
+  {
+    id: "seed-ev-3",
+    prompt: "地球一小时公益海报，深绿黑色，发光字体",
+    sub: "宣传单",
+    ratioName: "竖版9:16",
+    time: "2026-06-26 08:50",
+    pct: 100,
+    imgs: ["/poster-samples/20251225143202617562fe2mzh.jpg"],
+    grads: ["thumb-grad-2"],
+  },
+];
+
+/* IP 设计·预置生成历史（演示） */
+const SEED_IP_RUNS: IpRunRow[] = [
+  {
+    id: "seed-ip-1",
+    title: "茶小绿",
+    desc: "茶小绿 IP 形象：嫩绿茶芽拟人化，圆润可爱，头顶两片嫩芽，扁平插画风，居中呈现",
+    rawDesc: "茶小绿，茶芽拟人，可爱",
+    ratioName: "正方形 1:1",
+    time: "2026-06-26 09:25",
+    pct: 100,
+    grads: ["thumb-grad-4"],
+    imgs: ["/poster-samples/20260204165107990130xe92i6.jpg"],
+  },
+  {
+    id: "seed-ip-2",
+    title: "竹乡熊猫",
+    desc: "竹乡熊猫 IP 形象：手抱竹笋的卡通熊猫，圆润敦实，国潮配色，居中单一形象",
+    rawDesc: "熊猫，竹子，国潮",
+    ratioName: "正方形 1:1",
+    time: "2026-06-26 09:00",
+    pct: 100,
+    grads: ["thumb-grad-2"],
+    imgs: ["/poster-samples/202602041724199902428j5nhr.jpg"],
+  },
+  {
+    id: "seed-ip-3",
+    title: "稻米娃",
+    desc: "稻米娃 IP 形象：金黄稻穗化身的萌系小人，笑脸，扁平矢量，单一主体居中",
+    rawDesc: "稻米，丰收，萌系",
+    ratioName: "正方形 1:1",
+    time: "2026-06-26 08:40",
+    pct: 100,
+    grads: ["thumb-grad-1"],
+    imgs: ["/poster-samples/20251225143202617562fe2mzh.jpg"],
+  },
+];
+
 export function ImageEditor({ initialSub, initial }: { initialSub?: string; initial?: Record<string, string | undefined> }) {
   const router = useRouter();
   const toast = useToast();
@@ -99,26 +171,26 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     if (open) setProposeInit(initialDesc ?? "");
     setProposeOpen(open);
   }
-  // 无生成历史时默认看「参考灵感」；点生成时 runLogoGenerate 会切到「生成历史」
-  const [logoTab, setLogoTab] = useState<"history" | "inspire">("inspire");
+  // 默认看「生成历史」（已有预置演示历史）；点生成时 runLogoGenerate 也会切到「生成历史」
+  const [logoTab, setLogoTab] = useState<"history" | "inspire">("history");
   const [logoRuns, setLogoRuns] = useState<LogoRunRow[]>([]);
   const [logoBusy, setLogoBusy] = useState(false);
   const logoTimer = useRef<number | null>(null);
-  // AI字体：内联生成历史
-  const [fontTab, setFontTab] = useState<"history" | "inspire" | "story">("inspire");
+  // AI字体：默认看「生成历史」（已有预置演示历史）
+  const [fontTab, setFontTab] = useState<"history" | "inspire" | "story">("history");
   const [fontRuns, setFontRuns] = useState<FontRunRow[]>([]);
   const [fontBusy, setFontBusy] = useState(false);
   const fontTimer = useRef<number | null>(null);
-  // IP 设计：内联生成历史（含进度 + 真实出图）
-  const [ipRuns, setIpRuns] = useState<IpRunRow[]>([]);
+  // IP 设计：内联生成历史（含进度 + 真实出图）；预置演示历史，进入即有完整记录
+  const [ipRuns, setIpRuns] = useState<IpRunRow[]>(SEED_IP_RUNS);
   const [ipBusy, setIpBusy] = useState(false);
   const ipTimer = useRef<number | null>(null);
-  // IP 右侧 tab：默认无历史看「参考灵感」，生成时切到「生成历史」
-  const [ipTab, setIpTab] = useState<"history" | "inspire">("inspire");
+  // IP 右侧 tab：默认看「生成历史」（已有预置演示历史）
+  const [ipTab, setIpTab] = useState<"history" | "inspire">("history");
   // 「延展设计」：把某张生成图作为待延展的 IP 图，带去 IP扩展设计子表单
   const [ipExtendSeed, setIpExtendSeed] = useState<IpExtendSeed | null>(null);
-  // 活动：内联生成历史（进度卡 + 真实出图，文生图/图生图共用）
-  const [eventRuns, setEventRuns] = useState<EventRunRow[]>([]);
+  // 活动：内联生成历史（进度卡 + 真实出图，文生图/图生图共用）；预置演示历史，进入即有完整记录
+  const [eventRuns, setEventRuns] = useState<EventRunRow[]>(SEED_EVENT_RUNS);
   const [eventBusy, setEventBusy] = useState(false);
   const eventTimer = useRef<number | null>(null);
   // 活动右侧 tab：默认看「生成历史」（空态会引导）；生成时也停在生成历史看进度
@@ -524,6 +596,26 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     // （文生图会在进度卡出现后，用「成图类型」专属系统提示词把简短描述扩写成完整画面描述词，见下方 await）
     const stylePrompt = isI2i ? "" : (paintStyles.find((s) => s.name === eventForm.style)?.prompt || "");
     let genPrompt = stylePrompt ? `${prompt}，${stylePrompt}` : prompt;
+    // 图生图「生成相似图」：把相似度（0-100%）写进提示词，滑到多少就保留原图多少。
+    // 修改需求框里若仍是自动生成的「生成相似图，相似度X%」模板，则不再重复拼到附加要求里。
+    if (isI2i && eventForm.editPreset === "生成相似图") {
+      const s = Math.max(0, Math.min(100, Math.round(eventForm.refStrength)));
+      const isSimTemplate = /^生成相似图(，相似度\d+%)?$/.test(prompt.trim());
+      genPrompt =
+        `生成与参考图相似的图片，整体保留参考图约 ${s}% 的特征：` +
+        `${s >= 80 ? "高度贴近原图，仅做轻微变化" : s >= 50 ? "保留主体与构图，适度变化细节与配色" : s >= 20 ? "借鉴原图风格与氛围，画面可较大自由发挥" : "仅参考原图整体感觉，画面大幅自由发挥"}` +
+        (prompt && !isSimTemplate ? `；附加要求：${prompt}` : "");
+    }
+    // 图生图「改图片尺寸」：把用户选的目标尺寸（比例/自定义宽高）写进提示词，扩展画面到该比例。
+    // 修改需求框里若仍是自动生成的「将图片扩展为X:X的尺寸」模板，则不再重复拼到附加要求里。
+    if (isI2i && eventForm.editPreset === "改图片尺寸") {
+      const sizeLabel = eventPxLabel(eventForm.ratio, eventForm.customW, eventForm.customH);
+      const isSizeTemplate = /^将图片扩展为.*的尺寸$/.test(prompt.trim());
+      genPrompt =
+        `在不裁切、不变形主体的前提下，将图片自然扩展为「${sizeLabel}」的尺寸，` +
+        `补全新增区域的画面内容，保持原有主体、风格、光影与配色一致` +
+        (prompt && !isSizeTemplate ? `；附加要求：${prompt}` : "");
+    }
     const n = isI2i ? 1 : Math.max(1, Math.min(4, eventForm.count || 4)); // 图生图一次出 1 张
     const allGrads = ["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-grad-4"];
     const grads = allGrads.slice(0, n);
@@ -913,6 +1005,22 @@ function eventRatioLabel(ratioName: string, customW = "", customH = ""): string 
   const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
   const g = gcd(Math.round(w), Math.round(h)) || 1;
   return `${Math.round(w / g)}:${Math.round(h / g)}`;
+}
+
+// 友好像素标签（与左侧面板一致）：返回用户所选的「宽×高 px」原始尺寸，用于提示词文案
+function eventPxLabel(ratioName: string, customW = "", customH = ""): string {
+  let w = 0, h = 0;
+  if (ratioName === "自定义") {
+    w = Math.round(Number(customW) || 0);
+    h = Math.round(Number(customH) || 0);
+  } else {
+    const all = [...imageRatios, ...posterRatios, ...rollupRatios, ...flyerRatios];
+    const hit = all.find((s) => s.name === ratioName);
+    const m = hit?.size.match(/(\d+(?:\.\d+)?)\s*[×x:：]\s*(\d+(?:\.\d+)?)/);
+    if (m) { w = Math.round(Number(m[1]) || 0); h = Math.round(Number(m[2]) || 0); }
+  }
+  if (!w || !h) return "目标";
+  return `${w}×${h} px`;
 }
 
 function eventRatioToSize(ratioName: string, customW = "", customH = ""): string {

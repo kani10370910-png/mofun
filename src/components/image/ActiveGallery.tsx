@@ -6,6 +6,7 @@ import { useToast } from "@/components/ui/Toast";
 import { activeGalleryItems } from "@/data/image";
 import type { ActiveGalleryItem, AssetCard } from "@/lib/types";
 import { ResultCardActions } from "./ResultCardActions";
+import { ClampText } from "@/components/ui/ClampText";
 import { ImageEditModal } from "./ImageEditModal";
 import { DeepEditModal } from "./DeepEditModal";
 import { nowStamp } from "@/lib/datetime";
@@ -234,8 +235,8 @@ function EventRunRowView({
   return (
     <div className="lh-row">
       <div className="lh-meta">
-        <span className="lh-title">
-          <b className="lh-prompt">{row.prompt}</b>
+        <span className="lh-title lh-title-clamp">
+          <b className="lh-prompt"><ClampText text={row.prompt} lines={2} /></b>
         </span>
         <span className="lg-cat">{row.sub}</span>
         {!loading && (

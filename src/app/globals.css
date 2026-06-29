@@ -389,10 +389,16 @@ a { color: inherit; text-decoration: none; cursor: pointer; }
 .showcase-more:hover { color: var(--c-primary); }
 
 /* ============ 编辑器三栏布局：左竖栏 + 表单 + 预览 ============ */
-.editor-layout { display: flex; gap: 16px; align-items: start; }
+/* 编辑器整体为固定高度框架：框架本身不随页面滚动，滚动只发生在内部
+   （左表单 .ws-scroll、右结果区 #iResult 各自内部滚）。
+   左竖栏完全脱离滚动流（固定悬浮），右侧用 padding-left 占位避免内容左移。 */
+.editor-layout {
+  display: flex; gap: 16px; align-items: start; padding-left: 92px;
+  height: calc(100vh - var(--topbar-h) - 22px - 56px); min-height: 0;
+}
 .editor-rail {
-  flex: 0 0 76px; width: 76px; display: flex; flex-direction: column; gap: 6px;
-  position: sticky; top: 16px; z-index: 45;
+  width: 76px; display: flex; flex-direction: column; gap: 6px;
+  position: fixed; left: 28px; top: calc(var(--topbar-h) + 22px); z-index: 45;
 }
 .rail-item {
   display: flex; flex-direction: column; align-items: center; gap: 5px;
@@ -430,16 +436,17 @@ a { color: inherit; text-decoration: none; cursor: pointer; }
 .editor-layout .workspace { flex: 1; min-width: 0; }
 
 /* ============ 两栏工作区（左输入 / 右预览） ============ */
-.workspace { display: grid; grid-template-columns: 300px 1fr; gap: 18px; align-items: start; }
-/* 右侧结果区：定位上下文，供「帮我提案」浮层叠加在生成历史之上 */
-#iResult { position: relative; min-width: 0; }
+/* 撑满框架高度，两列各自内部滚动 */
+.workspace { display: grid; grid-template-columns: 300px 1fr; gap: 18px; align-items: stretch; height: 100%; min-height: 0; }
+/* 右侧结果区（各编辑器 id/类不同，统一取第二列）：自身内部滚动，不再带动整页框架 */
+.workspace > *:nth-child(2) { min-width: 0; min-height: 0; overflow-y: auto; }
+/* #iResult 仍需作为浮层定位上下文（「帮我提案」叠加在生成历史之上） */
+#iResult { position: relative; padding-right: 2px; }
 .ws-panel { background: var(--c-white); border: 1px solid var(--c-line); border-radius: var(--radius); padding: 18px; }
 .ws-panel.sticky {
-  /* sticky 相对滚动容器 .main（高 = 视口 - 顶栏）定位。
-     用固定 height（而非仅 max-height）撑满整高，使「立即生成」无论内容长短都钉在面板底部，
-     各功能按钮位置一致。 */
-  position: sticky; top: 16px; height: calc(100vh - var(--topbar-h) - 32px);
-  overflow: hidden; display: flex; flex-direction: column;
+  /* 框架已固定高度（见 .editor-layout），此面板撑满列高即可：
+     内部 .ws-scroll 滚动字段，.ws-foot「立即生成」钉在面板底部，位置恒定。 */
+  height: 100%; overflow: hidden; display: flex; flex-direction: column;
 }
 /* 字段区：撑满剩余高度，仅此区域内部滚动 */
 .ws-scroll { flex: 1 1 auto; overflow-y: auto; min-height: 0; margin: 0 -2px; padding: 0 2px; }
@@ -581,6 +588,15 @@ a { color: inherit; text-decoration: none; cursor: pointer; }
 .lh-title { font-size: 13px; }
 .lh-prompt { font-weight: 700; color: var(--c-ink); margin-right: 8px; }
 .lh-desc { color: var(--c-muted); }
+/* 生成历史标题里的长描述（可截断版）：整段占满一行宽度，其后元信息自然换到下一行 */
+.lh-title.lh-title-clamp { display: block; }
+.lh-title-clamp .lh-prompt { display: block; margin-right: 0; }
+/* 多行截断 + 点击展开（生成历史的长描述：默认 2 行截断，点文字展开全部、再点收回） */
+.clamp-text { white-space: normal; word-break: break-word; }
+.clamp-text.is-clamped {
+  display: -webkit-box; -webkit-line-clamp: var(--clamp-lines, 2); -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 /* 扩展设计卡片头：整行 flex —— 标题区铺满、复制/删除/时间随后，时间钉最右 */
 .lh-meta-ext { display: flex; align-items: flex-start; gap: 6px; }
 .lh-meta-ext .lh-time { position: static; margin-left: auto; align-self: flex-start; flex: none; margin-top: 4px; }
@@ -2046,11 +2062,11 @@ input[type="range"].slider::-moz-range-thumb {
   /* 超窄屏：仅固定列的 .grid-2 收为单列；auto-fill 网格自动收敛 */
   .grid-2 { grid-template-columns: 1fr; }
   .page { padding: 18px; }
-  /* 窄屏：编辑器左竖栏改为顶部横向滚动条 */
-  .editor-layout { flex-direction: column; }
+  /* 窄屏：编辑器左竖栏改为顶部横向滚动条（取消固定悬浮与占位） */
+  .editor-layout { flex-direction: column; padding-left: 0; }
   .editor-rail {
     flex: none; width: 100%; flex-direction: row; overflow-x: auto;
-    position: static; gap: 8px; padding-bottom: 6px;
+    position: static; left: auto; top: auto; gap: 8px; padding-bottom: 6px;
   }
   .rail-item { flex: 0 0 auto; flex-direction: row; padding: 8px 12px; }
 }
@@ -2060,6 +2076,9 @@ input[type="range"].slider::-moz-range-thumb {
    ============================================================ */
 body.studio-mode .topbar { display: none; }       /* 全屏沉浸：隐藏主顶栏 */
 body.studio-mode .main { height: 100vh; overflow: hidden; }
+/* 全屏制作大片无顶栏：固定竖栏顶到页面内边距处；框架高度按无顶栏重算 */
+body.studio-mode .editor-rail { top: 22px; }
+body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 
 .studio {
   --d-bg: #1a1c1e;
@@ -2271,6 +2290,15 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
   transition: background .15s;
 }
 .img-zoom-close:hover { background: rgba(255, 255, 255, .3); }
+/* 无真实图的结果卡（AI 字体文字 / logo emoji）放大：用渐变大卡复刻卡面内容 */
+.img-zoom-card {
+  width: min(72vw, 72vh); height: min(72vw, 72vh); max-width: 720px; max-height: 720px;
+  border-radius: 18px; box-shadow: 0 12px 48px rgba(0, 0, 0, .5); cursor: default;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.img-zoom-card .izc-text { font-size: clamp(56px, 14vh, 140px); font-weight: 800; color: var(--c-ink); letter-spacing: .04em; }
+.img-zoom-card .izc-text.izc-vert { writing-mode: vertical-rl; }
+.img-zoom-card .izc-emoji { font-size: clamp(80px, 22vh, 220px); line-height: 1; }
 
 /* 左侧“生成中”按钮的小转圈 */
 .btn-spin {
@@ -3445,4 +3473,54 @@ body.studio-mode .main { height: 100vh; overflow: hidden; }
 .af-fav:hover { border-color: #ff8fa0; color: #ff2e4d; }
 .af-fav.on { border-color: #ff2e4d; color: #ff2e4d; background: #fff0f2; }
 .af-fav.on svg { fill: #ff2e4d; }
+
+/* ============ 视频 · 一句话成片（F10） ============ */
+.ov-result { display: flex; flex-direction: column; min-height: 0; }
+/* 场景模板网格 */
+.ov-scene-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.ov-scene { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--c-border); border-radius: 10px; background: #fff; cursor: pointer; font-family: var(--font); font-size: 13px; color: var(--c-ink); text-align: left; transition: all .15s; }
+.ov-scene:hover { border-color: var(--c-primary); background: var(--c-bg); }
+.ov-scene.on { border-color: var(--c-primary); background: var(--c-primary-bg); color: var(--c-primary-dark); }
+.ov-scene-emoji { font-size: 18px; flex: 0 0 auto; }
+.ov-scene-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 首尾帧开关 */
+.ov-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--c-muted); cursor: pointer; user-select: none; }
+.ov-switch input { display: none; }
+/* 首尾帧上传 */
+.ov-frames { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.ov-frames.two { grid-template-columns: 1fr 1fr; }
+.ov-frame { position: relative; aspect-ratio: 16/10; border: 1.5px dashed var(--c-border); border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; cursor: pointer; color: var(--c-muted); font-size: 13px; background: var(--c-bg); overflow: hidden; }
+.ov-frame:hover { border-color: var(--c-primary); color: var(--c-primary-dark); }
+.ov-frame.filled { border-style: solid; padding: 0; }
+.ov-frame img { width: 100%; height: 100%; object-fit: contain; background: #f3f4f6; display: block; }
+.ov-frame-tag { position: absolute; top: 6px; left: 6px; font-size: 10px; background: rgba(0,0,0,.45); color: #fff; padding: 2px 7px; border-radius: 10px; }
+.ov-frame-clear { position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; border-radius: 50%; border: none; background: rgba(0,0,0,.5); color: #fff; cursor: pointer; display: grid; place-items: center; }
+/* 运动参考词 */
+.ov-word-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.ov-word { border: 1px solid var(--c-border); background: #fff; border-radius: 16px; padding: 5px 12px; font-size: 12.5px; color: var(--c-ink); font-family: var(--font); cursor: pointer; transition: all .15s; }
+.ov-word:hover { border-color: var(--c-primary); background: var(--c-primary-bg); color: var(--c-primary-dark); }
+/* 视频风格 */
+.ov-style-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.ov-style { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border: 1px solid var(--c-border); border-radius: 10px; background: #fff; cursor: pointer; font-family: var(--font); font-size: 13px; color: var(--c-ink); transition: all .15s; }
+.ov-style:hover { border-color: var(--c-primary); }
+.ov-style.on { border-color: var(--c-primary); background: var(--c-primary-bg); color: var(--c-primary-dark); }
+.ov-style-ico { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; font-size: 14px; }
+.ov-block-note { margin: 8px 0 0; font-size: 12.5px; color: #d9480f; text-align: center; }
+/* 生成历史 */
+.ov-runs { display: flex; flex-direction: column; gap: 18px; overflow-y: auto; }
+.ov-run-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.ov-run-mode { flex: 0 0 auto; font-size: 11px; background: var(--c-primary-bg); color: var(--c-primary-dark); padding: 3px 9px; border-radius: 6px; font-weight: 600; }
+.ov-run-prompt { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-run-time { flex: 0 0 auto; font-size: 12px; color: var(--c-muted); }
+/* 视频卡 16:9 */
+.ov-video { position: relative; aspect-ratio: 16/9; border-radius: 14px; overflow: hidden; display: grid; place-items: center; box-shadow: var(--shadow-sm); }
+.ov-video-poster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: brightness(.92); }
+.ov-video-loading { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 10px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.ov-video-status { font-size: 13px; }
+.ov-video-bar { width: 180px; height: 6px; background: rgba(255,255,255,.4); border-radius: 4px; overflow: hidden; }
+.ov-video-bar span { display: block; height: 100%; background: #fff; border-radius: 4px; transition: width .5s; }
+.ov-video-pct { font-size: 12px; }
+.ov-play { width: 56px; height: 56px; border-radius: 50%; background: rgba(255,255,255,.92); color: var(--c-primary-dark); display: grid; place-items: center; font-size: 22px; padding-left: 4px; box-shadow: var(--shadow); cursor: pointer; position: relative; z-index: 2; }
+.ov-video-dur { position: absolute; bottom: 10px; right: 12px; z-index: 2; font-size: 12px; color: #fff; background: rgba(0,0,0,.5); padding: 2px 8px; border-radius: 6px; }
+.ov-run-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 

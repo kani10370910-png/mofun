@@ -24,6 +24,13 @@ interface PeriphResult {
   error?: boolean;
 }
 
+// 预置周边演示结果：进入即有已生成周边可预览/勾选/下载（借 poster-samples 真图当占位）
+const SEED_PERIPH: PeriphResult[] = [
+  { id: "seed-periph-1", label: "抱枕", url: "/poster-samples/20260204165107990130xe92i6.jpg", loading: false },
+  { id: "seed-periph-2", label: "马克杯", url: "/poster-samples/202602041724199902428j5nhr.jpg", loading: false },
+  { id: "seed-periph-3", label: "手提袋", url: "/poster-samples/20260205151245452052s6e2qk.jpg", loading: false },
+];
+
 export function IpPeriphModal({
   img,
   name,
@@ -43,7 +50,7 @@ export function IpPeriphModal({
   const [customOn, setCustomOn] = useState(false);
   const [customDesc, setCustomDesc] = useState("");
   const [busy, setBusy] = useState(false);
-  const [results, setResults] = useState<PeriphResult[]>([]);
+  const [results, setResults] = useState<PeriphResult[]>(SEED_PERIPH);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   // 当前预览大图：默认 IP 原图，点结果小图后切换
   const [curImg, setCurImg] = useState<string | undefined>(img);

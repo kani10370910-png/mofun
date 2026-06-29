@@ -47,7 +47,11 @@ export function IpMattingModal({
   const { addMaterial } = useLibrary();
   const [model, setModel] = useState(MODELS[0]);
   const [phase, setPhase] = useState<"idle" | "running" | "done">("idle");
-  const [records, setRecords] = useState<MattingRecord[]>([]);
+  // 预置抠图演示记录：进入即有抠图历史可预览/另存（借 poster-samples 真图当占位）
+  const [records, setRecords] = useState<MattingRecord[]>([
+    { id: 1, model: "模型1", url: "/poster-samples/20260204165107990130xe92i6.jpg" },
+    { id: 2, model: "模型2", url: "/poster-samples/202602041724199902428j5nhr.jpg" },
+  ]);
   const [selectedRec, setSelectedRec] = useState<number | null>(null);
   const [saved, setSaved] = useState<Set<number>>(() => new Set());
   const [sideCollapsed, setSideCollapsed] = useState(false);

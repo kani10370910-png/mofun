@@ -58,10 +58,11 @@ export const imageTypes: ImageType[] = [
 
 /* ---------- 宣传图片：生图模型（下拉选择） ---------- */
 export const imageModels: ModelOption[] = [
-  { name: "MoFun 区域文化大模型", desc: "更好地理解并体现当地农文旅元素" },
   { name: "Z-Image", desc: "真实感增强" },
-  { name: "全能模型 2.1", desc: "Banana 2 同款" },
+  { name: "Qwen-Image", desc: "中文语义理解强" },
   { name: "Seedream 4.0", desc: "高细节 · 商业级出图" },
+  { name: "Seedream 4.5", desc: "细节增强 · 商业级出图" },
+  { name: "Seedream-5.0-lite", desc: "轻量快速 · 均衡出图" },
 ];
 
 /* ---------- 文生图：图片比例（活动文生图用） ---------- */
@@ -132,7 +133,6 @@ export const flyerRatios: SizePreset[] = [
    「不使用预设」点击则清空修改需求。 */
 export const editPresets: { name: string; prompt: string }[] = [
   { name: "不使用预设", prompt: "" },
-  { name: "生成相似图", prompt: "生成相似图" },
   { name: "细节修复", prompt: "细节修复" },
   { name: "变清晰", prompt: "将这张图片变清晰" },
   { name: "去除文字", prompt: "去除图片中的所有文字" },
@@ -141,8 +141,9 @@ export const editPresets: { name: string; prompt: string }[] = [
   { name: "相似字体", prompt: "按照图片中的字体生成“XXXX”文字" },
   { name: "删除元素", prompt: "删除XX内容" },
   { name: "增加元素", prompt: "在图片的XX位置增加一个XX内容" },
-  { name: "改图片尺寸", prompt: "将图片扩展为XX:XX的尺寸" },
   { name: "提取线稿", prompt: "将图片转为黑白线稿图" },
+  { name: "生成相似图", prompt: "生成相似图" },
+  { name: "改图片尺寸", prompt: "将图片扩展为XX:XX的尺寸" },
 ];
 
 /* ---------- 图生图：编辑模型（活动图生图用） ---------- */
@@ -331,21 +332,37 @@ export const logoHistory: LogoHistoryGroup[] = [
         style: "经典徽章",
         desc: "为零食公司「王一鸣」设计经典徽章 LOGO，盾形徽章融合饼干、坚果等零食元素，复古质感、专业可信，突出品牌名。",
         results: [
-          { emoji: "🏅", grad: "thumb-grad-2", fav: true },
-          { emoji: "🍪", grad: "thumb-grad-1", fav: false },
-          { emoji: "🥨", grad: "thumb-grad-5", fav: false },
-          { emoji: "🍩", grad: "thumb-grad-3", fav: false },
+          { emoji: "🏅", grad: "thumb-grad-2", fav: true, img: "/logos/55.png" },
+          { emoji: "🍪", grad: "thumb-grad-1", fav: false, img: "/logos/56.png" },
+          { emoji: "🥨", grad: "thumb-grad-5", fav: false, img: "/logos/57.png" },
+          { emoji: "🍩", grad: "thumb-grad-3", fav: false, img: "/logos/58.png" },
         ],
       },
       {
         prompt: "刘一锅，新中式，要有锅的形状，要有刘这个字结合",
-        style: "智能匹配",
+        style: "新中式",
         desc: "为「刘一锅」设计新中式 LOGO，以锅的形状为主体图形，巧妙融入「刘」字，国风线条、雅致有食欲感。",
         results: [
-          { emoji: "🍲", grad: "thumb-grad-6", fav: false },
-          { emoji: "🥘", grad: "thumb-grad-4", fav: false },
-          { emoji: "🍜", grad: "thumb-grad-2", fav: false },
-          { emoji: "🫕", grad: "thumb-grad-1", fav: false },
+          { emoji: "🍲", grad: "thumb-grad-6", fav: false, img: "/logos/2025112606.png" },
+          { emoji: "🥘", grad: "thumb-grad-4", fav: false, img: "/logos/2025112607.png" },
+          { emoji: "🍜", grad: "thumb-grad-2", fav: false, img: "/logos/2025112608.png" },
+          { emoji: "🫕", grad: "thumb-grad-1", fav: false, img: "/logos/2025112609.png" },
+        ],
+      },
+    ],
+  },
+  {
+    group: "昨天",
+    items: [
+      {
+        prompt: "青山茶舍，文字 logo，茶文化",
+        style: "文字logo",
+        desc: "为「青山茶舍」设计文字型 LOGO，以书法字「青山」为核心，点缀茶叶与远山意象，雅致耐看、有东方茶韵。",
+        results: [
+          { emoji: "🍵", grad: "thumb-grad-3", fav: false, img: "/logos/20251114_13.png" },
+          { emoji: "🌿", grad: "thumb-grad-5", fav: false, img: "/logos/20251114_14.png" },
+          { emoji: "⛰️", grad: "thumb-grad-2", fav: false, img: "/logos/20251114_15.png" },
+          { emoji: "🏯", grad: "thumb-grad-1", fav: false, img: "/logos/20251114_16.png" },
         ],
       },
     ],

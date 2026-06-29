@@ -102,7 +102,19 @@ export function ImageWorkbench({
   const [compare, setCompare] = useState(false);
   const shownColor = compare ? "#111111" : inkColor;
   // 转矢量结果：操作记录（转换生成）；记录带模型标记
-  const [records, setRecords] = useState<{ id: number; svg: string; model: "basic" | "pro" }[]>([]);
+  // 预置演示记录：进入即有转矢量结果可预览/另存/下载 SVG
+  const [records, setRecords] = useState<{ id: number; svg: string; model: "basic" | "pro" }[]>([
+    {
+      id: -1,
+      model: "basic",
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" fill="#fff"/><text x="60" y="78" font-size="64" font-family="serif" font-weight="700" text-anchor="middle" fill="#111">茶</text></svg>`,
+    },
+    {
+      id: -2,
+      model: "pro",
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" fill="#fff"/><circle cx="60" cy="60" r="40" fill="none" stroke="#111" stroke-width="4"/><text x="60" y="74" font-size="40" font-family="sans-serif" font-weight="700" text-anchor="middle" fill="#111">山</text></svg>`,
+    },
+  ]);
   // 已「保存为我的素材」的记录 id（避免重复存入素材库）
   const [savedIds, setSavedIds] = useState<Set<number>>(new Set());
   const [nextId, setNextId] = useState(1);

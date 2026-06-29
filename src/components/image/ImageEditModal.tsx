@@ -38,6 +38,12 @@ interface OpRecord {
   fmt: "PNG" | "SVG"; // 格式角标
 }
 
+// 预置编辑历史演示：进入编辑器即有历史记录可另存/下载（借 poster-samples 真图当占位）
+const SEED_RECORDS: OpRecord[] = [
+  { id: "seed-rec-1", label: "AI变清晰", url: "/poster-samples/20260204165107990130xe92i6.jpg", loading: false, fmt: "PNG" },
+  { id: "seed-rec-2", label: "AI扩图", url: "/poster-samples/202602041724199902428j5nhr.jpg", loading: false, fmt: "PNG" },
+];
+
 export function ImageEditModal({
   img,
   name,
@@ -53,7 +59,7 @@ export function ImageEditModal({
   const [curImg, setCurImg] = useState<string | undefined>(img); // 画布当前图
   const [active, setActive] = useState("enhance"); // 当前选中工具
   const [busy, setBusy] = useState(false);
-  const [records, setRecords] = useState<OpRecord[]>([]);
+  const [records, setRecords] = useState<OpRecord[]>(SEED_RECORDS);
   const [sideFold, setSideFold] = useState(false); // 历史记录面板折叠
   const [compare, setCompare] = useState(false); // 对比原图
   const [deepOpen, setDeepOpen] = useState(false); // 深度编辑（分层可编辑海报）

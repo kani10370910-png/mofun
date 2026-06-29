@@ -32,7 +32,11 @@ export function IpDownloadModal({
   // 左侧大图：默认原图；点结果小图后切换为该图
   const [curImg, setCurImg] = useState<string | undefined>(img);
   // 图片处理结果（如三视图）：小图网格展示，第一格固定为原图
-  const [results, setResults] = useState<{ id: string; label: string; url: string; loading: boolean; error?: boolean }[]>([]);
+  // 预置演示结果：进入即有处理结果可预览/勾选/下载（借 poster-samples 真图当占位）
+  const [results, setResults] = useState<{ id: string; label: string; url: string; loading: boolean; error?: boolean }[]>([
+    { id: "seed-ipdl-1", label: "三视图", url: "/poster-samples/20260204165107990130xe92i6.jpg", loading: false },
+    { id: "seed-ipdl-2", label: "抠图", url: "/poster-samples/202602041724199902428j5nhr.jpg", loading: false },
+  ]);
   // 已勾选待下载的处理结果 id 集合（可批量下载）
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
 

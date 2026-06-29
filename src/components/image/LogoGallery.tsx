@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
-import { logoCats, logoCases } from "@/data/image";
+import { logoCats, logoCases, logoHistory } from "@/data/image";
 import type { LogoHistoryGroup, LogoResult, AssetCard, LogoCase } from "@/lib/types";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
@@ -74,8 +74,8 @@ export function LogoGallery({
   const toast = useToast();
   const [onlyFav, setOnlyFav] = useState(false);
   const [cat, setCat] = useState("全部");
-  // 生成历史默认为空：用户未真实生成时显示空状态（演示数据 logoHistory 保留在数据层备用，不默认加载）
-  const [history, setHistory] = useState<LogoHistoryGroup[]>([]);
+  // 预置演示历史：默认加载 logoHistory，保证进入即有完整生成历史可点击各功能
+  const [history, setHistory] = useState<LogoHistoryGroup[]>(logoHistory);
   // 删除确认弹框的待删目标（null = 关闭）
   const [pending, setPending] = useState<DeleteTarget | null>(null);
   // 收藏：按结果唯一 key 记录，可切换并供「只看收藏」筛选
@@ -337,6 +337,7 @@ function LogoResultCard({
   onToggleFav?: () => void;
 }) {
   const [showDownload, setShowDownload] = useState(false);
+  const [zoom, setZoom] = useState(false); // 点击卡片（非按钮处）放大查看原图
 
   const asset = (kind: string): AssetCard => ({
     emoji: result.emoji,
@@ -349,7 +350,7 @@ function LogoResultCard({
   });
 
   return (
-    <div className={`lh-img ${result.grad}`}>
+    <div className={`lh-img ${result.grad}`} style={{ cursor: "zoom-in" }} onClick={() => setZoom(true)}>
       {result.img ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img className="lh-result-img" src={assetUrl(result.img!)} alt={name} loading="lazy" />
@@ -357,7 +358,7 @@ function LogoResultCard({
         <span className="lh-emoji">{result.emoji}</span>
       )}
       <div className="lh-hover lh-hover-bottom">
-        <button className="btn btn-ghost btn-sm" onClick={() => setShowDownload(true)}>
+        <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); setShowDownload(true); }}>
           下载可编辑文件
         </button>
       </div>
@@ -370,6 +371,22 @@ function LogoResultCard({
       </span>
       {showDownload && (
         <LogoDownloadModal emoji={result.emoji} grad={result.grad} img={result.img} onClose={() => setShowDownload(false)} />
+      )}
+      {/* 放大查看：有真实图直接放大图片，否则用渐变大卡复刻 emoji */}
+      {zoom && (
+        <div className="img-zoom-mask" onClick={(e) => { e.stopPropagation(); setZoom(false); }}>
+          <button className="img-zoom-close" aria-label="关闭" onClick={(e) => { e.stopPropagation(); setZoom(false); }}>
+            <Icon name="close" size={22} />
+          </button>
+          {result.img ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img className="img-zoom-img" src={assetUrl(result.img!)} alt={name} onClick={(e) => e.stopPropagation()} />
+          ) : (
+            <div className={`img-zoom-card ${result.grad}`} onClick={(e) => e.stopPropagation()}>
+              <span className="izc-emoji">{result.emoji}</span>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

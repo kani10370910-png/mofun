@@ -11,6 +11,8 @@ const nextConfig = {
   ...(process.env.EXPORT === "1"
     ? { output: "export", typescript: { ignoreBuildErrors: true } }
     : {}),
+  // Node 全栈部署：STANDALONE=1 时产出 .next/standalone（自带最小依赖，服务器免 npm install）
+  ...(process.env.STANDALONE === "1" ? { output: "standalone" } : {}),
   images: { unoptimized: true }, // 静态导出不支持图片优化服务
   // 部署在 /mofun 子目录：让框架资源(_next)、路由、Image 等自动带前缀
   basePath: basePath || undefined,

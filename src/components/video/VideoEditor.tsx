@@ -16,6 +16,7 @@ import { VID_ICON } from "@/data/icons";
 import type { IconName } from "@/data/icons";
 import type { VideoType } from "@/lib/types";
 import { Studio } from "./Studio";
+import { OnelineVideo } from "./OnelineVideo";
 
 const iconOf = (k: string): IconName => VID_ICON[k] ?? "video";
 const MOTION = (v: number) => (v < 33 ? "轻微" : v < 67 ? "适中" : "强烈");
@@ -60,6 +61,18 @@ export function VideoEditor({ initialSub, initialInput }: { initialSub?: string;
   }
 
   const type = videoTypes.find((t) => t.key === active) ?? videoTypes[0];
+
+  // 一句话成片：走完整 F10 模块（文生/图生双 Tab + 场景词 + 首尾帧 + 进度/后处理）
+  if (active === "oneline") {
+    return (
+      <div className="page">
+        <div className="editor-layout">
+          <EditorRail items={railItems} activeKey={active} iconOf={iconOf} onPick={switchType} />
+          <OnelineVideo />
+        </div>
+      </div>
+    );
+  }
 
   function runGenerate() {
     if (!input.trim()) {

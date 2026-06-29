@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
-import { fontCases, fontStories } from "@/data/image";
+import { fontCases, fontStories, fontHistory } from "@/data/image";
 import type { FontCase, FontStory, Grad, AssetCard, FontHistoryGroup } from "@/lib/types";
 import { nowStamp } from "@/lib/datetime";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
@@ -88,8 +88,8 @@ export function FontGallery({
   // 字体故事详情弹窗：当前查看的字体（null = 关闭）
   const [storyView, setStoryView] = useState<FontStory | null>(null);
   const cats = ["全部", "书法体", "现代体", "艺术体"];
-  // 生成历史默认为空：用户未真实生成时显示空状态（演示数据 fontHistory 保留在数据层备用，不默认加载）
-  const [history, setHistory] = useState<FontHistoryGroup[]>([]);
+  // 预置演示历史：默认加载 fontHistory，保证进入即有完整生成历史可点击各功能
+  const [history, setHistory] = useState<FontHistoryGroup[]>(fontHistory);
   // 删除确认弹框的待删目标（null = 关闭）
   const [pending, setPending] = useState<DeleteTarget | null>(null);
   // 收藏：按结果唯一 key 记录，可切换并供「只看收藏」筛选
@@ -421,6 +421,7 @@ function FontResultCard({
   onToggleFav?: () => void;
 }) {
   const [editOpen, setEditOpen] = useState(false);
+  const [zoom, setZoom] = useState(false); // 点击卡片（非按钮处）放大查看原图
   const asset = (kind: string): AssetCard => ({
     emoji: "🔤",
     grad: grad as AssetCard["grad"],
@@ -431,10 +432,10 @@ function FontResultCard({
   });
 
   return (
-    <div className={`lh-img ${grad}`}>
+    <div className={`lh-img ${grad}`} style={{ cursor: "zoom-in" }} onClick={() => setZoom(true)}>
       <span className="lh-font-text">{text}</span>
       <div className="lh-hover lh-hover-bottom">
-        <button className="btn btn-ghost btn-sm" onClick={() => setEditOpen(true)}>
+        <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); setEditOpen(true); }}>
           换色/下载
         </button>
       </div>
@@ -447,6 +448,17 @@ function FontResultCard({
       </span>
       {editOpen && (
         <FontEditModal text={text} effect={effect} dir={dir} grad={grad} onClose={() => setEditOpen(false)} />
+      )}
+      {/* 放大查看：字体卡无真实图，用渐变大卡复刻文字（竖排时文字竖向） */}
+      {zoom && (
+        <div className="img-zoom-mask" onClick={(e) => { e.stopPropagation(); setZoom(false); }}>
+          <button className="img-zoom-close" aria-label="关闭" onClick={(e) => { e.stopPropagation(); setZoom(false); }}>
+            <Icon name="close" size={22} />
+          </button>
+          <div className={`img-zoom-card ${grad}`} onClick={(e) => e.stopPropagation()}>
+            <span className={`izc-text ${dir.includes("竖") ? "izc-vert" : ""}`}>{text}</span>
+          </div>
+        </div>
       )}
     </div>
   );

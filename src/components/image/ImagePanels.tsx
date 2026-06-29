@@ -36,6 +36,33 @@ export function ratioOptsForSub(sub: string): DropdownOption[] {
   return ratioOpts;
 }
 
+// 尺寸名（或自定义宽高）→ 具体像素「宽×高 px」字符串（如 1080×1080 px），供「改图片尺寸」回填修改需求
+function pxLabel(ratioName: string, customW = "", customH = ""): string {
+  let w = 0, h = 0;
+  if (ratioName === "自定义") {
+    w = Math.round(Number(customW) || 0);
+    h = Math.round(Number(customH) || 0);
+  } else {
+    const all = [...imageRatios, ...posterRatios, ...rollupRatios, ...flyerRatios];
+    const hit = all.find((s) => s.name === ratioName);
+    const m = hit?.size.match(/(\d+(?:\.\d+)?)\s*[×x:：]\s*(\d+(?:\.\d+)?)/);
+    if (m) { w = Math.round(Number(m[1]) || 0); h = Math.round(Number(m[2]) || 0); }
+  }
+  if (!w || !h) return "XX×XX px";
+  return `${w}×${h} px`;
+}
+
+// 用目标尺寸的具体像素填充「改图片尺寸」预设的修改需求文案（XX:XX → 实际 px 宽高）
+function sizePromptFor(ratioName: string, customW = "", customH = ""): string {
+  return `将图片扩展为${pxLabel(ratioName, customW, customH)}的尺寸`;
+}
+
+// 用相似度数值填充「生成相似图」预设的修改需求文案（滑到多少就写进去）
+function simPromptFor(similarity: number): string {
+  const s = Math.max(0, Math.min(100, Math.round(similarity)));
+  return `生成相似图，相似度${s}%`;
+}
+
 /* ---------------- 通用图片表单（商拍/IP/AI字体/店招） ---------------- */
 export interface DefaultImageState {
   model: string;
@@ -184,7 +211,7 @@ export interface EventImageState {
   editInput: string;
   editPreset: string; // 当前选中的图片处理预设名（单选）
   presetMore: boolean; // 「更多预设选项」是否展开
-  refStrength: number; // 「生成相似图」参考强度（0=弱 / 50=中 / 100=强）
+  refStrength: number; // 「生成相似图」参考强度（0-100%，无级；滑到多少就保留原图多少）
   editModel: string;
   fromCase?: boolean; // 描述来自「套用参考灵感」：立即生成时跳过 t2i 系统提示词二次扩写，直接出图
 }
@@ -225,7 +252,37 @@ export function ImageEventPanel({
       return;
     }
     const preset = editPresets.find((p) => p.name === name);
-    setState({ ...state, editPreset: name, editInput: preset?.prompt ?? "" });
+    // 「生成相似图」初次选中时，相似度从 0 起会显得几乎不参考原图，给个 60% 的合理起点
+    const refStrength =
+      name === "生成相似图" && state.refStrength === 0 ? 60 : state.refStrength;
+    // 「改图片尺寸」选中时，目标尺寸默认切到「自定义」，让用户直接填目标宽高
+    const ratio = name === "改图片尺寸" ? "自定义" : state.ratio;
+    // 修改需求按预设回填：改图片尺寸→带 px 尺寸；生成相似图→带相似度；其余用原始 prompt
+    const editInput =
+      name === "改图片尺寸"
+        ? sizePromptFor(ratio, state.customW, state.customH)
+        : name === "生成相似图"
+          ? simPromptFor(refStrength)
+          : preset?.prompt ?? "";
+    setState({ ...state, editPreset: name, editInput, refStrength, ratio });
+  }
+
+  // 「改图片尺寸」预设下，改目标尺寸时同步把修改需求里的比例改成所选尺寸
+  function setEditSize(patch: { ratio?: string; customW?: string; customH?: string }) {
+    const next = { ...state, ...patch };
+    if (next.editPreset === "改图片尺寸") {
+      next.editInput = sizePromptFor(next.ratio, next.customW, next.customH);
+    }
+    setState(next);
+  }
+
+  // 「生成相似图」预设下，拖相似度滑块时同步把数值写进修改需求
+  function setSimilarity(v: number) {
+    const next = { ...state, refStrength: v };
+    if (next.editPreset === "生成相似图") {
+      next.editInput = simPromptFor(v);
+    }
+    setState(next);
   }
 
   // 把联想结果收敛到约 300 字：模型常超量（500+字）。在 target 附近找一个标点收尾、不切半句：
@@ -465,15 +522,6 @@ export function ImageEventPanel({
             </div>
           </div>
           <div className="field">
-            <div className="ws-label">修改需求</div>
-            <ClearableTextarea
-              value={state.editInput}
-              onChange={(e) => set("editInput", e.target.value)}
-              onClear={() => set("editInput", "")}
-              placeholder="描述你想怎么改：替换背景、修改文字、调整色调…"
-            />
-          </div>
-          <div className="field">
             <div className="ws-label">图片处理预设</div>
             <div className="preset-grid">
               {editPresets.slice(0, 6).map((p) => (
@@ -510,23 +558,71 @@ export function ImageEventPanel({
               <span className="pt-text">{state.presetMore ? "收起" : "更多预设选项"}</span>
             </button>
           </div>
+          <div className="field">
+            <div className="ws-label">修改需求</div>
+            <ClearableTextarea
+              value={state.editInput}
+              onChange={(e) => set("editInput", e.target.value)}
+              onClear={() => set("editInput", "")}
+              placeholder="描述你想怎么改：替换背景、修改文字、调整色调…"
+            />
+          </div>
           {state.editPreset === "生成相似图" && (
             <div className="field">
-              <div className="ws-label">参考强度</div>
+              <div className="label-val">
+                <span className="lv-name">相似度</span>
+                <span className="lv-val">{state.refStrength}%</span>
+              </div>
               <input
                 type="range"
                 className="slider"
                 min={0}
                 max={100}
-                step={50}
                 value={state.refStrength}
-                onChange={(e) => set("refStrength", Number(e.target.value))}
+                onChange={(e) => setSimilarity(Number(e.target.value))}
               />
               <div className="range-marks">
                 <span>弱</span>
                 <span>中</span>
                 <span>强</span>
               </div>
+            </div>
+          )}
+          {/* 「改图片尺寸」预设：弹出目标尺寸选择（含自定义宽高），驱动实际出图尺寸，
+              并把所选比例同步回填到上方「修改需求」（将图片扩展为 X:X 的尺寸） */}
+          {state.editPreset === "改图片尺寸" && (
+            <div className="field">
+              <div className="ws-label">目标尺寸</div>
+              <Dropdown
+                title="目标尺寸"
+                options={ratioOpts}
+                value={state.ratio}
+                onChange={(o) => setEditSize({ ratio: o.name })}
+                showSub
+              />
+              {state.ratio === "自定义" && (
+                <div className="custom-size">
+                  <input
+                    type="number"
+                    className="cs-input"
+                    min={64}
+                    placeholder="宽"
+                    value={state.customW}
+                    onChange={(e) => setEditSize({ customW: e.target.value })}
+                  />
+                  <span className="cs-unit">px</span>
+                  <span className="cs-colon">:</span>
+                  <input
+                    type="number"
+                    className="cs-input"
+                    min={64}
+                    placeholder="高"
+                    value={state.customH}
+                    onChange={(e) => setEditSize({ customH: e.target.value })}
+                  />
+                  <span className="cs-unit">px</span>
+                </div>
+              )}
             </div>
           )}
           <div className="field">

@@ -266,6 +266,45 @@ export interface StudioStep {
   desc: string;
 }
 
+/* ---------- 视频·一句话生成（F10） ---------- */
+// 场景模板：一级分类 → 二级场景 → 引导词（含【县名】等变量占位）
+export interface VideoSceneTpl {
+  cat: string; // 一级分类：农业宣传 / 文化旅游 / 农旅融合
+  scene: string; // 二级场景：农产品展示 / 景区宣传 …
+  emoji: string;
+  prompt: string; // 引导词模板
+}
+
+// 运动描述参考词库（图生视频用）
+export interface MotionWordGroup {
+  cat: string; // 镜头运动 / 自然场景 / 农业场景 / 人物动态 / 产品展示
+  words: string[];
+}
+
+// 视频风格
+export interface VideoStyle {
+  key: string;
+  name: string; // 写实 / 国风水墨 / 动画 / 电影感
+  emoji: string;
+  grad: Grad;
+}
+
+// 一句话视频生成历史行（演示）
+export interface VideoRunRow {
+  id: string;
+  mode: "t2v" | "i2v"; // 文生视频 / 图生视频
+  prompt: string; // 提示词 / 运动描述
+  scene?: string; // 所选场景
+  ratio: string;
+  dur: string;
+  style: string;
+  time: string;
+  status: "pending" | "running" | "done" | "failed"; // 进度状态
+  pct: number;
+  poster?: string; // 演示用占位封面（首帧图 / 渐变）
+  grad: Grad;
+}
+
 /* ---------- 市场调研 ---------- */
 export interface ResearchType {
   key: string;
