@@ -115,12 +115,12 @@ export const motionWords: MotionWordGroup[] = [
 
 /* ---------- 一句话视频（F10-06）：视频风格 ---------- */
 export const videoStyles: VideoStyle[] = [
-  { key: "real",   name: "写实",     emoji: "📷", grad: "thumb-grad-1" },
-  { key: "doc",    name: "纪录片",   emoji: "🎬", grad: "thumb-grad-2" },
-  { key: "aerial", name: "航拍大片", emoji: "🚁", grad: "thumb-grad-3" },
-  { key: "warm",   name: "温暖治愈", emoji: "🌅", grad: "thumb-grad-4" },
-  { key: "cinema", name: "电影感",   emoji: "🎞️", grad: "thumb-grad-5" },
-  { key: "ink",    name: "国风水墨", emoji: "🖌️", grad: "thumb-grad-6" },
+  { key: "real",   name: "写实",     emoji: "📷", grad: "thumb-grad-1", stylePrompt: "真实自然纪实风格，色彩还原真实，无明显后期滤镜，画面质朴贴近生活原貌" },
+  { key: "doc",    name: "纪录片",   emoji: "🎬", grad: "thumb-grad-2", stylePrompt: "纪录片叙事风格，稳定机位，中性色调，强调真实感与现场感，镜头语言克制有力" },
+  { key: "aerial", name: "航拍大片", emoji: "🚁", grad: "thumb-grad-3", stylePrompt: "无人机航拍视角，高空俯瞰与低空掠过交替，大景别震撼全景，色彩鲜明饱满，气势磅礴" },
+  { key: "warm",   name: "温暖治愈", emoji: "🌅", grad: "thumb-grad-4", stylePrompt: "暖色系柔光，黄金时段逆光，浅景深虚化背景，慢节奏舒缓运镜，画面温馨治愈" },
+  { key: "cinema", name: "电影感",   emoji: "🎞️", grad: "thumb-grad-5", stylePrompt: "电影级色彩分级，宽画幅构图，精致布光，浅景深，慢动作升格，画面质感厚重有层次" },
+  { key: "ink",    name: "国风水墨", emoji: "🖌️", grad: "thumb-grad-6", stylePrompt: "中国风水墨美学，低饱和青灰色系，留白构图，意境悠远，古典韵味浓郁" },
 ];
 
 /* 视频比例 / 时长 / 画质（F10-05） */

@@ -284,9 +284,10 @@ export interface MotionWordGroup {
 // 视频风格
 export interface VideoStyle {
   key: string;
-  name: string; // 写实 / 国风水墨 / 动画 / 电影感
+  name: string;
   emoji: string;
   grad: Grad;
+  stylePrompt: string; // 追加到生成提示词末尾的画面风格描述
 }
 
 // 一句话视频生成历史行（演示）

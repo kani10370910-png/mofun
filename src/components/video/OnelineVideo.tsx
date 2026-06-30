@@ -471,9 +471,11 @@ export function OnelineVideo() {
   }
 
   function startGenerate(isI2v: boolean, text: string) {
+    const styleObj = videoStyles.find((s) => s.name === style);
+    const fullText = styleObj?.stylePrompt ? `${text}，${styleObj.stylePrompt}` : text;
     enqueue({
       mode: isI2v ? "i2v" : "t2v",
-      text,
+      text: fullText,
       scene: isI2v ? undefined : scene || undefined,
       ratio,
       dur: `${durSec}秒`,
