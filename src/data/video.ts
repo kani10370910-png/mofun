@@ -18,8 +18,11 @@ export interface VideoModel {
   badge?: "NEW" | "会员专享"; // 角标
 }
 export const videoModels: VideoModel[] = [
-  /* ── Seedance 系列（字节跳动 · Anyfast 确认模型 ID）─── */
-  { name: "Seedance 2.0", modelId: "seedance-2.0", desc: "文生视频 / 图生视频，15s 音画同步，支持 4K", tags: ["音画同步", "15s", "4K"], badge: "NEW" },
+  /* ── Seedance 系列（字节跳动 · Anyfast 确认可用）─── */
+  { name: "Seedance 2.0 Ultra", modelId: "seedance-2.0-ultra", desc: "最强画质，15s 音画同步，支持 4K",       tags: ["音画同步", "15s", "4K"],    badge: "NEW" },
+  { name: "Seedance 2.0",       modelId: "seedance-2.0",       desc: "旗舰版，文生 / 图生，15s 音画同步",     tags: ["音画同步", "15s"],          badge: "NEW" },
+  { name: "Seedance 2.0 Fast",  modelId: "seedance-2.0-fast",  desc: "快速版，出图更快，15s 音画同步",        tags: ["音画同步", "15s"]                        },
+  { name: "Seedance 2.0 Mini",  modelId: "seedance-2.0-mini",  desc: "轻量版，适合快速预览",                  tags: ["15s"]                                    },
 
   /* ── 可灵系列（快手）──────────── */
   { name: "可灵 2.1",            modelId: "kling-v2-1",            desc: "支持首尾帧，图生视频效果出色",           tags: ["图生视频", "首尾帧", "10s"] },
