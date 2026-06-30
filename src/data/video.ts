@@ -18,16 +18,16 @@ export interface VideoModel {
   badge?: "NEW" | "会员专享"; // 角标
 }
 export const videoModels: VideoModel[] = [
-  /* ── Seedance 系列（字节跳动）── 注：账号仅开通 seedance-2.0 基础版，ultra/fast/mini 返回 model_not_found ─── */
-  { name: "Seedance 2.0",       modelId: "seedance-2.0",       desc: "旗舰版，文生 / 图生，15s 音画同步",     tags: ["音画同步", "15s"],          badge: "NEW" },
-  { name: "Seedance 2.0 Ultra", modelId: "seedance-2.0-ultra", desc: "最强画质，15s 音画同步，支持 4K",       tags: ["音画同步", "15s", "4K"],    badge: "会员专享" },
-  { name: "Seedance 2.0 Fast",  modelId: "seedance-2.0-fast",  desc: "快速版，出图更快，15s 音画同步",        tags: ["音画同步", "15s"],                        badge: "会员专享" },
-  { name: "Seedance 2.0 Mini",  modelId: "seedance-2.0-mini",  desc: "轻量版，适合快速预览",                  tags: ["15s"],                                    badge: "会员专享" },
+  /* ── Seedance 系列（字节跳动 · 已验证可用）─── */
+  { name: "Seedance 2.0",       modelId: "seedance-2.0",       desc: "旗舰版，文生 / 图生，15s 音画同步",  tags: ["音画同步", "15s"],          badge: "NEW" },
+  { name: "Seedance 2.0 Fast",  modelId: "seedance-2.0-fast",  desc: "快速版，出图更快，15s 音画同步",     tags: ["音画同步", "15s"]                        },
+  { name: "Seedance 2.0 Mini",  modelId: "seedance-2.0-mini",  desc: "轻量版，适合快速预览",               tags: ["15s"]                                    },
+  { name: "Seedance 2.0 Ultra", modelId: "seedance-2.0-ultra", desc: "最强画质，15s 音画同步，支持 4K",    tags: ["音画同步", "15s", "4K"],    badge: "会员专享" },
 
-  /* ── 可灵系列（快手）──────────── */
-  { name: "可灵 2.1",            modelId: "kling-v2-1",            desc: "支持首尾帧，图生视频效果出色",           tags: ["图生视频", "首尾帧", "10s"] },
-  { name: "可灵 2.1 大师版",     modelId: "kling-v2-1-master",     desc: "大师级画面与流畅度",                     tags: ["10s", "首帧"]              },
-  { name: "可灵 1.6",            modelId: "kling-v1-6",            desc: "画质稳定，动作自然，性价比优秀",         tags: ["10s", "首尾帧", "多图参考"] },
+  /* ── 可灵系列（快手 · 需升级账号）──────────── */
+  { name: "可灵 2.1",            modelId: "kling-v2-1",         desc: "支持首尾帧，图生视频效果出色",        tags: ["图生视频", "首尾帧", "10s"], badge: "会员专享" },
+  { name: "可灵 2.1 大师版",     modelId: "kling-v2-1-master",  desc: "大师级画面与流畅度",                  tags: ["10s", "首帧"],               badge: "会员专享" },
+  { name: "可灵 1.6",            modelId: "kling-v1-6",         desc: "画质稳定，动作自然，性价比优秀",      tags: ["10s", "首尾帧", "多图参考"], badge: "会员专享" },
 ];
 
 /* ---------- 一句话视频：音画一体生成管线（无声视频 → 镜头分析 → 声音设计 → 多轨音频 → 对齐 → 混音 → MP4有声视频） ----------
