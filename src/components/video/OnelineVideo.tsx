@@ -360,7 +360,7 @@ export function OnelineVideo() {
   const [durSec, setDurSec] = useState(5); // 视频时长（秒），滑杆控制
   const [quality, setQuality] = useState<string>(videoQualities[1]); // 默认 720P
   const [genAudio, setGenAudio] = useState(true); // 是否同时生成声音
-  const [style, setStyle] = useState(videoStyles[0].name);
+  const [style, setStyle] = useState(""); // "" = 不使用预设
   const [voice, setVoice] = useState<string>(videoVoices[1]); // 配音音色，默认温柔女声
   const [bgm, setBgm] = useState<string>(videoBgms[1]); // 背景音乐，默认舒缓
   const [model, setModel] = useState<string>("Seedance 1.5 Pro"); // 视频生成模型
@@ -890,6 +890,14 @@ export function OnelineVideo() {
                       ))}
                     </div>
                     <div id="ovSceneSub" className="preset-grid">
+                      <button
+                        type="button"
+                        className={scene === "" ? "preset-chip on" : "preset-chip"}
+                        style={{ gridColumn: "1 / -1" }}
+                        onClick={() => { setScene(""); setPrompt(""); }}
+                      >
+                        不使用预设
+                      </button>
                       {scenes.map((s) => (
                         <button
                           key={s.scene}
@@ -1069,6 +1077,14 @@ export function OnelineVideo() {
               <div className="field">
                 <div className="ws-label">视频风格</div>
                 <div className="preset-grid">
+                  <button
+                    type="button"
+                    className={style === "" ? "preset-chip on" : "preset-chip"}
+                    style={{ gridColumn: "1 / -1" }}
+                    onClick={() => setStyle("")}
+                  >
+                    不使用预设
+                  </button>
                   {videoStyles.map((s) => (
                     <button key={s.key} type="button" className={style === s.name ? "preset-chip on" : "preset-chip"} onClick={() => setStyle(s.name)}>
                       {s.name}
