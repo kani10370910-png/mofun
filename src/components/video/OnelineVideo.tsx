@@ -1635,6 +1635,9 @@ function VideoPlayerModal({
               controls
               playsInline
               loop
+              // 隐藏原生控件溢出菜单的下载 / 播放速度 / 画中画
+              controlsList="nodownload noplaybackrate"
+              disablePictureInPicture
             />
           ) : (
             <>
