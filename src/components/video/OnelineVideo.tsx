@@ -179,7 +179,7 @@ async function genVideoFrames(prompt: string, ratio: string): Promise<string[]> 
 async function blobUrlToDataUrl(url: string): Promise<string | null> {
   try {
     const blob = await fetch(url).then((r) => r.blob());
-    return new Promise<string>((resolve) => {
+    return new Promise<string | null>((resolve) => {
       const img = new Image();
       img.onload = () => {
         const MAX = 1280;
@@ -189,10 +189,12 @@ async function blobUrlToDataUrl(url: string): Promise<string | null> {
         const c = document.createElement("canvas");
         c.width = w; c.height = h;
         c.getContext("2d")?.drawImage(img, 0, 0, w, h);
-        resolve(c.toDataURL("image/jpeg", 0.88));
+        const dataUrl = c.toDataURL("image/jpeg", 0.88);
+        console.log(`[i2v] 图片压缩 ${img.width}×${img.height} → ${w}×${h}，base64 大小 ${(dataUrl.length / 1024).toFixed(0)} KB`);
+        resolve(dataUrl);
         URL.revokeObjectURL(img.src);
       };
-      img.onerror = () => resolve(URL.createObjectURL(blob)); // 降级：原图
+      img.onerror = () => resolve(null); // canvas 失败，不发送无效 blob URL 给外部 API
       img.src = URL.createObjectURL(blob);
     });
   } catch {
@@ -349,6 +351,7 @@ async function inferStyleFromPrompt(input: string): Promise<string | null> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ input }),
+      signal: AbortSignal.timeout(6_000),
     });
     if (!r.ok) return null;
     const { style } = (await r.json()) as { style?: string | null };
@@ -701,7 +704,7 @@ export function OnelineVideo() {
         });
         toast("🎬 视频已生成，已存入「我的作品」");
       } else {
-        upd({ status: "failed", pct: 0 });
+        upd({ status: "failed", pct: 0, failReason });
         toast(failReason, "warn");
       }
       setBusy(false);
@@ -1490,7 +1493,7 @@ function VideoRunCard({
           <div className="ov-video-loading">
             <Icon name="close" size={26} />
             <div className="ov-video-status" style={{ color: "var(--color-warn, #f59e0b)" }}>
-              生成失败，请检查网络或重试
+              {row.failReason || "生成失败，请重试"}
             </div>
           </div>
         ) : (

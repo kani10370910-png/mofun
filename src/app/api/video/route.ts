@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   const baseURL = (process.env.VIDEO_BASE_URL || process.env.IMAGE_BASE_URL || "").replace(/\/$/, "");
   const model   = body.model || process.env.VIDEO_MODEL || "seedance-2.0";
 
-  console.log("[video] model:", model, "| baseURL:", baseURL || "(empty)", "| key:", apiKey ? "set" : "MISSING");
+  console.log("[video] model:", model, "| baseURL:", baseURL || "(empty)", "| key:", apiKey ? "set" : "MISSING", "| imageUrl:", body.imageUrl ? body.imageUrl.slice(0, 40) + `… (${(body.imageUrl.length/1024).toFixed(0)}KB)` : "none");
   if (!apiKey || !baseURL) return Response.json({ error: "no API key" }, { status: 503 });
 
   const duration = parseInt(String(body.dur).match(/\d+/)?.[0] ?? "5", 10);
