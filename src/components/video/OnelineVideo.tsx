@@ -361,7 +361,7 @@ export function OnelineVideo() {
   const [durSec, setDurSec] = useState(5); // 视频时长（秒），滑杆控制
   const [quality, setQuality] = useState<string>(videoQualities[1]); // 默认 720P
   const [genAudio, setGenAudio] = useState(true); // 是否同时生成声音
-  const [style, setStyle] = useState("不使用预设"); // 默认不使用预设（auto）
+  const [style, setStyle] = useState("智能匹配"); // 默认智能匹配（auto）
   const [styleOpen, setStyleOpen] = useState(false); // 视频风格选择浮层
   const [voice, setVoice] = useState<string>(videoVoices[1]); // 配音音色，默认温柔女声
   const [bgm, setBgm] = useState<string>(videoBgms[1]); // 背景音乐，默认舒缓
@@ -419,7 +419,7 @@ export function OnelineVideo() {
       return;
     }
     setExpanding(true);
-    optimizeVideoPrompt(base, style === "不使用预设" ? undefined : style).then((optimized) => {
+    optimizeVideoPrompt(base, style === "智能匹配" ? undefined : style).then((optimized) => {
       if (optimized) {
         setPrompt(optimized);
         toast("提示词已优化");
