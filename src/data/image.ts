@@ -323,51 +323,7 @@ export const logoCases: LogoCase[] = [
   lc("9.png", "暖焙坊", "图文插画", 51),
 ];
 
-export const logoHistory: LogoHistoryGroup[] = [
-  {
-    group: "今天",
-    items: [
-      {
-        prompt: "王一鸣，零食公司，需要和零食元素结合",
-        style: "经典徽章",
-        desc: "为零食公司「王一鸣」设计经典徽章 LOGO，盾形徽章融合饼干、坚果等零食元素，复古质感、专业可信，突出品牌名。",
-        results: [
-          { emoji: "🏅", grad: "thumb-grad-2", fav: true, img: "/logos/55.png" },
-          { emoji: "🍪", grad: "thumb-grad-1", fav: false, img: "/logos/56.png" },
-          { emoji: "🥨", grad: "thumb-grad-5", fav: false, img: "/logos/57.png" },
-          { emoji: "🍩", grad: "thumb-grad-3", fav: false, img: "/logos/58.png" },
-        ],
-      },
-      {
-        prompt: "刘一锅，新中式，要有锅的形状，要有刘这个字结合",
-        style: "新中式",
-        desc: "为「刘一锅」设计新中式 LOGO，以锅的形状为主体图形，巧妙融入「刘」字，国风线条、雅致有食欲感。",
-        results: [
-          { emoji: "🍲", grad: "thumb-grad-6", fav: false, img: "/logos/2025112606.png" },
-          { emoji: "🥘", grad: "thumb-grad-4", fav: false, img: "/logos/2025112607.png" },
-          { emoji: "🍜", grad: "thumb-grad-2", fav: false, img: "/logos/2025112608.png" },
-          { emoji: "🫕", grad: "thumb-grad-1", fav: false, img: "/logos/2025112609.png" },
-        ],
-      },
-    ],
-  },
-  {
-    group: "昨天",
-    items: [
-      {
-        prompt: "青山茶舍，文字 logo，茶文化",
-        style: "文字logo",
-        desc: "为「青山茶舍」设计文字型 LOGO，以书法字「青山」为核心，点缀茶叶与远山意象，雅致耐看、有东方茶韵。",
-        results: [
-          { emoji: "🍵", grad: "thumb-grad-3", fav: false, img: "/logos/20251114_13.png" },
-          { emoji: "🌿", grad: "thumb-grad-5", fav: false, img: "/logos/20251114_14.png" },
-          { emoji: "⛰️", grad: "thumb-grad-2", fav: false, img: "/logos/20251114_15.png" },
-          { emoji: "🏯", grad: "thumb-grad-1", fav: false, img: "/logos/20251114_16.png" },
-        ],
-      },
-    ],
-  },
-];
+export const logoHistory: LogoHistoryGroup[] = [];
 
 /* ---------- AI 字体：文字效果（书法体 / 现代体 / 艺术体） ---------- */
 export const fontCats = ["书法体", "现代体", "艺术体"] as const;
