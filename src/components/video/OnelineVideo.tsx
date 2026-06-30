@@ -200,10 +200,16 @@ async function genRealVideo(prompt: string, ratio: string, dur: string, videoMod
       body: JSON.stringify({ prompt, ratio, dur, model: videoModel, generateAudio, ...(imageUrl ? { imageUrl } : {}) }),
       signal: AbortSignal.timeout(290_000),
     });
-    if (!r.ok) return null;
-    const j = (await r.json()) as { videoUrl?: string };
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      console.error("[video] API error", r.status, err);
+      return null;
+    }
+    const j = (await r.json()) as { videoUrl?: string; error?: unknown };
+    if (!j.videoUrl) console.error("[video] no videoUrl in response", j);
     return j.videoUrl ?? null;
-  } catch {
+  } catch (e) {
+    console.error("[video] fetch failed", e);
     return null;
   }
 }
