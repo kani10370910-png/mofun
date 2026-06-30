@@ -437,6 +437,7 @@ export function OnelineVideo() {
   const [tab, setTab] = useState<"t2v" | "i2v">("t2v");
   // —— 文生视频 ——
   const [scene, setScene] = useState(""); // 当前选中场景（二级场景名）
+  const [presetCleared, setPresetCleared] = useState(false); // 用户主动点过「不使用预设」（默认 false，避免初始就高亮）
   const [sceneCat, setSceneCat] = useState(videoSceneCats[0]); // 场景一级分类筛选
   const [prompt, setPrompt] = useState("");
   const [expanding, setExpanding] = useState(false);
@@ -487,6 +488,7 @@ export function OnelineVideo() {
   function pickScene(s: string, p: string) {
     setScene(s);
     setPrompt(p);
+    setPresetCleared(false); // 选了具体预设，取消「不使用预设」高亮
     if (/【.+?】/.test(p)) toast("引导词含县域变量，发布时将从县域知识库自动填充（演示）");
   }
 
@@ -985,8 +987,8 @@ export function OnelineVideo() {
                     </div>
                     <div className="filter-row" style={{ marginBottom: 10 }}>
                       <span
-                        className="sel-chip"
-                        onClick={() => { setScene(""); setPrompt(""); }}
+                        className={presetCleared ? "sel-chip on" : "sel-chip"}
+                        onClick={() => { setScene(""); setPrompt(""); setPresetCleared(true); }}
                       >
                         不使用预设
                       </span>
