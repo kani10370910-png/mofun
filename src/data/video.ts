@@ -19,10 +19,10 @@ export interface VideoModel {
 }
 export const videoModels: VideoModel[] = [
   /* ── Seedance 系列（字节跳动）─── */
-  { name: "Seedance 2.0 Pro",   modelId: "doubao-seed-2.0-pro",   desc: "最强视频模型，15s 音画同步",             tags: ["音画同步", "15s"],         badge: "NEW" },
-  { name: "Seedance 2.0 Flash", modelId: "doubao-seed-2.0-flash", desc: "2.0 快速版，速度优先",                   tags: ["音画同步", "15s"],         badge: "NEW" },
-  { name: "Seedance 1.5 Pro",   modelId: "doubao-seed-1.5-pro",   desc: "多机位镜头，最长 12 秒",                 tags: ["首尾帧", "音画同步", "12s"] },
-  { name: "Seedance 1.0 Pro",   modelId: "doubao-seed-1.0-pro",   desc: "高精度提示词理解，1080P",                tags: ["1080P", "10s", "首尾帧"]  },
+  { name: "Seedance 2.0 Pro",   modelId: "seedance-2-pro",   desc: "最强视频模型，15s 音画同步",             tags: ["音画同步", "15s"],         badge: "NEW" },
+  { name: "Seedance 2.0 Flash", modelId: "seedance-2-flash", desc: "2.0 快速版，速度优先",                   tags: ["音画同步", "15s"],         badge: "NEW" },
+  { name: "Seedance 1.5 Pro",   modelId: "seedance-1.5-pro",   desc: "多机位镜头，最长 12 秒",                 tags: ["首尾帧", "音画同步", "12s"] },
+  { name: "Seedance 1.0 Pro",   modelId: "seedance-1-pro",   desc: "高精度提示词理解，1080P",                tags: ["1080P", "10s", "首尾帧"]  },
 
   /* ── 可灵系列（快手）──────────── */
   { name: "可灵 2.1",            modelId: "kling-v2-1",            desc: "支持首尾帧，图生视频效果出色",           tags: ["图生视频", "首尾帧", "10s"] },
