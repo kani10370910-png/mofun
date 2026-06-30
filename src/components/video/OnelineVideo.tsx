@@ -44,19 +44,20 @@ const RATIO_SUB: Record<string, string> = {
 };
 const RATIO_OPTS: DropdownOption[] = videoRatios.map((r) => ({ name: r, sub: RATIO_SUB[r] }));
 
-// 预置 3 条「已完成」生成历史（演示）：保证每次进入都有现成记录，可直接点下载/重生成/存库/提交审核
+// 预置「已完成」生成历史（演示）：保证每次进入都有现成记录，可直接点下载/重生成/存库/提交审核
 const SEED_RUNS: VideoRunRow[] = [
   {
     id: "seed-1",
     mode: "t2v",
-    prompt: "安吉特产白茶，产地直发，新鲜直达，横版宣传短视频",
+    prompt: "安吉白茶产地直发，明前嫩芽特写，云雾茶山实景，横版宣传短视频",
     scene: "农产品展示",
     ratio: "16:9",
-    dur: "5秒",
+    dur: "6秒",
     style: "写实",
-    time: "2026-06-26 09:20",
+    time: "2026-06-30 10:24",
     status: "done",
     pct: 100,
+    poster: "/poster-samples/20251219175905342092j5c2dj.jpg",
     grad: "thumb-grad-1",
     voice: "温柔女声",
     bgm: "舒缓",
@@ -65,14 +66,15 @@ const SEED_RUNS: VideoRunRow[] = [
   {
     id: "seed-2",
     mode: "t2v",
-    prompt: "金秋丰收，安吉茶园喜获丰收，农民笑脸特写",
-    scene: "丰收季节",
+    prompt: "安吉余村绿水青山，航拍掠过竹海与白墙黛瓦村落，生态文旅宣传片",
+    scene: "景区宣传",
     ratio: "9:16",
     dur: "10秒",
-    style: "电影感",
-    time: "2026-06-26 09:05",
+    style: "航拍大片",
+    time: "2026-06-30 09:12",
     status: "done",
     pct: 100,
+    poster: "/poster-samples/20260203110400782583nzlt30.jpg",
     grad: "thumb-grad-3",
     voice: "沉稳男声",
     bgm: "大气",
@@ -81,17 +83,52 @@ const SEED_RUNS: VideoRunRow[] = [
   {
     id: "seed-3",
     mode: "i2v",
-    prompt: "茶叶采摘动作，镜头缓缓推近",
+    prompt: "安吉竹编非遗传承人现场编织，竹丝在指间翻飞，镜头缓缓推近",
+    scene: "非遗展演",
     ratio: "16:9",
     dur: "5秒",
-    style: "国风水墨",
-    time: "2026-06-26 08:48",
+    style: "纪录片",
+    time: "2026-06-29 17:40",
     status: "done",
     pct: 100,
-    poster: "/poster-samples/20251219175905342092j5c2dj.jpg",
+    poster: "/poster-samples/20260202173900324322jp19aq.jpg",
     grad: "thumb-grad-2",
     voice: "不配音",
     bgm: "国风",
+    withAudio: true,
+  },
+  {
+    id: "seed-4",
+    mode: "t2v",
+    prompt: "安吉鲁家村田园采摘乐园，亲子游客采摘蓝莓，阳光透过枝叶，温馨治愈",
+    scene: "采摘体验",
+    ratio: "9:16",
+    dur: "8秒",
+    style: "温暖治愈",
+    time: "2026-06-29 15:03",
+    status: "done",
+    pct: 100,
+    poster: "/poster-samples/20260205151245452052s6e2qk.jpg",
+    grad: "thumb-grad-4",
+    voice: "温柔女声",
+    bgm: "舒缓",
+    withAudio: true,
+  },
+  {
+    id: "seed-5",
+    mode: "t2v",
+    prompt: "安吉大竹海万亩竹林，风吹竹浪翻涌，四季流转延时摄影，气势磅礴",
+    scene: "景区宣传",
+    ratio: "16:9",
+    dur: "10秒",
+    style: "电影感",
+    time: "2026-06-28 20:18",
+    status: "done",
+    pct: 100,
+    poster: "/poster-samples/2026020915231061696936pmjd.jpg",
+    grad: "thumb-grad-1",
+    voice: "沉稳男声",
+    bgm: "大气",
     withAudio: true,
   },
 ];
@@ -136,11 +173,16 @@ function captureFirstFrame(videoUrl: string): Promise<string | null> {
   });
 }
 
-// 参考灵感：取前 6 个县域场景模板 + 海报样张，供右栏一键套用到提示词
-const INSPIRE = videoSceneTpls.slice(0, 6).map((t, i) => ({
-  ...t,
-  poster: POSTER_POOL[i % POSTER_POOL.length],
-}));
+// 参考灵感：6 张安吉文旅具体范例（含真实提示词与样张），供右栏一键套用到提示词。
+// cat/scene 对应真实场景模板，套用后预设 chip 自动高亮。
+const INSPIRE: { cat: string; scene: string; emoji: string; prompt: string; poster: string }[] = [
+  { cat: "农业宣传", scene: "农产品展示", emoji: "🌾", prompt: "安吉白茶明前头采，茶农指尖采摘嫩芽，云雾茶山实景，产地直发宣传短视频", poster: "/poster-samples/20251219150028966406xict5e.jpg" },
+  { cat: "农业宣传", scene: "丰收季节", emoji: "🌽", prompt: "金秋安吉冬笋丰收，竹林里挖笋忙，农户笑脸特写，丰收喜悦氛围", poster: "/poster-samples/20251222150201108065evwftz.jpg" },
+  { cat: "文化旅游", scene: "景区宣传", emoji: "⛰️", prompt: "安吉余村绿水青山，竹海骑行与古村漫步，适合亲子游的生态文旅目的地", poster: "/poster-samples/20251223153921706507udqknx.jpg" },
+  { cat: "文化旅游", scene: "非遗展演", emoji: "🎭", prompt: "安吉竹编非遗传承人现场展示，竹丝在指间翻飞，匠心技艺，文化传承", poster: "/poster-samples/20251225143202617562fe2mzh.jpg" },
+  { cat: "农旅融合", scene: "采摘体验", emoji: "🍓", prompt: "来安吉鲁家村摘蓝莓，亲子采摘乐园，生态农庄一日游，田园慢生活", poster: "/poster-samples/202512251516181258973mq1jx.jpg" },
+  { cat: "农旅融合", scene: "田园打卡", emoji: "🏞️", prompt: "安吉田园风光，星空帐篷露营网红打卡地，远离城市的诗意生活", poster: "/poster-samples/20260211161731633183ox0mqw.jpg" },
+];
 
 // "5秒" → 5
 function durSeconds(dur: string): number {
@@ -509,6 +551,7 @@ export function OnelineVideo() {
     setTab("t2v");
     setSceneCat(it.cat);
     setScene(it.scene);
+    setPresetCleared(false); // 套用灵感即选中具体场景，复位「不使用预设」高亮
     setPrompt(it.prompt);
     toast("已套用参考灵感到提示词");
   }
