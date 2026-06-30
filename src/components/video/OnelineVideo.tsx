@@ -748,7 +748,7 @@ export function OnelineVideo() {
           kind: "视频",
           name: `${p.text.slice(0, 12) || "一句话视频"} · ${p.dur}`,
           sub: p.withAudio !== false ? "视频生成 · 一句话成片 · 有声" : "视频生成 · 一句话成片",
-          img: p.poster,
+          img: poster ?? p.poster, // 优先用捕获的首帧（t2v 无传入 poster 时也有封面）
           time: nowStamp(),
           edit: { sub: "oneline", input: p.text, model },
         });
@@ -799,13 +799,6 @@ export function OnelineVideo() {
       time: nowStamp(),
       edit: { sub: "oneline", input: row.prompt },
     };
-  }
-
-  // 存内容库：写入「仓库 · 我的作品」并跳转到仓库页
-  function saveToLibrary(row: VideoRunRow) {
-    addWork(videoAsset(row));
-    toast("已保存到「仓库 · 我的作品」，正在跳转…");
-    router.push("/storage");
   }
 
   // 收藏：与品牌设计一致——写入「我的作品」并标记收藏，和仓库「只看收藏」互通
@@ -1327,7 +1320,6 @@ export function OnelineVideo() {
                     onDelete={() => deleteRun(r.id)}
                     onPlay={() => setPlayingId(r.id)}
                     onRegenerate={() => regenerate(r)}
-                    onSave={() => saveToLibrary(r)}
                     onDownload={() => downloadVideo(r)}
                     fav={isFavorite(videoAsset(r))}
                     onFav={() => toggleFav(r)}
@@ -1369,10 +1361,6 @@ export function OnelineVideo() {
           row={playing}
           onClose={() => setPlayingId(null)}
           onDownload={() => downloadVideo(playing)}
-          onSave={() => {
-            saveToLibrary(playing);
-            setPlayingId(null);
-          }}
           onStudio={() => router.push("/video?sub=studio&from=history")}
         />
       )}
@@ -1445,7 +1433,6 @@ function VideoRunCard({
   onDelete,
   onPlay,
   onRegenerate,
-  onSave,
   onDownload,
   fav,
   onFav,
@@ -1454,7 +1441,6 @@ function VideoRunCard({
   onDelete: () => void;
   onPlay: () => void;
   onRegenerate: () => void;
-  onSave: () => void;
   onDownload: () => void;
   fav: boolean;
   onFav: () => void;
@@ -1545,7 +1531,6 @@ function VideoRunCard({
         <div className="ov-run-acts">
           <button className="btn btn-soft btn-sm" onClick={onDownload}>下载视频</button>
           <button className="btn btn-ghost btn-sm" onClick={onRegenerate}>重新生成</button>
-          <button className="btn btn-ghost btn-sm" onClick={onSave}>存内容库</button>
           {/* 生成完成即自动通过内容安全审核，无需用户手动提交 */}
           <span className="ov-review-pass">
             <Icon name="check" size={14} /> 已自动审核
@@ -1563,13 +1548,11 @@ function VideoPlayerModal({
   row,
   onClose,
   onDownload,
-  onSave,
   onStudio,
 }: {
   row: VideoRunRow;
   onClose: () => void;
   onDownload: () => void;
-  onSave: () => void;
   onStudio: () => void;
 }) {
   const total = durSeconds(row.dur);
@@ -1725,9 +1708,6 @@ function VideoPlayerModal({
         <div className="vp-foot">
           <button className="btn btn-soft btn-sm" onClick={onDownload}>
             <Icon name="download" size={14} /> 下载视频
-          </button>
-          <button className="btn btn-ghost btn-sm" onClick={onSave}>
-            存内容库
           </button>
           <div className="vp-foot-spacer" />
           <button className="btn btn-primary btn-sm" onClick={onStudio}>
