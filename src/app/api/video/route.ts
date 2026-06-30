@@ -113,7 +113,7 @@ async function handleSeedance(p: {
     };
     const status   = pd?.status ?? pd?.data?.status;
     const videoUrl = pd?.video_url ?? pd?.url ?? pd?.data?.video_url;
-    if (videoUrl && status === "succeeded") return Response.json({ videoUrl });
+    if (videoUrl && (status === "succeeded" || status === "completed")) return Response.json({ videoUrl });
     if (videoUrl && !status) return Response.json({ videoUrl });
     if (status === "failed" || status === "error") {
       return Response.json({ error: "generation failed", raw: pd }, { status: 500 });
