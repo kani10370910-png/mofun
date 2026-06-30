@@ -657,10 +657,7 @@ export function OnelineVideo() {
             }
           });
         }
-        // Ken Burns 帧 → 真实视频文件（canvas + MediaRecorder），生成后直接写 videoUrl 供播放器播放
-        void recordKenBurnsVideo(urls, p.ratio, p.dur, p.text).then((blobUrl) => {
-          if (blobUrl) upd({ videoUrl: blobUrl });
-        });
+        // videoUrl 只由真实视频模型结果填写；播放器在等待期间用 CSS Ken Burns 动画过渡
       }
     });
 
