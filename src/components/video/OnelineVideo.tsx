@@ -167,6 +167,95 @@ async function genRealVideo(prompt: string, ratio: string, dur: string, videoMod
   }
 }
 
+// Ken Burns 多帧动画 → 真实视频文件（canvas + MediaRecorder），返回 object URL；不支持时返回 null
+async function recordKenBurnsVideo(
+  srcFrames: string[],
+  ratio: string,
+  dur: string,
+  prompt: string
+): Promise<string | null> {
+  if (typeof MediaRecorder === "undefined" || !document.createElement("canvas").captureStream) return null;
+  try {
+    const proxyUrl = (u: string) =>
+      /^https?:\/\//i.test(u) ? `/api/proxy-image?url=${encodeURIComponent(u)}` : u;
+    const imgs = await Promise.all(
+      srcFrames.map((u) => {
+        const el = new Image();
+        el.crossOrigin = "anonymous";
+        el.src = proxyUrl(u);
+        return el.decode().then(() => el);
+      })
+    );
+    const [rw, rh] = ratioWH(ratio);
+    const base = 720;
+    const cw = rw >= rh ? Math.round((base * rw) / rh) : base;
+    const ch = rw >= rh ? base : Math.round((base * rh) / rw);
+    const canvas = document.createElement("canvas");
+    canvas.width = cw; canvas.height = ch;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    const total = durSeconds(dur);
+    const n = imgs.length;
+    const KB = [
+      { zoom: 0.14, tx: -0.04, ty: -0.025 },
+      { zoom: 0.10, tx: +0.035, ty: +0.02 },
+      { zoom: -0.08, tx: 0, ty: 0 },
+    ];
+    const paintImg = (img: HTMLImageElement, localP: number, alpha: number, kbIdx: number) => {
+      const m = KB[kbIdx % KB.length];
+      const z = 1 + m.zoom * localP;
+      const ir = img.width / img.height;
+      const cr = cw / ch;
+      let dw: number, dh: number;
+      if (ir > cr) { dh = ch; dw = ch * ir; } else { dw = cw; dh = cw / ir; }
+      dw *= z; dh *= z;
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(img, (cw - dw) / 2 + m.tx * localP * cw, (ch - dh) / 2 + m.ty * localP * ch, dw, dh);
+      ctx.globalAlpha = 1;
+    };
+    const drawFrame = (p: number) => {
+      const raw = p * n;
+      const segIdx = Math.min(Math.floor(raw), n - 1);
+      const localP = raw - segIdx;
+      const nextIdx = Math.min(segIdx + 1, n - 1);
+      const crossAlpha = localP > 0.75 ? (localP - 0.75) / 0.25 : 0;
+      ctx.clearRect(0, 0, cw, ch);
+      paintImg(imgs[segIdx], localP, 1, segIdx);
+      if (crossAlpha > 0 && nextIdx !== segIdx) paintImg(imgs[nextIdx], 0, crossAlpha, nextIdx);
+      const g = ctx.createLinearGradient(0, 0, 0, ch);
+      g.addColorStop(0, "rgba(0,0,0,0.18)"); g.addColorStop(0.3, "rgba(0,0,0,0)");
+      g.addColorStop(0.62, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,0.58)");
+      ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
+      const pad = Math.round(cw * 0.045), fs = Math.round(ch * 0.04);
+      ctx.fillStyle = "#fff"; ctx.font = `600 ${fs}px system-ui,-apple-system,sans-serif`;
+      ctx.textBaseline = "bottom"; ctx.shadowColor = "rgba(0,0,0,0.7)"; ctx.shadowBlur = 10;
+      drawWrappedText(ctx, prompt, pad, ch - pad, cw - 2 * pad, fs * 1.35, 2);
+      ctx.shadowBlur = 0;
+    };
+    const mime = ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm"]
+      .find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
+    const rec = new MediaRecorder(canvas.captureStream(30), mime ? { mimeType: mime } : undefined);
+    const chunks: BlobPart[] = [];
+    rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    const finished = new Promise<string>((resolve) => {
+      rec.onstop = () => resolve(URL.createObjectURL(new Blob(chunks, { type: rec.mimeType || "video/webm" })));
+    });
+    rec.start();
+    const t0 = performance.now();
+    await new Promise<void>((resolve) => {
+      const tick = () => {
+        const p = Math.min(1, (performance.now() - t0) / 1000 / total);
+        drawFrame(p);
+        if (p >= 1) resolve(); else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    await new Promise((r) => window.setTimeout(r, 150));
+    rec.stop();
+    return await finished;
+  } catch { return null; }
+}
+
 // 根据视频首帧画面推断匹配的背景音乐风格（调用 vision-bgm 路由，用 qwen3 多模态视觉能力）
 async function inferBgmFromFrame(frameUrl: string): Promise<string | null> {
   try {
@@ -263,7 +352,8 @@ export function OnelineVideo() {
   const [runs, setRuns] = useState<VideoRunRow[]>(SEED_RUNS);
   const [resultTab, setResultTab] = useState<"history" | "inspire">("history"); // 右侧面板 Tab
   const [onlyFav, setOnlyFav] = useState(false); // 只看收藏
-  const [playing, setPlaying] = useState<VideoRunRow | null>(null); // 当前在播放器中预览的记录
+  const [playingId, setPlayingId] = useState<string | null>(null); // 播放器中预览记录的 id
+  const playing = playingId ? (runs.find((r) => r.id === playingId) ?? null) : null; // 衍生：始终取 runs 最新状态
   const [busy, setBusy] = useState(false);
   const [safe, setSafe] = useState<null | "checking" | "blocked">(null); // 安全预检状态
   const timers = useRef<number[]>([]);
@@ -443,6 +533,10 @@ export function OnelineVideo() {
             }
           });
         }
+        // Ken Burns 帧 → 真实视频文件（canvas + MediaRecorder），生成后直接写 videoUrl 供播放器播放
+        void recordKenBurnsVideo(urls, p.ratio, p.dur, p.text).then((blobUrl) => {
+          if (blobUrl) upd({ videoUrl: blobUrl });
+        });
       }
     });
 
@@ -1060,7 +1154,7 @@ export function OnelineVideo() {
                     key={r.id}
                     row={r}
                     onDelete={() => deleteRun(r.id)}
-                    onPlay={() => setPlaying(r)}
+                    onPlay={() => setPlayingId(r.id)}
                     onRegenerate={() => regenerate(r)}
                     onSave={() => saveToLibrary(r)}
                     onDownload={() => downloadVideo(r)}
@@ -1115,11 +1209,11 @@ export function OnelineVideo() {
       {playing && (
         <VideoPlayerModal
           row={playing}
-          onClose={() => setPlaying(null)}
+          onClose={() => setPlayingId(null)}
           onDownload={() => downloadVideo(playing)}
           onSave={() => {
             saveToLibrary(playing);
-            setPlaying(null);
+            setPlayingId(null);
           }}
           onStudio={() => router.push("/video?sub=studio&from=history")}
         />
