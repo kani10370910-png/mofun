@@ -175,15 +175,25 @@ async function genVideoFrames(prompt: string, ratio: string): Promise<string[]> 
     .filter((u): u is string => !!u);
 }
 
-// blob URL（本地上传图片）→ base64 data URL，用于发给视频模型作为首帧参考图
+// blob URL → 压缩后的 base64 JPEG（限 1280px 长边，避免大图上传超时）
 async function blobUrlToDataUrl(url: string): Promise<string | null> {
   try {
     const blob = await fetch(url).then((r) => r.blob());
-    return new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
+    return new Promise<string>((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 1280;
+        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        c.getContext("2d")?.drawImage(img, 0, 0, w, h);
+        resolve(c.toDataURL("image/jpeg", 0.88));
+        URL.revokeObjectURL(img.src);
+      };
+      img.onerror = () => resolve(URL.createObjectURL(blob)); // 降级：原图
+      img.src = URL.createObjectURL(blob);
     });
   } catch {
     return null;

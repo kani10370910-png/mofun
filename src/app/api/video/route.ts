@@ -80,7 +80,7 @@ async function handleSeedance(p: {
     method: "POST",
     headers: p.headers,
     body: JSON.stringify(submitBody),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(40_000), // i2v 携带图片，上传可能较慢
   }).catch(() => null);
 
   if (!submitRes?.ok) {
