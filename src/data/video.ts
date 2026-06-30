@@ -115,6 +115,7 @@ export const motionWords: MotionWordGroup[] = [
 
 /* ---------- 一句话视频（F10-06）：视频风格 ---------- */
 export const videoStyles: VideoStyle[] = [
+  { key: "none",   name: "不使用预设", emoji: "✨", grad: "thumb-grad-4", stylePrompt: "" },
   { key: "real",   name: "写实",     emoji: "📷", grad: "thumb-grad-1", stylePrompt: "真实自然纪实风格，色彩还原真实，无明显后期滤镜，画面质朴贴近生活原貌" },
   { key: "doc",    name: "纪录片",   emoji: "🎬", grad: "thumb-grad-2", stylePrompt: "纪录片叙事风格，稳定机位，中性色调，强调真实感与现场感，镜头语言克制有力" },
   { key: "aerial", name: "航拍大片", emoji: "🚁", grad: "thumb-grad-3", stylePrompt: "无人机航拍视角，高空俯瞰与低空掠过交替，大景别震撼全景，色彩鲜明饱满，气势磅礴" },

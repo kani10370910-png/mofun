@@ -25,6 +25,7 @@ import {
 } from "@/data/video";
 import type { VideoRunRow, Grad, AssetCard } from "@/lib/types";
 import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
+import { VideoStyleModal } from "./VideoStyleModal";
 
 /* F10 一句话视频：文生视频(T2V) / 图生视频(I2V) 双 Tab。
    演示骨架：场景引导词库 + 参数 + 首尾帧 + 内容安全预检/复检 + 进度状态机 + 后处理/审核流。
@@ -360,7 +361,8 @@ export function OnelineVideo() {
   const [durSec, setDurSec] = useState(5); // 视频时长（秒），滑杆控制
   const [quality, setQuality] = useState<string>(videoQualities[1]); // 默认 720P
   const [genAudio, setGenAudio] = useState(true); // 是否同时生成声音
-  const [style, setStyle] = useState(""); // "" = 不使用预设
+  const [style, setStyle] = useState("不使用预设"); // 默认不使用预设（auto）
+  const [styleOpen, setStyleOpen] = useState(false); // 视频风格选择浮层
   const [voice, setVoice] = useState<string>(videoVoices[1]); // 配音音色，默认温柔女声
   const [bgm, setBgm] = useState<string>(videoBgms[1]); // 背景音乐，默认舒缓
   const [model, setModel] = useState<string>("Seedance 1.5 Pro"); // 视频生成模型
@@ -417,7 +419,7 @@ export function OnelineVideo() {
       return;
     }
     setExpanding(true);
-    optimizeVideoPrompt(base, style).then((optimized) => {
+    optimizeVideoPrompt(base, style === "不使用预设" ? undefined : style).then((optimized) => {
       if (optimized) {
         setPrompt(optimized);
         toast("提示词已优化");
@@ -1076,21 +1078,21 @@ export function OnelineVideo() {
               </div>
               <div className="field">
                 <div className="ws-label">视频风格</div>
-                <div className="preset-grid">
-                  <button
-                    type="button"
-                    className={style === "" ? "preset-chip on" : "preset-chip"}
-                    style={{ gridColumn: "1 / -1" }}
-                    onClick={() => setStyle("")}
-                  >
-                    不使用预设
-                  </button>
-                  {videoStyles.map((s) => (
-                    <button key={s.key} type="button" className={style === s.name ? "preset-chip on" : "preset-chip"} onClick={() => setStyle(s.name)}>
-                      {s.name}
+                {(() => {
+                  const cur = videoStyles.find((s) => s.name === style) ?? videoStyles[0];
+                  return (
+                    <button type="button" className="style-card" onClick={() => setStyleOpen(true)}>
+                      <span className={`sc-ico ${cur.grad}`}>{cur.emoji}</span>
+                      <span className="sc-text">
+                        <span className="sc-name">{cur.name}</span>
+                        <span className="sc-sub">点击更换风格</span>
+                      </span>
+                      <span className="sc-arrow">
+                        <Icon name="chevron" size={16} />
+                      </span>
                     </button>
-                  ))}
-                </div>
+                  );
+                })()}
               </div>
               <div className="field">
                 <div className="ws-label">同时生成声音</div>
@@ -1153,6 +1155,13 @@ export function OnelineVideo() {
 
         {/* 右侧：生成历史 / 参考灵感 双 Tab（与品牌设计一致） */}
         <div className="ws-panel ov-result">
+          {styleOpen && (
+            <VideoStyleModal
+              current={style}
+              onClose={() => setStyleOpen(false)}
+              onPick={(name) => setStyle(name)}
+            />
+          )}
           <div className="lg-head">
             <div className="tabs">
               <div className={resultTab === "history" ? "tab on" : "tab"} onClick={() => setResultTab("history")}>
