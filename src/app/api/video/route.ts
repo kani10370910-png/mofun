@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300; // 视频生成通常需要 90-150s，留足余量
 
 // Anyfast Seedance: ratio 字段直接传，智能 → adaptive
 const SEEDANCE_RATIO_MAP: Record<string, string> = { "智能": "adaptive" };
@@ -96,8 +96,8 @@ async function handleSeedance(p: {
   const taskId = data?.id ?? data?.task_id;
   if (!taskId) return Response.json({ error: "no task_id", raw: data }, { status: 502 });
 
-  // 异步轮询
-  const deadline = Date.now() + 90_000;
+  // 异步轮询（视频生成通常 90-150s，给 270s 余量）
+  const deadline = Date.now() + 270_000;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 4_000));
     const pr = await fetch(`${p.baseURL}/v1/video/generations/${taskId}`, {
@@ -174,7 +174,7 @@ async function handleKling(p: {
   const taskId = data?.data?.task_id ?? data?.task_id;
   if (!taskId) return Response.json({ error: "no task_id", raw: data }, { status: 502 });
 
-  const deadline = Date.now() + 90_000;
+  const deadline = Date.now() + 270_000;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 4_000));
     const pr = await fetch(`${p.baseURL}/kling/v1/videos/${taskId}`, {
