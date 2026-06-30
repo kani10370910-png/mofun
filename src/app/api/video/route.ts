@@ -84,9 +84,10 @@ async function handleSeedance(p: {
   }).catch(() => null);
 
   if (!submitRes?.ok) {
-    const err = await submitRes?.json().catch(() => ({}));
-    console.error("[video/seedance] submit failed", submitRes?.status, JSON.stringify(err));
-    return Response.json({ error: err }, { status: submitRes?.status ?? 503 });
+    const raw = await submitRes?.json().catch(() => ({})) as { error?: { message?: string }; message?: string; code?: string };
+    const errMsg = raw?.error?.message ?? raw?.message ?? raw?.code ?? `HTTP ${submitRes?.status ?? "??"}`;
+    console.error("[video/seedance] submit failed", submitRes?.status, errMsg);
+    return Response.json({ error: errMsg }, { status: submitRes?.status ?? 503 });
   }
 
   const data = await submitRes.json() as { id?: string; task_id?: string; video_url?: string; status?: string };
@@ -134,7 +135,8 @@ async function handleSeedance(p: {
     }
     if (videoUrl && !status) return Response.json({ videoUrl });
     if (status === "failed" || status === "error" || status === "FAILED") {
-      return Response.json({ error: "generation failed", raw: pd }, { status: 500 });
+      const reason = pd?.data?.fail_reason || "generation failed";
+      return Response.json({ error: reason }, { status: 500 });
     }
   }
   return Response.json({ error: "timeout" }, { status: 504 });
