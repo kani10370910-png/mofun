@@ -24,6 +24,7 @@ import {
   videoDurationRange,
 } from "@/data/video";
 import type { VideoRunRow, Grad, AssetCard } from "@/lib/types";
+import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
 
 /* F10 一句话视频：文生视频(T2V) / 图生视频(I2V) 双 Tab。
    演示骨架：场景引导词库 + 参数 + 首尾帧 + 内容安全预检/复检 + 进度状态机 + 后处理/审核流。
@@ -363,7 +364,6 @@ export function OnelineVideo() {
   const [voice, setVoice] = useState<string>(videoVoices[1]); // 配音音色，默认温柔女声
   const [bgm, setBgm] = useState<string>(videoBgms[1]); // 背景音乐，默认舒缓
   const [model, setModel] = useState<string>("Seedance 1.5 Pro"); // 视频生成模型
-  const [modelOpen, setModelOpen] = useState(false); // 模型选择弹窗
   const [count, setCount] = useState(1);
 
   const [runs, setRuns] = useState<VideoRunRow[]>(SEED_RUNS);
@@ -1007,13 +1007,13 @@ export function OnelineVideo() {
               {/* —— 公共参数 F10-05 / F10-06 —— */}
               <div className="field">
                 <div className="ws-label">视频模型</div>
-                <button type="button" className="vm-trigger" onClick={() => setModelOpen(true)}>
-                  <span className="vm-trigger-ico">
-                    <Icon name="vidModel" size={18} />
-                  </span>
-                  <span className="vm-trigger-name">{model}</span>
-                  <Icon name="chevron" size={16} className="vm-trigger-arrow" />
-                </button>
+                <Dropdown
+                  title="模型选择"
+                  triggerIcon="vidModel"
+                  options={videoModels.map((m): DropdownOption => ({ name: m.name, desc: m.desc }))}
+                  value={model}
+                  onChange={(o) => { setModel(o.name); toast(`已选择视频模型：${o.name}`); }}
+                />
               </div>
               <div className="field">
                 <div className="ws-label">视频比例</div>
@@ -1210,18 +1210,6 @@ export function OnelineVideo() {
         </div>
       </div>
 
-      {modelOpen && (
-        <VideoModelPicker
-          value={model}
-          onPick={(name) => {
-            setModel(name);
-            setModelOpen(false);
-            toast(`已选择视频模型：${name}`);
-          }}
-          onClose={() => setModelOpen(false)}
-        />
-      )}
-
       {playing && (
         <VideoPlayerModal
           row={playing}
@@ -1238,60 +1226,6 @@ export function OnelineVideo() {
   );
 }
 
-/* 视频模型选择器：2 列网格弹窗（参考真实平台模型库：图标+名称+角标+描述+能力标签） */
-function VideoModelPicker({
-  value,
-  onPick,
-  onClose,
-}: {
-  value: string;
-  onPick: (name: string) => void;
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  return (
-    <div className="modal-mask" onClick={onClose}>
-      <div className="vm-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="vm-head">
-          <span className="vm-title">选择视频模型</span>
-          <button className="vp-close" onClick={onClose} aria-label="关闭">
-            <Icon name="close" size={18} />
-          </button>
-        </div>
-        <div className="vm-grid">
-          {videoModels.map((m) => (
-            <button type="button" key={m.name} className={`vm-card ${m.name === value ? "on" : ""}`} onClick={() => onPick(m.name)}>
-              <span className="vm-card-ico">
-                <Icon name="vidModel" size={20} />
-              </span>
-              <div className="vm-card-body">
-                <div className="vm-card-name">
-                  {m.name}
-                  {m.badge && <span className={`vm-badge ${m.badge === "NEW" ? "new" : "vip"}`}>{m.badge}</span>}
-                </div>
-                <div className="vm-card-desc">{m.desc}</div>
-                <div className="vm-card-tags">
-                  {m.tags.map((t) => (
-                    <span className="vm-tag" key={t}>
-                      {t}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function FrameSlot({
   label,
