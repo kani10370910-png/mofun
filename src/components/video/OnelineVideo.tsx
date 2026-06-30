@@ -57,7 +57,7 @@ const SEED_RUNS: VideoRunRow[] = [
     time: "2026-06-30 10:24",
     status: "done",
     pct: 100,
-    poster: "/poster-samples/20251219175905342092j5c2dj.jpg",
+    poster: "/poster-gen/hist-baicha.jpg",
     grad: "thumb-grad-1",
     voice: "温柔女声",
     bgm: "舒缓",
@@ -74,7 +74,7 @@ const SEED_RUNS: VideoRunRow[] = [
     time: "2026-06-30 09:12",
     status: "done",
     pct: 100,
-    poster: "/poster-samples/20260203110400782583nzlt30.jpg",
+    poster: "/poster-gen/hist-yucun.jpg",
     grad: "thumb-grad-3",
     voice: "沉稳男声",
     bgm: "大气",
@@ -91,7 +91,7 @@ const SEED_RUNS: VideoRunRow[] = [
     time: "2026-06-29 17:40",
     status: "done",
     pct: 100,
-    poster: "/poster-samples/20260202173900324322jp19aq.jpg",
+    poster: "/poster-gen/hist-zhubian.jpg",
     grad: "thumb-grad-2",
     voice: "不配音",
     bgm: "国风",
@@ -108,7 +108,7 @@ const SEED_RUNS: VideoRunRow[] = [
     time: "2026-06-29 15:03",
     status: "done",
     pct: 100,
-    poster: "/poster-samples/20260205151245452052s6e2qk.jpg",
+    poster: "/poster-gen/hist-lujiacun.jpg",
     grad: "thumb-grad-4",
     voice: "温柔女声",
     bgm: "舒缓",
@@ -125,7 +125,7 @@ const SEED_RUNS: VideoRunRow[] = [
     time: "2026-06-28 20:18",
     status: "done",
     pct: 100,
-    poster: "/poster-samples/2026020915231061696936pmjd.jpg",
+    poster: "/poster-gen/hist-dazhuhai.jpg",
     grad: "thumb-grad-1",
     voice: "沉稳男声",
     bgm: "大气",
@@ -176,12 +176,12 @@ function captureFirstFrame(videoUrl: string): Promise<string | null> {
 // 参考灵感：6 张安吉文旅具体范例（含真实提示词与样张），供右栏一键套用到提示词。
 // cat/scene 对应真实场景模板，套用后预设 chip 自动高亮。
 const INSPIRE: { cat: string; scene: string; emoji: string; prompt: string; poster: string }[] = [
-  { cat: "农业宣传", scene: "农产品展示", emoji: "🌾", prompt: "安吉白茶明前头采，茶农指尖采摘嫩芽，云雾茶山实景，产地直发宣传短视频", poster: "/poster-samples/20251219150028966406xict5e.jpg" },
-  { cat: "农业宣传", scene: "丰收季节", emoji: "🌽", prompt: "金秋安吉冬笋丰收，竹林里挖笋忙，农户笑脸特写，丰收喜悦氛围", poster: "/poster-samples/20251222150201108065evwftz.jpg" },
-  { cat: "文化旅游", scene: "景区宣传", emoji: "⛰️", prompt: "安吉余村绿水青山，竹海骑行与古村漫步，适合亲子游的生态文旅目的地", poster: "/poster-samples/20251223153921706507udqknx.jpg" },
-  { cat: "文化旅游", scene: "非遗展演", emoji: "🎭", prompt: "安吉竹编非遗传承人现场展示，竹丝在指间翻飞，匠心技艺，文化传承", poster: "/poster-samples/20251225143202617562fe2mzh.jpg" },
-  { cat: "农旅融合", scene: "采摘体验", emoji: "🍓", prompt: "来安吉鲁家村摘蓝莓，亲子采摘乐园，生态农庄一日游，田园慢生活", poster: "/poster-samples/202512251516181258973mq1jx.jpg" },
-  { cat: "农旅融合", scene: "田园打卡", emoji: "🏞️", prompt: "安吉田园风光，星空帐篷露营网红打卡地，远离城市的诗意生活", poster: "/poster-samples/20260211161731633183ox0mqw.jpg" },
+  { cat: "农业宣传", scene: "农产品展示", emoji: "🌾", prompt: "安吉白茶明前头采，茶农指尖采摘嫩芽，云雾茶山实景，产地直发宣传短视频", poster: "/poster-gen/ins-baicha.jpg" },
+  { cat: "农业宣传", scene: "丰收季节", emoji: "🌽", prompt: "金秋安吉冬笋丰收，竹林里挖笋忙，农户笑脸特写，丰收喜悦氛围", poster: "/poster-gen/ins-dongsun.jpg" },
+  { cat: "文化旅游", scene: "景区宣传", emoji: "⛰️", prompt: "安吉余村绿水青山，竹海骑行与古村漫步，适合亲子游的生态文旅目的地", poster: "/poster-gen/ins-yucun.jpg" },
+  { cat: "文化旅游", scene: "非遗展演", emoji: "🎭", prompt: "安吉竹编非遗传承人现场展示，竹丝在指间翻飞，匠心技艺，文化传承", poster: "/poster-gen/ins-feiyi.jpg" },
+  { cat: "农旅融合", scene: "采摘体验", emoji: "🍓", prompt: "来安吉鲁家村摘蓝莓，亲子采摘乐园，生态农庄一日游，田园慢生活", poster: "/poster-gen/ins-lanmei.jpg" },
+  { cat: "农旅融合", scene: "田园打卡", emoji: "🏞️", prompt: "安吉田园风光，星空帐篷露营网红打卡地，远离城市的诗意生活", poster: "/poster-gen/ins-yetian.jpg" },
 ];
 
 // "5秒" → 5
