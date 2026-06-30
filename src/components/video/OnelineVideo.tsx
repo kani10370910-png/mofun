@@ -366,7 +366,7 @@ async function callVideoGenerate(fields: {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(fields),
-      signal: AbortSignal.timeout(35_000),
+      signal: AbortSignal.timeout(8_000),
     });
     if (!r.ok) return null;
     return (await r.json()) as { finalPrompt: string; appliedStyle: string; notes: string[] };

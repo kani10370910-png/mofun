@@ -102,10 +102,10 @@ async function handleSeedance(p: {
   // 异步轮询（视频生成通常 90-150s，给 270s 余量）
   const deadline = Date.now() + 270_000;
   while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 4_000));
+    await new Promise((r) => setTimeout(r, 2_000));
     const pr = await fetch(`${p.baseURL}/v1/video/generations/${taskId}`, {
       headers: p.headers,
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(8_000),
     }).catch(() => null);
     if (!pr?.ok) continue;
     const pd = await pr.json() as {
@@ -180,10 +180,10 @@ async function handleKling(p: {
 
   const deadline = Date.now() + 270_000;
   while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 4_000));
+    await new Promise((r) => setTimeout(r, 2_000));
     const pr = await fetch(`${p.baseURL}/kling/v1/videos/${taskId}`, {
       headers: p.headers,
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(8_000),
     }).catch(() => null);
     if (!pr?.ok) continue;
     const pd = await pr.json() as {
