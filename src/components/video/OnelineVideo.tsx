@@ -1305,7 +1305,6 @@ function VideoRunCard({
               return (
                 <div className="ov-video-loading ov-pipe">
                   <div className="ov-pipe-now">
-                    <span className="ov-pipe-ico">{st.ico}</span>
                     <span className="ov-pipe-text">
                       <b>{st.name}</b>
                       <i>{st.desc}</i>
@@ -1324,7 +1323,6 @@ function VideoRunCard({
                     <div className="ov-pipe-tracks">
                       {tracks.map((t) => (
                         <span key={t.key} className="ov-track">
-                          <span className="ov-track-ico">{t.ico}</span>
                           {t.name}
                         </span>
                       ))}
@@ -1350,7 +1348,7 @@ function VideoRunCard({
             </button>
             <div className="ov-play">▶</div>
             <span className="ov-video-dur">00:{durLabel}</span>
-            {row.withAudio !== false && <span className="ov-video-audio">🔊 有声</span>}
+            {row.withAudio !== false && <span className="ov-video-audio">有声</span>}
             <span className="lh-mark">由 AI 生成</span>
           </>
         )}
@@ -1496,7 +1494,7 @@ function VideoPlayerModal({
             <span className="vp-chip">{row.style}</span>
             <span className="vp-chip">{row.ratio}</span>
             <span className="vp-chip">{row.dur}</span>
-            {row.withAudio !== false && <span className="vp-chip vp-chip-audio">🔊 有声</span>}
+            {row.withAudio !== false && <span className="vp-chip vp-chip-audio">有声</span>}
           </span>
           <button className="vp-close" onClick={onClose} aria-label="关闭">
             <Icon name="close" size={18} />
@@ -1578,7 +1576,7 @@ function VideoPlayerModal({
               aria-label={muted ? "取消静音" : "静音"}
               title={muted ? "取消静音" : "静音"}
             >
-              {muted ? "🔇" : "🔊"}
+              {muted ? "静音" : "音量"}
             </button>
           </div>
         )}
@@ -1587,13 +1585,11 @@ function VideoPlayerModal({
           <span className="vp-tracks-label">音轨</span>
           {row.videoUrl ? (
             <span className="vp-atrack">
-              <span className="vp-atrack-ico">🎬</span>
               音画同步 · Seedance 2.0 内置音轨
             </span>
           ) : (
             tracks.map((t) => (
               <span key={t.key} className="vp-atrack">
-                <span className="vp-atrack-ico">{t.ico}</span>
                 {t.name}
                 {t.key === "tts" && row.voice ? ` · ${row.voice}` : ""}
                 {t.key === "bgm" && row.bgm ? ` · ${row.bgm}` : ""}
