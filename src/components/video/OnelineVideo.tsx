@@ -1430,6 +1430,7 @@ function VideoRunCard({
 
       <div
         className={`ov-video ${row.grad} ${done ? "clickable" : ""}`}
+        style={{ aspectRatio: ratioToAspect(row.ratio) }}
         onClick={done ? onPlay : undefined}
         role={done ? "button" : undefined}
         title={done ? "点击播放预览" : undefined}
