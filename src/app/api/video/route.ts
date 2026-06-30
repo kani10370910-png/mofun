@@ -109,13 +109,27 @@ async function handleSeedance(p: {
       status?: string;
       video_url?: string;
       url?: string;
-      data?: { status?: string; video_url?: string };
+      task_id?: string;
+      data?: {
+        status?: string;
+        video_url?: string;
+        fail_reason?: string;
+        data?: { content?: { video_url?: string } };
+      };
     };
+    console.log("[video/seedance] poll →", JSON.stringify(pd).slice(0, 300));
     const status   = pd?.status ?? pd?.data?.status;
-    const videoUrl = pd?.video_url ?? pd?.url ?? pd?.data?.video_url;
-    if (videoUrl && (status === "succeeded" || status === "completed")) return Response.json({ videoUrl });
+    const videoUrl =
+      pd?.video_url ??
+      pd?.url ??
+      pd?.data?.video_url ??
+      pd?.data?.data?.content?.video_url;
+    // Anyfast 状态值可能是 succeeded / completed / SUCCESS（文档不统一）
+    if (videoUrl && (status === "succeeded" || status === "completed" || status === "SUCCESS")) {
+      return Response.json({ videoUrl });
+    }
     if (videoUrl && !status) return Response.json({ videoUrl });
-    if (status === "failed" || status === "error") {
+    if (status === "failed" || status === "error" || status === "FAILED") {
       return Response.json({ error: "generation failed", raw: pd }, { status: 500 });
     }
   }
