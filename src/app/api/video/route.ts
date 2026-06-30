@@ -122,19 +122,22 @@ async function handleSeedance(p: {
       };
     };
     console.log("[video/seedance] poll →", JSON.stringify(pd).slice(0, 300));
-    const status   = pd?.status ?? pd?.data?.status ?? pd?.data?.data?.status;
+    const rawStatus = pd?.status ?? pd?.data?.status ?? pd?.data?.data?.status;
+    // 大小写无关 + 前缀匹配：Anyfast 文档不统一，实测有 IN_PROGRESS/SUCCEEDED 大写风格，
+    // 也可能是 succeeded/completed/SUCCESS。统一小写后用 includes 兜住所有写法。
+    const status = (rawStatus ?? "").toLowerCase();
     const videoUrl =
       pd?.video_url ??
       pd?.url ??
       pd?.data?.video_url ??
       pd?.data?.result_url ??
       pd?.data?.data?.content?.video_url;
-    // Anyfast 状态值可能是 succeeded / completed / SUCCESS（文档不统一）
-    if (videoUrl && (status === "succeeded" || status === "completed" || status === "SUCCESS")) {
+    const isDone = status.includes("succ") || status.includes("complet"); // succeeded/success/completed
+    const isFail = status.includes("fail") || status.includes("error");
+    if (videoUrl && (isDone || !rawStatus)) {
       return Response.json({ videoUrl });
     }
-    if (videoUrl && !status) return Response.json({ videoUrl });
-    if (status === "failed" || status === "error" || status === "FAILED") {
+    if (isFail) {
       const reason = pd?.data?.fail_reason || "generation failed";
       return Response.json({ error: reason }, { status: 500 });
     }
