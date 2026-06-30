@@ -988,7 +988,13 @@ export function OnelineVideo() {
                     <div className="filter-row" style={{ marginBottom: 10 }}>
                       <span
                         className={presetCleared ? "sel-chip on" : "sel-chip"}
-                        onClick={() => { setScene(""); setPrompt(""); setPresetCleared(true); }}
+                        onClick={() => {
+                          // 再次点击可取消选中（toggle）；选中时清空已填场景/提示词
+                          setPresetCleared((v) => {
+                            if (!v) { setScene(""); setPrompt(""); }
+                            return !v;
+                          });
+                        }}
                       >
                         不使用预设
                       </span>
