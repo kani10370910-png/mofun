@@ -958,7 +958,6 @@ export function OnelineVideo() {
                 <div className="ov-style-row">
                   {videoStyles.map((s) => (
                     <button key={s.key} type="button" className={style === s.name ? "ov-style on" : "ov-style"} onClick={() => setStyle(s.name)}>
-                      <span className={`ov-style-ico ${s.grad}`}>{s.emoji}</span>
                       {s.name}
                     </button>
                   ))}
