@@ -15,7 +15,7 @@ const SIZE_MAP: Record<string, string> = {
 };
 
 export async function POST(req: NextRequest) {
-  const body = (await req.json()) as { prompt: string; ratio: string; dur: string; model?: string };
+  const body = (await req.json()) as { prompt: string; ratio: string; dur: string; model?: string; imageUrl?: string };
   const apiKey  = process.env.VIDEO_API_KEY  || process.env.IMAGE_API_KEY  || "";
   const baseURL = (process.env.VIDEO_BASE_URL || process.env.IMAGE_BASE_URL || "").replace(/\/$/, "");
   const model   = body.model || process.env.VIDEO_MODEL || "seedance-2-pro";
@@ -26,11 +26,15 @@ export async function POST(req: NextRequest) {
   const duration = parseInt(String(body.dur).match(/\d+/)?.[0] ?? "5", 10);
   const headers  = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` };
 
+  // 构建提交体：i2v 时附带首帧图（data URL 或 https URL）
+  const submitBody: Record<string, unknown> = { model, prompt: body.prompt, size, duration };
+  if (body.imageUrl) submitBody.image_url = body.imageUrl;
+
   // 提交视频生成任务
   const submitRes = await fetch(`${baseURL}/video/generations`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ model, prompt: body.prompt, size, duration }),
+    body: JSON.stringify(submitBody),
     signal: AbortSignal.timeout(20_000),
   }).catch(() => null);
 

@@ -152,13 +152,29 @@ async function genVideoFrames(prompt: string, ratio: string): Promise<string[]> 
     .filter((u): u is string => !!u);
 }
 
+// blob URL（本地上传图片）→ base64 data URL，用于发给视频模型作为首帧参考图
+async function blobUrlToDataUrl(url: string): Promise<string | null> {
+  try {
+    const blob = await fetch(url).then((r) => r.blob());
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
 // 调真实视频模型（Seedance 2.0 / MiniMax 等）生成含音画的视频文件；失败返回 null，前端自动降级 Ken Burns
-async function genRealVideo(prompt: string, ratio: string, dur: string, videoModel: string): Promise<string | null> {
+// imageUrl：图生视频时传首帧图（data URL 或 https URL），文生视频时不传
+async function genRealVideo(prompt: string, ratio: string, dur: string, videoModel: string, imageUrl?: string): Promise<string | null> {
   try {
     const r = await fetch("/api/video", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, ratio, dur, model: videoModel }),
+      body: JSON.stringify({ prompt, ratio, dur, model: videoModel, ...(imageUrl ? { imageUrl } : {}) }),
       signal: AbortSignal.timeout(110_000), // 稍低于后端 120s 上限
     });
     if (!r.ok) return null;
@@ -512,6 +528,7 @@ export function OnelineVideo() {
           return;
         }
         setSafe(null);
+        setBusy(true); // 安全预检通过后立即锁定，防止 LLM 组装期间（最长 35s）重复触发
         void startGenerate(isI2v, text);
       }, 900)
     );
@@ -657,18 +674,23 @@ export function OnelineVideo() {
     }, 240);
     timers.current.push(iv as unknown as number);
 
-    // 后台静默调真实视频模型（Seedance 2.0 等）；成功后直接升级 row.videoUrl，Ken Burns 版本已可用不阻塞
-    if (p.mode === "t2v") {
+    // 后台静默调真实视频模型（t2v：送文本提示词；i2v：携带首帧图 + 运动描述）
+    // 成功后直接升级 row.videoUrl；Ken Burns 降级方案已可用，不阻塞展示
+    void (async () => {
       const vm = p.videoModel ?? model;
-      genRealVideo(p.text, p.ratio, p.dur, vm)
-        .then((videoUrl) => {
-          if (videoUrl) {
-            upd({ videoUrl });
-            toast("🎬 音画视频就绪！播放器已升级为真实视频（含内置音轨）");
-          }
-        })
-        .catch(() => { /* 忽略：Ken Burns 版本已就绪 */ });
-    }
+      let imgUrl: string | undefined;
+      if (p.mode === "i2v" && p.poster) {
+        // 本地 blob URL 先转为 base64 data URL 再发给模型；https 图直接传
+        imgUrl = p.poster.startsWith("blob:")
+          ? (await blobUrlToDataUrl(p.poster) ?? undefined)
+          : p.poster;
+      }
+      const videoUrl = await genRealVideo(p.text, p.ratio, p.dur, vm, imgUrl).catch(() => null);
+      if (videoUrl) {
+        upd({ videoUrl });
+        toast("🎬 音画视频就绪！播放器已升级为真实视频（含内置音轨）");
+      }
+    })();
 
     // 完成时机：等画面生成完成（无论成败）+ 最短演示节奏，二者都满足才封装
     const minDelay = new Promise<void>((res) => timers.current.push(window.setTimeout(res, 3500)));
