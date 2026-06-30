@@ -32,6 +32,18 @@ const GRADS: Grad[] = ["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-gr
 // 敏感词演示：命中则安全预检拦截
 const BLOCK_WORDS = ["反动", "暴恐", "色情", "血腥"];
 
+// 视频比例下拉选项：name 必须保持原始比例串（下游 ratioToAspect/route 依赖），描述放 sub
+const RATIO_SUB: Record<string, string> = {
+  "智能": "自动匹配最佳比例",
+  "16:9": "横屏 · 宽屏",
+  "4:3": "横屏 · 标准",
+  "1:1": "方形 · 社交流",
+  "3:4": "竖屏 · 标准",
+  "9:16": "竖屏 · 全面屏",
+  "21:9": "横屏 · 电影宽幕",
+};
+const RATIO_OPTS: DropdownOption[] = videoRatios.map((r) => ({ name: r, sub: RATIO_SUB[r] }));
+
 // 预置 3 条「已完成」生成历史（演示）：保证每次进入都有现成记录，可直接点下载/重生成/存库/提交审核
 const SEED_RUNS: VideoRunRow[] = [
   {
@@ -1141,26 +1153,13 @@ export function OnelineVideo() {
               </div>
               <div className="field">
                 <div className="ws-label">视频比例</div>
-                <div className="ov-ratio-row">
-                  {videoRatios.map((r) => {
-                    const [rw, rh] = ratioWH(r);
-                    const H = 14;
-                    const W = Math.min(Math.round(H * rw / rh), 30);
-                    return (
-                      <button
-                        key={r}
-                        type="button"
-                        className={`ov-ratio-btn ${ratio === r ? "on" : ""}`}
-                        onClick={() => setRatio(r)}
-                      >
-                        <span className="ov-ratio-ico" style={{ width: W, height: H }}>
-                          {r === "智能" && <span className="ov-ratio-star">✦</span>}
-                        </span>
-                        <span className="ov-ratio-label">{r}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                <Dropdown
+                  title="视频比例"
+                  options={RATIO_OPTS}
+                  value={ratio}
+                  onChange={(o) => setRatio(o.name)}
+                  showSub
+                />
               </div>
               <div className="field">
                 <div className="ws-label">视频时长</div>
