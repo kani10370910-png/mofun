@@ -5,12 +5,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /* 根据用户的简短视频描述，优化为适合视频生成模型的专业提示词。
-   入参：{ input: string }
+   入参：{ input: string; style?: string }
    返回：{ text: string | null } */
 
 export async function POST(req: NextRequest) {
-  const { input } = (await req.json()) as { input?: string };
+  const { input, style } = (await req.json()) as { input?: string; style?: string };
   if (!input?.trim()) return Response.json({ text: null }, { status: 400 });
+  const userContent = style ? `${input.trim()}，风格：${style}` : input.trim();
 
   const apiKey = process.env.IMAGE_API_KEY || process.env.LLM_API_KEY || "";
   const baseURL = (process.env.IMAGE_BASE_URL || process.env.LLM_BASE_URL || "").replace(/\/$/, "");
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
       model,
       messages: [
         { role: "system", content: SYSTEM_VIDEO_PROMPT_OPTIMIZE },
-        { role: "user", content: input.trim() },
+        { role: "user", content: userContent },
       ],
       max_tokens: 400,
       stream: false,

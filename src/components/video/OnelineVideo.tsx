@@ -258,12 +258,12 @@ async function recordKenBurnsVideo(
 }
 
 // 调 AI 优化用户的视频提示词：补充镜头运动、光线氛围、画面质感等专业描述
-async function optimizeVideoPrompt(input: string): Promise<string | null> {
+async function optimizeVideoPrompt(input: string, style?: string): Promise<string | null> {
   try {
     const r = await fetch("/api/video-prompt", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input }),
+      body: JSON.stringify({ input, style }),
       signal: AbortSignal.timeout(25_000),
     });
     if (!r.ok) return null;
@@ -417,7 +417,7 @@ export function OnelineVideo() {
       return;
     }
     setExpanding(true);
-    optimizeVideoPrompt(base).then((optimized) => {
+    optimizeVideoPrompt(base, style).then((optimized) => {
       if (optimized) {
         setPrompt(optimized);
         toast("提示词已优化");
