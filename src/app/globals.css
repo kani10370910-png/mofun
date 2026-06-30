@@ -3583,7 +3583,7 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 .ov-video-pct { font-size: 12px; }
 .ov-play { width: 56px; height: 56px; border-radius: 50%; background: rgba(255,255,255,.92); color: var(--c-primary-dark); display: grid; place-items: center; font-size: 22px; padding-left: 4px; box-shadow: var(--shadow); cursor: pointer; position: relative; z-index: 2; }
 .ov-video-dur { position: absolute; bottom: 10px; right: 12px; z-index: 2; font-size: 12px; color: #fff; background: rgba(0,0,0,.5); padding: 2px 8px; border-radius: 6px; }
-.ov-video-audio { position: absolute; bottom: 10px; left: 12px; z-index: 2; font-size: 12px; color: #fff; background: rgba(34,102,68,.62); padding: 2px 8px; border-radius: 6px; }
+.ov-video-audio { position: absolute; top: 10px; left: 12px; z-index: 2; font-size: 12px; color: #fff; background: rgba(34,102,68,.62); padding: 2px 8px; border-radius: 6px; }
 .ov-run-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 
 /* —— 音画一体生成管线（生成中卡片）—— */
