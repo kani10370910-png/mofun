@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { SYSTEM_VIDEO_BGM_INFER } from "@/lib/prompts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,11 +27,7 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       model,
       messages: [
-        {
-          role: "system",
-          content:
-            "你是专业影视音乐编辑。看图分析场景和情绪氛围，从「舒缓」「轻快」「大气」「国风」中选最匹配的背景音乐风格，只输出该词，不要其他文字。",
-        },
+        { role: "system", content: SYSTEM_VIDEO_BGM_INFER },
         {
           role: "user",
           content: [
