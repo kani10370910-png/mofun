@@ -17,7 +17,6 @@ import {
   videoRatios,
   videoQualities,
   videoModels,
-  videoPipeline,
   audioTracks,
   videoDurationRange,
 } from "@/data/video";
@@ -386,12 +385,6 @@ async function callVideoGenerate(fields: {
   } catch {
     return null;
   }
-}
-
-// 由累计进度 pct 反推当前所处的音画管线阶段下标
-function stageOf(pct: number): number {
-  const i = videoPipeline.findIndex((s) => pct < s.to);
-  return i === -1 ? videoPipeline.length - 1 : i;
 }
 
 // 据配音/BGM 选择推导本次实际生成的音轨：旁白随配音、BGM随背景音乐，音效+环境声始终自动生成
@@ -1453,41 +1446,10 @@ function VideoRunCard({
               <div className="ov-video-status">{STATUS_TEXT.pending}</div>
             </div>
           ) : (
-            (() => {
-              const si = stageOf(row.pct);
-              const st = videoPipeline[si];
-              const tracks = tracksFor(row.voice, row.bgm);
-              return (
-                <div className="ov-video-loading ov-pipe">
-                  <div className="ov-pipe-now">
-                    <span className="ov-pipe-text">
-                      <b>{st.name}</b>
-                      <i>{st.desc}</i>
-                    </span>
-                  </div>
-                  <div className="ov-pipe-steps">
-                    {videoPipeline.map((s, i) => (
-                      <span
-                        key={s.key}
-                        className={`ov-pipe-dot ${i < si ? "done" : i === si ? "on" : ""}`}
-                        title={s.name}
-                      />
-                    ))}
-                  </div>
-                  {st.key === "audio" && (
-                    <div className="ov-pipe-tracks">
-                      {tracks.map((t) => (
-                        <span key={t.key} className="ov-track">
-                          {t.name}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <div className="ov-video-bar"><span style={{ width: `${row.pct}%` }} /></div>
-                  <div className="ov-video-pct">{row.pct}% · 视频生成中</div>
-                </div>
-              );
-            })()
+            <div className="ov-video-loading">
+              <div className="ov-video-bar"><span style={{ width: `${row.pct}%` }} /></div>
+              <div className="ov-video-pct">{row.pct}% · 视频生成中</div>
+            </div>
           )
         ) : row.status === "failed" ? (
           <div className="ov-video-loading">
