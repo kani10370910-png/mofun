@@ -1346,9 +1346,7 @@ export function OnelineVideo() {
                       </button>
                     </div>
                   </div>
-                  <div className="ag-name">
-                    {it.emoji} {it.scene}
-                  </div>
+                  <div className="ag-name">{it.scene}</div>
                 </div>
               ))}
             </div>
