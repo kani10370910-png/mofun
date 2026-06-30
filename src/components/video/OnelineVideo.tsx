@@ -307,6 +307,35 @@ async function inferStyleFromPrompt(input: string): Promise<string | null> {
   }
 }
 
+// 文生视频·立即生成·字段组装：调 SYSTEM_VIDEO_GENERATE 让 LLM 统一处理字段缺省 + 风格预测 + 画面叙事扩写
+async function callVideoGenerate(fields: {
+  scene: string;
+  sceneCat: string;
+  prompt: string;
+  model: string;
+  ratio: string;
+  durSec: number;
+  quality: string;
+  style: string;
+  genAudio: boolean;
+  voice: string;
+  bgm: string;
+  count: number;
+}): Promise<{ finalPrompt: string; appliedStyle: string; notes: string[] } | null> {
+  try {
+    const r = await fetch("/api/video-generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fields),
+      signal: AbortSignal.timeout(35_000),
+    });
+    if (!r.ok) return null;
+    return (await r.json()) as { finalPrompt: string; appliedStyle: string; notes: string[] };
+  } catch {
+    return null;
+  }
+}
+
 // 由累计进度 pct 反推当前所处的音画管线阶段下标
 function stageOf(pct: number): number {
   const i = videoPipeline.findIndex((s) => pct < s.to);
@@ -490,21 +519,52 @@ export function OnelineVideo() {
 
   async function startGenerate(isI2v: boolean, text: string) {
     let appliedStyle = style;
-    let styleObj = videoStyles.find((s) => s.name === style);
-    // 智能匹配：根据用户提示词预测最贴合的风格并应用（命中则替换为具体风格，便于历史回看）
-    if (style === "智能匹配") {
-      const inferred = await inferStyleFromPrompt(text);
-      const matched = inferred ? videoStyles.find((s) => s.name === inferred) : null;
-      if (matched) {
-        appliedStyle = matched.name;
-        styleObj = matched;
-        toast(`🎨 智能匹配：根据描述匹配「${matched.name}」风格`);
+    let finalText = text;
+
+    if (!isI2v) {
+      // 文生视频：调 SYSTEM_VIDEO_GENERATE 统一完成字段组装 + 风格预测 + 画面叙事扩写
+      const result = await callVideoGenerate({
+        scene, sceneCat, prompt: text, model, ratio, durSec,
+        quality, style, genAudio, voice, bgm, count,
+      });
+      if (result) {
+        finalText = result.finalPrompt;
+        appliedStyle = result.appliedStyle;
+        result.notes.forEach((n) => toast(n));
+      } else {
+        // 降级：API 不可用时手动组装（与旧逻辑一致）
+        const styleObj = videoStyles.find((s) => s.name === style);
+        if (style === "智能匹配") {
+          const inferred = await inferStyleFromPrompt(text);
+          const matched = inferred ? videoStyles.find((s) => s.name === inferred) : null;
+          if (matched) {
+            appliedStyle = matched.name;
+            finalText = matched.stylePrompt ? `${text}，${matched.stylePrompt}` : text;
+            toast(`🎨 智能匹配：根据描述匹配「${matched.name}」风格`);
+          }
+        } else if (styleObj?.stylePrompt) {
+          finalText = `${text}，${styleObj.stylePrompt}`;
+        }
+      }
+    } else {
+      // 图生视频：保留原有逻辑（风格预测 + stylePrompt 追加）
+      const styleObj = videoStyles.find((s) => s.name === style);
+      if (style === "智能匹配") {
+        const inferred = await inferStyleFromPrompt(text);
+        const matched = inferred ? videoStyles.find((s) => s.name === inferred) : null;
+        if (matched) {
+          appliedStyle = matched.name;
+          finalText = matched.stylePrompt ? `${text}，${matched.stylePrompt}` : text;
+          toast(`🎨 智能匹配：根据描述匹配「${matched.name}」风格`);
+        }
+      } else if (styleObj?.stylePrompt) {
+        finalText = `${text}，${styleObj.stylePrompt}`;
       }
     }
-    const fullText = styleObj?.stylePrompt ? `${text}，${styleObj.stylePrompt}` : text;
+
     enqueue({
       mode: isI2v ? "i2v" : "t2v",
-      text: fullText,
+      text: finalText,
       scene: isI2v ? undefined : scene || undefined,
       ratio,
       dur: `${durSec}秒`,
