@@ -980,7 +980,11 @@ export function OnelineVideo() {
                     <div className="ws-label">场景模板</div>
                     <div className="filter-row" style={{ marginBottom: 10 }}>
                       {videoSceneCats.map((c) => (
-                        <span key={c} className={sceneCat === c ? "sel-chip on" : "sel-chip"} onClick={() => setSceneCat(c)}>
+                        <span
+                          key={c}
+                          className={sceneCat === c && !presetCleared ? "sel-chip on" : "sel-chip"}
+                          onClick={() => { setSceneCat(c); setPresetCleared(false); }}
+                        >
                           {c}
                         </span>
                       ))}
