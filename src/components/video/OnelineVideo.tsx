@@ -17,7 +17,6 @@ import {
   videoRatios,
   videoQualities,
   videoModels,
-  audioTracks,
   videoDurationRange,
 } from "@/data/video";
 import type { VideoRunRow, Grad, AssetCard } from "@/lib/types";
@@ -386,16 +385,6 @@ async function callVideoGenerate(fields: {
   } catch {
     return null;
   }
-}
-
-// 据配音/BGM 选择推导本次实际生成的音轨：旁白随配音、BGM随背景音乐，音效+环境声始终自动生成
-function tracksFor(voice?: string, bgm?: string) {
-  return audioTracks.filter((t) => {
-    if (t.key === "tts") return !!voice && voice !== "不配音";
-    if (t.key === "bgm") return !!bgm && bgm !== "无";
-    if (t.key === "sfx") return true; // 音效始终生成
-    return false; // 其他音轨（已删除的 amb 等）不显示
-  });
 }
 
 // canvas 字幕换行绘制：按字符折行，超过 maxLines 行末尾省略号，从底部向上排版
@@ -1501,7 +1490,6 @@ function VideoPlayerModal({
   onStudio: () => void;
 }) {
   const total = durSeconds(row.dur);
-  const tracks = row.withAudio !== false ? tracksFor(row.voice, row.bgm) : [];
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(false);
   const [t, setT] = useState(0); // 当前播放秒（浮点）
@@ -1633,22 +1621,6 @@ function VideoPlayerModal({
           )}
         </div>
 
-        <div className="vp-tracks">
-          <span className="vp-tracks-label">音轨</span>
-          {row.videoUrl ? (
-            <span className="vp-atrack">
-              音画同步 · Seedance 2.0 内置音轨
-            </span>
-          ) : (
-            tracks.map((t) => (
-              <span key={t.key} className="vp-atrack">
-                {t.name}
-                {t.key === "tts" && row.voice ? ` · ${row.voice}` : ""}
-                {t.key === "bgm" && row.bgm ? ` · ${row.bgm}` : ""}
-              </span>
-            ))
-          )}
-        </div>
 
         <div className="vp-foot">
           <button className="btn btn-soft btn-sm" onClick={onDownload}>
