@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
   const baseURL = (process.env.VIDEO_BASE_URL || process.env.IMAGE_BASE_URL || "").replace(/\/$/, "");
   const model   = body.model || process.env.VIDEO_MODEL || "doubao-seed-2.0-pro";
 
+  console.log("[video] model:", model, "| baseURL:", baseURL || "(empty)" , "| key:", apiKey ? "set" : "MISSING");
   if (!apiKey || !baseURL) return Response.json({ error: "no API key" }, { status: 503 });
 
   const duration = parseInt(String(body.dur).match(/\d+/)?.[0] ?? "5", 10);
@@ -75,10 +76,12 @@ async function handleSeedance(p: {
 
   if (!submitRes?.ok) {
     const err = await submitRes?.json().catch(() => ({}));
+    console.error("[video/seedance] submit failed", submitRes?.status, JSON.stringify(err));
     return Response.json({ error: err }, { status: submitRes?.status ?? 503 });
   }
 
   const data = await submitRes.json();
+  console.log("[video/seedance] submit ok →", JSON.stringify(data).slice(0, 200));
 
   // 同步返回
   const directUrl =
