@@ -8,6 +8,7 @@ import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 import { PlayerAudio, buildExportAudio, type ExportAudio } from "@/lib/playerAudio";
+import { asset as assetUrl } from "@/lib/asset";
 import {
   videoSceneTpls,
   videoSceneCats,
@@ -1349,7 +1350,11 @@ function VideoRunCard({
             <div className="ov-play">▶</div>
             <span className="ov-video-dur">00:{durLabel}</span>
             {row.withAudio !== false && <span className="ov-video-audio">有声</span>}
-            <span className="lh-mark">由 AI 生成</span>
+            <span className="lh-mark">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img className="lh-mark-logo" src={assetUrl("/brand-logo.png")} alt="魔方智绘" />
+              由 AI 生成
+            </span>
           </>
         )}
       </div>
