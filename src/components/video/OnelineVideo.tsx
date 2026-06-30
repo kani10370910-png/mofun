@@ -761,17 +761,17 @@ export function OnelineVideo() {
       toast("视频正在生成中，请稍候…");
       return;
     }
-    // 真实视频：直接触发浏览器下载，无需 canvas 录制
+    // 真实视频：通过代理路由下载，避免跨域 CDN 导致 download 属性失效
     if (row.videoUrl) {
+      const filename = row.prompt.slice(0, 20) || "视频";
+      const proxyUrl = `/api/proxy-video?url=${encodeURIComponent(row.videoUrl)}&name=${encodeURIComponent(filename)}`;
       const a = document.createElement("a");
-      a.href = row.videoUrl;
-      a.download = `${row.prompt.slice(0, 16) || "video"}.mp4`;
-      a.target = "_blank";
-      a.rel = "noopener";
+      a.href = proxyUrl;
+      a.download = `${filename}.mp4`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      toast("已开始下载真实视频（MP4 · 含音画同步音轨）");
+      toast("已开始下载视频（MP4 · 含音画同步音轨）");
       return;
     }
     const src = row.poster || posterFor(row);
