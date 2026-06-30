@@ -4,22 +4,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-// Seedance (字节跳动): /v1/video/generations，size 用像素尺寸
-const SEEDANCE_SIZE_MAP: Record<string, string> = {
-  "16:9": "1280x720",
-  "9:16": "720x1280",
-  "1:1":  "720x720",
-  "4:3":  "960x720",
-  "3:4":  "720x960",
-  "21:9": "1280x549",
-  "智能":  "1280x720",
-};
+// Anyfast Seedance: ratio 字段直接传，智能 → adaptive
+const SEEDANCE_RATIO_MAP: Record<string, string> = { "智能": "adaptive" };
 
-// Kling (快手): /kling/v1/videos/*, aspect_ratio 直接传比例字符串
-const KLING_ASPECT_MAP: Record<string, string> = {
-  "21:9": "16:9",
-  "智能":  "16:9",
-};
+// Kling: aspect_ratio 不支持 21:9 和智能
+const KLING_ASPECT_MAP: Record<string, string> = { "21:9": "16:9", "智能": "16:9" };
 
 function isKlingModel(model: string) {
   return model.startsWith("kling-");
@@ -36,9 +25,9 @@ export async function POST(req: NextRequest) {
 
   const apiKey  = process.env.VIDEO_API_KEY  || process.env.IMAGE_API_KEY  || "";
   const baseURL = (process.env.VIDEO_BASE_URL || process.env.IMAGE_BASE_URL || "").replace(/\/$/, "");
-  const model   = body.model || process.env.VIDEO_MODEL || "doubao-seed-2.0-pro";
+  const model   = body.model || process.env.VIDEO_MODEL || "seedance-2.0";
 
-  console.log("[video] model:", model, "| baseURL:", baseURL || "(empty)" , "| key:", apiKey ? "set" : "MISSING");
+  console.log("[video] model:", model, "| baseURL:", baseURL || "(empty)", "| key:", apiKey ? "set" : "MISSING");
   if (!apiKey || !baseURL) return Response.json({ error: "no API key" }, { status: 503 });
 
   const duration = parseInt(String(body.dur).match(/\d+/)?.[0] ?? "5", 10);
@@ -50,7 +39,12 @@ export async function POST(req: NextRequest) {
   return handleSeedance({ baseURL, headers, model, body, duration });
 }
 
-/* ---------- Seedance ---------- */
+/* ---------- Seedance (Anyfast) ----------
+   文档：POST /v1/video/generations
+   body: { model, content: [...], ratio, duration, resolution, generate_audio }
+   content 数组：text + 可选 image_url(role: first_frame)
+   轮询：GET /v1/video/generations/{id}，status === "succeeded"
+*/
 async function handleSeedance(p: {
   baseURL: string;
   headers: Record<string, string>;
@@ -58,14 +52,27 @@ async function handleSeedance(p: {
   body: { prompt: string; ratio: string; imageUrl?: string };
   duration: number;
 }): Promise<Response> {
-  const size = SEEDANCE_SIZE_MAP[p.body.ratio] ?? "1280x720";
+  const ratio = SEEDANCE_RATIO_MAP[p.body.ratio] ?? p.body.ratio;
+
+  const content: Array<Record<string, unknown>> = [];
+  if (p.body.prompt) content.push({ type: "text", text: p.body.prompt });
+  if (p.body.imageUrl) {
+    content.push({
+      type: "image_url",
+      image_url: { url: p.body.imageUrl },
+      role: "first_frame",
+    });
+  }
+
   const submitBody: Record<string, unknown> = {
     model: p.model,
-    prompt: p.body.prompt,
-    size,
+    content,
+    ratio,
     duration: p.duration,
+    resolution: "720p",
+    generate_audio: false,
+    watermark: false,
   };
-  if (p.body.imageUrl) submitBody.image_url = p.body.imageUrl;
 
   const submitRes = await fetch(`${p.baseURL}/v1/video/generations`, {
     method: "POST",
@@ -80,23 +87,16 @@ async function handleSeedance(p: {
     return Response.json({ error: err }, { status: submitRes?.status ?? 503 });
   }
 
-  const data = await submitRes.json();
+  const data = await submitRes.json() as { id?: string; task_id?: string; video_url?: string; status?: string };
   console.log("[video/seedance] submit ok →", JSON.stringify(data).slice(0, 200));
 
-  // 同步返回
-  const directUrl =
-    (data as Record<string, unknown>)?.video_url ??
-    (data as { url?: string })?.url ??
-    (data as { data?: { video_url?: string } })?.data?.video_url;
-  if (typeof directUrl === "string" && directUrl) return Response.json({ videoUrl: directUrl });
+  // 同步直接返回
+  if (data?.video_url) return Response.json({ videoUrl: data.video_url });
+
+  const taskId = data?.id ?? data?.task_id;
+  if (!taskId) return Response.json({ error: "no task_id", raw: data }, { status: 502 });
 
   // 异步轮询
-  const taskId: string | undefined =
-    (data as { id?: string })?.id ??
-    (data as { task_id?: string })?.task_id ??
-    (data as { data?: { id?: string } })?.data?.id;
-  if (!taskId) return Response.json({ error: "unknown response", raw: data }, { status: 502 });
-
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 4_000));
@@ -106,14 +106,15 @@ async function handleSeedance(p: {
     }).catch(() => null);
     if (!pr?.ok) continue;
     const pd = await pr.json() as {
+      status?: string;
       video_url?: string;
       url?: string;
-      status?: string;
-      data?: { video_url?: string; status?: string };
+      data?: { status?: string; video_url?: string };
     };
+    const status   = pd?.status ?? pd?.data?.status;
     const videoUrl = pd?.video_url ?? pd?.url ?? pd?.data?.video_url;
-    const status   = pd?.status   ?? pd?.data?.status;
-    if (videoUrl) return Response.json({ videoUrl });
+    if (videoUrl && status === "succeeded") return Response.json({ videoUrl });
+    if (videoUrl && !status) return Response.json({ videoUrl });
     if (status === "failed" || status === "error") {
       return Response.json({ error: "generation failed", raw: pd }, { status: 500 });
     }
@@ -121,7 +122,7 @@ async function handleSeedance(p: {
   return Response.json({ error: "timeout" }, { status: 504 });
 }
 
-/* ---------- Kling ---------- */
+/* ---------- Kling (快手) ---------- */
 async function handleKling(p: {
   baseURL: string;
   headers: Record<string, string>;
@@ -149,13 +150,11 @@ async function handleKling(p: {
 
   if (!submitRes?.ok) {
     const err = await submitRes?.json().catch(() => ({}));
+    console.error("[video/kling] submit failed", submitRes?.status, JSON.stringify(err));
     return Response.json({ error: err }, { status: submitRes?.status ?? 503 });
   }
 
-  const data = await submitRes.json() as {
-    data?: { task_id?: string };
-    task_id?: string;
-  };
+  const data = await submitRes.json() as { data?: { task_id?: string }; task_id?: string };
   const taskId = data?.data?.task_id ?? data?.task_id;
   if (!taskId) return Response.json({ error: "no task_id", raw: data }, { status: 502 });
 
@@ -168,17 +167,12 @@ async function handleKling(p: {
     }).catch(() => null);
     if (!pr?.ok) continue;
     const pd = await pr.json() as {
-      data?: {
-        task_status?: string;
-        task_result?: { videos?: { url: string }[] };
-      };
+      data?: { task_status?: string; task_result?: { videos?: { url: string }[] } };
     };
     const status   = pd?.data?.task_status;
     const videoUrl = pd?.data?.task_result?.videos?.[0]?.url;
     if (videoUrl) return Response.json({ videoUrl });
-    if (status === "failed") {
-      return Response.json({ error: "generation failed", raw: pd }, { status: 500 });
-    }
+    if (status === "failed") return Response.json({ error: "generation failed", raw: pd }, { status: 500 });
   }
   return Response.json({ error: "timeout" }, { status: 504 });
 }
