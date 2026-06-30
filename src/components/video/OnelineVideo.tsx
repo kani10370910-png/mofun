@@ -256,6 +256,23 @@ async function recordKenBurnsVideo(
   } catch { return null; }
 }
 
+// 调 AI 优化用户的视频提示词：补充镜头运动、光线氛围、画面质感等专业描述
+async function optimizeVideoPrompt(input: string): Promise<string | null> {
+  try {
+    const r = await fetch("/api/video-prompt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input }),
+      signal: AbortSignal.timeout(25_000),
+    });
+    if (!r.ok) return null;
+    const { text } = (await r.json()) as { text?: string | null };
+    return text ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // 根据视频首帧画面推断匹配的背景音乐风格（调用 vision-bgm 路由，用 qwen3 多模态视觉能力）
 async function inferBgmFromFrame(frameUrl: string): Promise<string | null> {
   try {
@@ -400,16 +417,15 @@ export function OnelineVideo() {
       return;
     }
     setExpanding(true);
-    timers.current.push(
-      window.setTimeout(() => {
-        setPrompt(
-          base +
-            "，航拍俯瞰开阔全景缓缓推近，晨光逆光暖色调，浅景深突出主体，画面干净有呼吸感，配舒缓背景音乐，整体清新自然、有地域辨识度"
-        );
-        setExpanding(false);
-        toast("已 AI 扩写画面细节（演示）");
-      }, 1200)
-    );
+    optimizeVideoPrompt(base).then((optimized) => {
+      if (optimized) {
+        setPrompt(optimized);
+        toast("提示词已优化");
+      } else {
+        toast("优化失败，请重试", "warn");
+      }
+      setExpanding(false);
+    });
   }
 
   function pickFile(which: "first" | "last", file?: File) {
