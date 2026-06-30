@@ -1066,9 +1066,9 @@ export function OnelineVideo() {
               </div>
               <div className="field">
                 <div className="ws-label">视频风格</div>
-                <div className="ov-style-row">
+                <div className="preset-grid">
                   {videoStyles.map((s) => (
-                    <button key={s.key} type="button" className={style === s.name ? "ov-style on" : "ov-style"} onClick={() => setStyle(s.name)}>
+                    <button key={s.key} type="button" className={style === s.name ? "preset-chip on" : "preset-chip"} onClick={() => setStyle(s.name)}>
                       {s.name}
                     </button>
                   ))}
