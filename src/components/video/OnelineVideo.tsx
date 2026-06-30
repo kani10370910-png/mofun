@@ -634,87 +634,59 @@ export function OnelineVideo() {
     const upd = (patch: Partial<VideoRunRow>) =>
       setRuns((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 
-    // 「生成画面」：文生视频并行生成 2 帧关键图；图生视频用已上传的首帧
-    const framesPromise: Promise<string[]> =
-      p.mode === "i2v"
-        ? Promise.resolve(p.poster ? [p.poster] : [])
-        : genVideoFrames(p.text, p.ratio);
-    let frameReady = false;
-    let frameUrl: string | null = p.poster ?? null;
-    let allFrames: string[] = p.poster ? [p.poster] : [];
-    framesPromise.then((urls) => {
-      frameReady = true;
-      if (urls.length) {
-        allFrames = urls;
-        frameUrl = urls[0];
-        upd({ poster: urls[0], frames: urls }); // 首帧铺卡片封面，全帧存入 row
-        // 视觉驱动配乐：分析首帧画面自动匹配最佳 BGM 风格
-        if (p.withAudio !== false) {
-          void inferBgmFromFrame(urls[0]).then((bgmStyle) => {
-            if (bgmStyle) {
-              upd({ bgm: bgmStyle });
-              toast(`🎵 AI 配乐：根据画面匹配「${bgmStyle}」背景音乐`);
-            }
-          });
+    // i2v：用上传首帧推断最佳 BGM 风格（t2v 直接用用户选择）
+    if (p.mode === "i2v" && p.poster && p.withAudio !== false) {
+      void inferBgmFromFrame(p.poster).then((bgmStyle) => {
+        if (bgmStyle) {
+          upd({ bgm: bgmStyle });
+          toast(`🎵 AI 配乐：根据画面匹配「${bgmStyle}」背景音乐`);
         }
-        // videoUrl 只由真实视频模型结果填写；播放器在等待期间用 CSS Ken Burns 动画过渡
-      }
-    });
+      });
+    }
 
+    // 进度动画：缓慢爬升到 90%，等真实视频返回后跳 100%
     timers.current.push(window.setTimeout(() => upd({ status: "running", pct: 4 }), 800));
     let pct = 4;
     const iv = window.setInterval(() => {
-      // 画面未就绪时进度封顶 90%（模型仍在出片），就绪后放行到 99%
-      const cap = frameReady ? 99 : 90;
-      pct = Math.min(cap, pct + 4);
+      pct = Math.min(90, pct + 1);
       upd({ pct });
-    }, 240);
+    }, 600);
     timers.current.push(iv as unknown as number);
 
-    // 后台静默调真实视频模型（t2v：送文本提示词；i2v：携带首帧图 + 运动描述）
-    // 成功后直接升级 row.videoUrl；Ken Burns 降级方案已可用，不阻塞展示
+    // 调真实视频模型；i2v 携带首帧图（blob→base64 data URL）
     void (async () => {
       const vm = p.videoModel ?? model;
       let imgUrl: string | undefined;
       if (p.mode === "i2v" && p.poster) {
-        // 本地 blob URL 先转为 base64 data URL 再发给模型；https 图直接传
         imgUrl = p.poster.startsWith("blob:")
           ? (await blobUrlToDataUrl(p.poster) ?? undefined)
           : p.poster;
       }
       const videoUrl = await genRealVideo(p.text, p.ratio, p.dur, vm, imgUrl).catch(() => null);
-      if (videoUrl) {
-        upd({ videoUrl });
-        toast("🎬 音画视频就绪！播放器已升级为真实视频（含内置音轨）");
-      }
-    })();
-
-    // 完成时机：等画面生成完成（无论成败）+ 最短演示节奏，二者都满足才封装
-    const minDelay = new Promise<void>((res) => timers.current.push(window.setTimeout(res, 3500)));
-    void Promise.all([framesPromise.catch(() => []), minDelay]).then(() => {
       window.clearInterval(iv);
-      const finalPoster = frameUrl ?? p.poster;
-      // 混音封装完成 → MP4 有声视频
-      upd({ status: "done", pct: 100, poster: finalPoster, frames: allFrames.length ? allFrames : undefined });
-      setBusy(false);
       const hasAudio = row.withAudio !== false;
       const tracks = hasAudio ? tracksFor(p.voice, p.bgm) : [];
-      addWork({
-        emoji: "🎬",
-        grad,
-        kind: "视频",
-        name: `${p.text.slice(0, 12) || "一句话视频"} · ${p.dur}`,
-        sub: hasAudio ? "视频生成 · 一句话成片 · 有声" : "视频生成 · 一句话成片",
-        img: finalPoster,
-        time: nowStamp(),
-        edit: { sub: "oneline", input: p.text, model, voice: p.voice ?? voice, bgm: p.bgm ?? bgm },
-      });
-      if (hasAudio) {
-        toast(`🔊 有声视频已合成（${tracks.map((t) => t.name).join("·")}），已存入「我的作品」`);
+      if (videoUrl) {
+        upd({ status: "done", pct: 100, videoUrl });
+        addWork({
+          emoji: "🎬",
+          grad,
+          kind: "视频",
+          name: `${p.text.slice(0, 12) || "一句话视频"} · ${p.dur}`,
+          sub: hasAudio ? "视频生成 · 一句话成片 · 有声" : "视频生成 · 一句话成片",
+          img: p.poster,
+          time: nowStamp(),
+          edit: { sub: "oneline", input: p.text, model, voice: p.voice ?? voice, bgm: p.bgm ?? bgm },
+        });
+        toast(hasAudio
+          ? `🎬 视频已生成（${tracks.map((t) => t.name).join("·")}），已存入「我的作品」`
+          : "🎬 视频已生成，已存入「我的作品」");
       } else {
-        toast("视频已生成（静音），已存入「我的作品」");
+        upd({ status: "failed", pct: 0 });
+        toast("视频生成失败，请重试", "warn");
       }
-    });
+      setBusy(false);
+    })();
   }
 
   // 重新生成：把该记录参数回填到表单，并按原参数立即重新入队
@@ -1702,71 +1674,14 @@ function VideoPlayerModal({
             />
           ) : (
             <>
-              {/* Ken Burns 多帧播放（无真实视频时的降级方案） */}
+              {/* 无真实视频时展示静态封面（演示记录） */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                className="vp-frame"
-                src={frames[segIdx]}
-                alt={row.prompt}
-                style={{ transform: `scale(${scale}) translate(${tx}%, ${ty}%)` }}
-              />
-              {crossAlpha > 0 && nextIdx !== segIdx && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  className="vp-frame vp-frame-next"
-                  src={frames[nextIdx]}
-                  alt={row.prompt}
-                  style={{ opacity: crossAlpha }}
-                />
-              )}
+              <img className="vp-frame" src={posterFor(row)} alt={row.prompt} />
               <div className="vp-vignette" />
               <div className="vp-caption">{row.prompt}</div>
-              {!playing && (
-                <button className="vp-bigplay" onClick={() => setPlaying(true)} aria-label="播放">
-                  ▶
-                </button>
-              )}
             </>
           )}
         </div>
-
-        {/* 自定义控制条：仅 Ken Burns 降级模式下显示；真实视频使用 <video controls> 原生控制 */}
-        {!row.videoUrl && (
-          <div className="vp-controls">
-            <button className="vp-ctrl" onClick={() => setPlaying((p) => !p)} aria-label={playing ? "暂停" : "播放"}>
-              {playing ? "❚❚" : "▶"}
-            </button>
-            <span className="vp-time">{fmt(t)}</span>
-            <div
-              className="vp-track"
-              onPointerDown={(e) => {
-                seeking.current = true;
-                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                seekAt(e.clientX, e.currentTarget);
-              }}
-              onPointerMove={(e) => {
-                if (seeking.current) seekAt(e.clientX, e.currentTarget);
-              }}
-              onPointerUp={(e) => {
-                seeking.current = false;
-                last.current = performance.now();
-                (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-              }}
-            >
-              <span className="vp-fill" style={{ width: `${prog * 100}%` }} />
-              <span className="vp-knob" style={{ left: `${prog * 100}%` }} />
-            </div>
-            <span className="vp-time">{fmt(total)}</span>
-            <button
-              className="vp-ctrl vp-mute"
-              onClick={() => setMuted((m) => !m)}
-              aria-label={muted ? "取消静音" : "静音"}
-              title={muted ? "取消静音" : "静音"}
-            >
-              {muted ? "静音" : "音量"}
-            </button>
-          </div>
-        )}
 
         <div className="vp-tracks">
           <span className="vp-tracks-label">音轨</span>
