@@ -1673,7 +1673,7 @@ function VideoPlayerModal({
           </button>
         </div>
 
-        <div className="vp-stage" style={{ aspectRatio: ratioToAspect(row.ratio) }}>
+        <div className="vp-stage">
           {row.videoUrl ? (
             /* 真实视频：原生 <video>，内置音画同步音轨 */
             // eslint-disable-next-line jsx-a11y/media-has-caption
