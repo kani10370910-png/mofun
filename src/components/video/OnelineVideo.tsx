@@ -984,12 +984,13 @@ export function OnelineVideo() {
                       ))}
                     </div>
                     <div className="filter-row" style={{ marginBottom: 10 }}>
-                      <span
-                        className={scene === "" ? "sel-chip on" : "sel-chip"}
+                      <button
+                        type="button"
+                        className={scene === "" ? "preset-chip on" : "preset-chip"}
                         onClick={() => { setScene(""); setPrompt(""); }}
                       >
                         不使用预设
-                      </span>
+                      </button>
                     </div>
                     <div id="ovSceneSub" className="preset-grid">
                       {scenes.map((s) => (
