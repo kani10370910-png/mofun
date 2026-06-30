@@ -985,7 +985,7 @@ export function OnelineVideo() {
                     </div>
                     <div className="filter-row" style={{ marginBottom: 10 }}>
                       <span
-                        className={scene === "" ? "sel-chip on" : "sel-chip"}
+                        className="sel-chip"
                         onClick={() => { setScene(""); setPrompt(""); }}
                       >
                         不使用预设
