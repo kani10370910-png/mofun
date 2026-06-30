@@ -115,10 +115,12 @@ export const motionWords: MotionWordGroup[] = [
 
 /* ---------- 一句话视频（F10-06）：视频风格 ---------- */
 export const videoStyles: VideoStyle[] = [
-  { key: "real", name: "写实", emoji: "📷", grad: "thumb-grad-1" },
-  { key: "ink", name: "国风水墨", emoji: "🖌️", grad: "thumb-grad-2" },
-  { key: "anime", name: "动画", emoji: "🎨", grad: "thumb-grad-4" },
-  { key: "cinema", name: "电影感", emoji: "🎞️", grad: "thumb-grad-3" },
+  { key: "real",   name: "写实",     emoji: "📷", grad: "thumb-grad-1" },
+  { key: "doc",    name: "纪录片",   emoji: "🎬", grad: "thumb-grad-2" },
+  { key: "aerial", name: "航拍大片", emoji: "🚁", grad: "thumb-grad-3" },
+  { key: "warm",   name: "温暖治愈", emoji: "🌅", grad: "thumb-grad-4" },
+  { key: "cinema", name: "电影感",   emoji: "🎞️", grad: "thumb-grad-5" },
+  { key: "ink",    name: "国风水墨", emoji: "🖌️", grad: "thumb-grad-6" },
 ];
 
 /* 视频比例 / 时长 / 画质（F10-05） */
