@@ -16,8 +16,6 @@ import {
   videoStyles,
   videoRatios,
   videoQualities,
-  videoVoices,
-  videoBgms,
   videoModels,
   videoPipeline,
   audioTracks,
@@ -194,13 +192,13 @@ async function blobUrlToDataUrl(url: string): Promise<string | null> {
 
 // 调真实视频模型（Seedance 2.0 / MiniMax 等）生成含音画的视频文件；失败返回 null，前端自动降级 Ken Burns
 // imageUrl：图生视频时传首帧图（data URL 或 https URL），文生视频时不传
-async function genRealVideo(prompt: string, ratio: string, dur: string, videoModel: string, imageUrl?: string): Promise<string | null> {
+async function genRealVideo(prompt: string, ratio: string, dur: string, videoModel: string, generateAudio: boolean, imageUrl?: string): Promise<string | null> {
   try {
     const r = await fetch("/api/video", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, ratio, dur, model: videoModel, ...(imageUrl ? { imageUrl } : {}) }),
-      signal: AbortSignal.timeout(290_000), // 稍低于后端 300s maxDuration，视频生成实测 ~130s
+      body: JSON.stringify({ prompt, ratio, dur, model: videoModel, generateAudio, ...(imageUrl ? { imageUrl } : {}) }),
+      signal: AbortSignal.timeout(290_000),
     });
     if (!r.ok) return null;
     const j = (await r.json()) as { videoUrl?: string };
@@ -359,8 +357,6 @@ async function callVideoGenerate(fields: {
   quality: string;
   style: string;
   genAudio: boolean;
-  voice: string;
-  bgm: string;
   count: number;
 }): Promise<{ finalPrompt: string; appliedStyle: string; notes: string[] } | null> {
   try {
@@ -449,8 +445,6 @@ export function OnelineVideo() {
   const [genAudio, setGenAudio] = useState(true); // 是否同时生成声音
   const [style, setStyle] = useState("智能匹配"); // 默认智能匹配（auto）
   const [styleOpen, setStyleOpen] = useState(false); // 视频风格选择浮层
-  const [voice, setVoice] = useState<string>(videoVoices[1]); // 配音音色，默认温柔女声
-  const [bgm, setBgm] = useState<string>(videoBgms[1]); // 背景音乐，默认舒缓
   const [model, setModel] = useState<string>("Seedance 1.5 Pro"); // 视频生成模型
   const [count, setCount] = useState(1);
 
@@ -567,7 +561,7 @@ export function OnelineVideo() {
       // 文生视频：调 SYSTEM_VIDEO_GENERATE 统一完成字段组装 + 风格预测 + 画面叙事扩写
       const result = await callVideoGenerate({
         scene, sceneCat, prompt: text, model, ratio, durSec,
-        quality, style, genAudio, voice, bgm, count,
+        quality, style, genAudio, count,
       });
       if (result) {
         finalText = result.finalPrompt;
@@ -612,8 +606,6 @@ export function OnelineVideo() {
       dur: `${durSec}秒`,
       style: appliedStyle,
       poster: isI2v ? firstFrame : undefined,
-      voice: genAudio ? voice : "不配音",
-      bgm: genAudio ? bgm : "无",
       withAudio: genAudio,
       videoModel: videoModels.find((m) => m.name === model)?.modelId ?? videoModels[0]?.modelId ?? model,
     });
@@ -628,8 +620,6 @@ export function OnelineVideo() {
     dur: string;
     style: string;
     poster?: string;
-    voice?: string;
-    bgm?: string;
     withAudio?: boolean;
     videoModel?: string; // 当前选中的视频模型（用于真实视频生成）
   }) {
@@ -649,8 +639,6 @@ export function OnelineVideo() {
       pct: 0,
       poster: p.poster,
       grad,
-      voice: p.voice,
-      bgm: p.bgm,
       withAudio: p.withAudio !== false, // 默认 true，显式传 false 时关闭
     };
     setRuns((prev) => [row, ...prev]);
@@ -658,16 +646,6 @@ export function OnelineVideo() {
     // 排队 → 无声视频 → 镜头分析 → 声音设计 → 多轨音频 → 对齐 → 混音封装（音画管线节奏）
     const upd = (patch: Partial<VideoRunRow>) =>
       setRuns((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-
-    // i2v：用上传首帧推断最佳 BGM 风格（t2v 直接用用户选择）
-    if (p.mode === "i2v" && p.poster && p.withAudio !== false) {
-      void inferBgmFromFrame(p.poster).then((bgmStyle) => {
-        if (bgmStyle) {
-          upd({ bgm: bgmStyle });
-          toast(`🎵 AI 配乐：根据画面匹配「${bgmStyle}」背景音乐`);
-        }
-      });
-    }
 
     // 进度动画：前段（4→40%）快速推进显示模型接收，后段（40→85%）缓慢等待出片，完成后跳 100%
     timers.current.push(window.setTimeout(() => upd({ status: "running", pct: 4 }), 800));
@@ -688,10 +666,8 @@ export function OnelineVideo() {
           ? (await blobUrlToDataUrl(p.poster) ?? undefined)
           : p.poster;
       }
-      const videoUrl = await genRealVideo(p.text, p.ratio, p.dur, vm, imgUrl).catch(() => null);
+      const videoUrl = await genRealVideo(p.text, p.ratio, p.dur, vm, p.withAudio !== false, imgUrl).catch(() => null);
       window.clearInterval(iv);
-      const hasAudio = row.withAudio !== false;
-      const tracks = hasAudio ? tracksFor(p.voice, p.bgm) : [];
       if (videoUrl) {
         const poster = await captureFirstFrame(videoUrl).catch(() => null);
         upd({ status: "done", pct: 100, videoUrl, ...(poster ? { poster } : {}) });
@@ -700,14 +676,12 @@ export function OnelineVideo() {
           grad,
           kind: "视频",
           name: `${p.text.slice(0, 12) || "一句话视频"} · ${p.dur}`,
-          sub: hasAudio ? "视频生成 · 一句话成片 · 有声" : "视频生成 · 一句话成片",
+          sub: p.withAudio !== false ? "视频生成 · 一句话成片 · 有声" : "视频生成 · 一句话成片",
           img: p.poster,
           time: nowStamp(),
-          edit: { sub: "oneline", input: p.text, model, voice: p.voice ?? voice, bgm: p.bgm ?? bgm },
+          edit: { sub: "oneline", input: p.text, model },
         });
-        toast(hasAudio
-          ? `🎬 视频已生成（${tracks.map((t) => t.name).join("·")}），已存入「我的作品」`
-          : "🎬 视频已生成，已存入「我的作品」");
+        toast("🎬 视频已生成，已存入「我的作品」");
       } else {
         upd({ status: "failed", pct: 0 });
         toast("视频生成失败，请重试", "warn");
@@ -737,8 +711,7 @@ export function OnelineVideo() {
       dur: row.dur,
       style: row.style,
       poster: row.poster,
-      voice: row.voice ?? voice,
-      bgm: row.bgm ?? bgm,
+      withAudio: row.withAudio,
     });
     toast("已按原参数重新生成");
   }
@@ -1211,32 +1184,6 @@ export function OnelineVideo() {
                   <div className={!genAudio ? "seg-item on" : "seg-item"} onClick={() => setGenAudio(false)}>关闭</div>
                 </div>
               </div>
-              {/* —— 音频：配音 + 背景音乐（仅在「同时生成声音」开启时显示） —— */}
-              {genAudio && (
-                <>
-                  <div className="field">
-                    <div className="ws-label">配音</div>
-                    <div className="chip-row">
-                      {videoVoices.map((v) => (
-                        <span key={v} className={voice === v ? "sel-chip on" : "sel-chip"} onClick={() => setVoice(v)}>
-                          {v}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="field">
-                    <div className="ws-label">背景音乐</div>
-                    <div className="chip-row">
-                      {videoBgms.map((b) => (
-                        <span key={b} className={bgm === b ? "sel-chip on" : "sel-chip"} onClick={() => setBgm(b)}>
-                          {b === "无" ? "无背景音乐" : b}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-
               {tab === "t2v" && (
                 <div className="field">
                   <div className="ws-label">生成数量</div>

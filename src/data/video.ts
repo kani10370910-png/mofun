@@ -30,24 +30,16 @@ export const videoModels: VideoModel[] = [
   { name: "可灵 1.6",            modelId: "kling-v1-6",         desc: "画质稳定，动作自然，性价比优秀",      tags: ["10s", "首尾帧", "多图参考"], badge: "会员专享" },
 ];
 
-/* ---------- 一句话视频：音画一体生成管线（无声视频 → 镜头分析 → 声音设计 → 多轨音频 → 对齐 → 混音 → MP4有声视频） ----------
-   说明：后端无真实视频/音频模型，前端按真实管线节奏分阶段演示，让用户看到「成片即有声」的完整链路。 */
+/* ---------- 一句话视频：生成管线（简化版，反映模型真实能力） ---------- */
 export const videoPipeline: VideoPipelineStage[] = [
-  { key: "input", ico: "📝", name: "解析输入", desc: "提示词 / 图片 / 脚本理解", to: 10 },
-  { key: "silent", ico: "🎬", name: "生成无声视频", desc: "视频模型生成画面", to: 40 },
-  { key: "analyze", ico: "🔍", name: "镜头分析", desc: "视频理解与镜头分镜", to: 52 },
-  { key: "design", ico: "🎚️", name: "声音设计", desc: "生成声音设计方案", to: 62 },
-  { key: "audio", ico: "🎧", name: "多轨音频", desc: "旁白·音效·环境声·BGM 并行生成", to: 85 },
-  { key: "align", ico: "⏱️", name: "时间轴对齐", desc: "音画逐帧对齐", to: 93 },
-  { key: "mix", ico: "🎛️", name: "混音封装", desc: "混音并封装 MP4 有声视频", to: 100 },
+  { key: "input",   ico: "📝", name: "解析提示词", desc: "理解描述，优化画面指令",     to: 15  },
+  { key: "silent",  ico: "🎬", name: "视频生成中", desc: "模型渲染画面与运镜",         to: 80  },
+  { key: "audio",   ico: "🔊", name: "音频合成",   desc: "模型同步生成环境音与音效",   to: 95  },
+  { key: "mix",     ico: "✅", name: "封装完成",   desc: "输出 MP4，可下载或分享",      to: 100 },
 ];
 
-// 声音设计四路并行音轨（E/F/G/H）
-export const audioTracks: AudioTrack[] = [
-  { key: "tts", ico: "🎙️", name: "旁白/对白", model: "TTS 语音合成" },
-  { key: "sfx", ico: "💥", name: "动作音效", model: "音效模型" },
-  { key: "bgm", ico: "🎵", name: "背景音乐", model: "音乐模型" },
-];
+// audioTracks 保留供类型引用，但不再在 UI 中显示虚假的多轨道进度
+export const audioTracks: AudioTrack[] = [];
 
 /* ---------- 视频「制作大片」6 步流程（参考 360 漫剧） ---------- */
 export const studioSteps: StudioStep[] = [

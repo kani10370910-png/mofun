@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
     dur: string;
     model?: string;
     imageUrl?: string;
+    generateAudio?: boolean; // 让视频模型自带音频（Seedance 原生能力）
   };
 
   const apiKey  = process.env.VIDEO_API_KEY  || process.env.IMAGE_API_KEY  || "";
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
   if (isKlingModel(model)) {
     return handleKling({ baseURL, headers, model, body, duration });
   }
-  return handleSeedance({ baseURL, headers, model, body, duration });
+  return handleSeedance({ baseURL, headers, model, body, duration, generateAudio: body.generateAudio !== false });
 }
 
 /* ---------- Seedance (Anyfast) ----------
@@ -51,6 +52,7 @@ async function handleSeedance(p: {
   model: string;
   body: { prompt: string; ratio: string; imageUrl?: string };
   duration: number;
+  generateAudio: boolean;
 }): Promise<Response> {
   const ratio = SEEDANCE_RATIO_MAP[p.body.ratio] ?? p.body.ratio;
 
@@ -70,7 +72,7 @@ async function handleSeedance(p: {
     ratio,
     duration: p.duration,
     resolution: "720p",
-    generate_audio: false,
+    generate_audio: p.generateAudio,
     watermark: false,
   };
 
