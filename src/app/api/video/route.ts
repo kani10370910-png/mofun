@@ -113,16 +113,18 @@ async function handleSeedance(p: {
       data?: {
         status?: string;
         video_url?: string;
+        result_url?: string;
         fail_reason?: string;
-        data?: { content?: { video_url?: string } };
+        data?: { content?: { video_url?: string }; status?: string };
       };
     };
     console.log("[video/seedance] poll →", JSON.stringify(pd).slice(0, 300));
-    const status   = pd?.status ?? pd?.data?.status;
+    const status   = pd?.status ?? pd?.data?.status ?? pd?.data?.data?.status;
     const videoUrl =
       pd?.video_url ??
       pd?.url ??
       pd?.data?.video_url ??
+      pd?.data?.result_url ??
       pd?.data?.data?.content?.video_url;
     // Anyfast 状态值可能是 succeeded / completed / SUCCESS（文档不统一）
     if (videoUrl && (status === "succeeded" || status === "completed" || status === "SUCCESS")) {
