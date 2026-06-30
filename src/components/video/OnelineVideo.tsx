@@ -102,6 +102,31 @@ function posterFor(row: VideoRunRow): string {
   for (let i = 0; i < row.id.length; i++) h = (h * 31 + row.id.charCodeAt(i)) >>> 0;
   return POSTER_POOL[h % POSTER_POOL.length];
 }
+// 从视频 URL 捕获第一帧作为封面（crossOrigin anonymous，CORS 失败返回 null）
+function captureFirstFrame(videoUrl: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    video.crossOrigin = "anonymous";
+    video.muted = true;
+    video.preload = "metadata";
+    const cleanup = () => { video.src = ""; };
+    const timer = setTimeout(() => { cleanup(); resolve(null); }, 12_000);
+    video.onloadedmetadata = () => { video.currentTime = 0.5; };
+    video.onseeked = () => {
+      clearTimeout(timer);
+      try {
+        const c = document.createElement("canvas");
+        c.width = video.videoWidth || 640;
+        c.height = video.videoHeight || 360;
+        c.getContext("2d")?.drawImage(video, 0, 0, c.width, c.height);
+        resolve(c.toDataURL("image/jpeg", 0.72));
+      } catch { resolve(null); } finally { cleanup(); }
+    };
+    video.onerror = () => { clearTimeout(timer); cleanup(); resolve(null); };
+    video.src = videoUrl;
+  });
+}
+
 // 参考灵感：取前 6 个县域场景模板 + 海报样张，供右栏一键套用到提示词
 const INSPIRE = videoSceneTpls.slice(0, 6).map((t, i) => ({
   ...t,
@@ -668,7 +693,8 @@ export function OnelineVideo() {
       const hasAudio = row.withAudio !== false;
       const tracks = hasAudio ? tracksFor(p.voice, p.bgm) : [];
       if (videoUrl) {
-        upd({ status: "done", pct: 100, videoUrl });
+        const poster = await captureFirstFrame(videoUrl).catch(() => null);
+        upd({ status: "done", pct: 100, videoUrl, ...(poster ? { poster } : {}) });
         addWork({
           emoji: "🎬",
           grad,
@@ -1443,7 +1469,11 @@ function VideoRunCard({
         role={done ? "button" : undefined}
         title={done ? "点击播放预览" : undefined}
       >
-        {(row.poster || done) ? (
+        {row.videoUrl && !row.poster ? (
+          // CORS 阻止 canvas 提取时，用 video 元素天然显示首帧
+          // eslint-disable-next-line jsx-a11y/media-has-caption
+          <video className="ov-video-poster" src={row.videoUrl} muted preload="metadata" />
+        ) : (row.poster || done) ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img className="ov-video-poster" src={row.poster || posterFor(row)} alt="视频封面" />
         ) : null}
