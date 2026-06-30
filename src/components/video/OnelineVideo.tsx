@@ -1006,14 +1006,14 @@ export function OnelineVideo() {
                       视频预设 <span className="ws-label-hint">点选预设快速填入运动描述</span>
                     </div>
                     <div className="filter-row" style={{ margin: "0 0 6px" }}>
+                      <span className={motionCat === "" ? "sel-chip on" : "sel-chip"} onClick={() => { setMotionCat(""); setMotion(""); }}>
+                        不用预设
+                      </span>
                       {motionWords.map((m) => (
                         <span key={m.cat} className={motionCat === m.cat ? "sel-chip on" : "sel-chip"} onClick={() => setMotionCat(m.cat)}>
                           {m.cat}
                         </span>
                       ))}
-                      <span className={motionCat === "" ? "sel-chip on" : "sel-chip"} onClick={() => { setMotionCat(""); setMotion(""); }}>
-                        不使用预设
-                      </span>
                     </div>
                     {motionCat !== "" && (
                       <div className="ov-word-row">
