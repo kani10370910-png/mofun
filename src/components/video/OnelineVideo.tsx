@@ -590,7 +590,7 @@ export function OnelineVideo() {
       voice: genAudio ? voice : "不配音",
       bgm: genAudio ? bgm : "无",
       withAudio: genAudio,
-      videoModel: videoModels.find((m) => m.name === model)?.modelId ?? model,
+      videoModel: videoModels.find((m) => m.name === model)?.modelId ?? videoModels[0]?.modelId ?? model,
     });
   }
 
@@ -656,7 +656,7 @@ export function OnelineVideo() {
 
     // 调真实视频模型；i2v 携带首帧图（blob→base64 data URL）
     void (async () => {
-      const vm = p.videoModel ?? videoModels.find((m) => m.name === model)?.modelId ?? model;
+      const vm = p.videoModel ?? videoModels.find((m) => m.name === model)?.modelId ?? videoModels[0]?.modelId ?? model;
       let imgUrl: string | undefined;
       if (p.mode === "i2v" && p.poster) {
         imgUrl = p.poster.startsWith("blob:")
