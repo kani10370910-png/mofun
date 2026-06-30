@@ -3535,7 +3535,7 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 
 /* ============ 视频 · 一句话成片（F10） ============ */
 /* position: relative 作为「选择视频风格」浮层（.propose-pane）的定位上下文 */
-.ov-result { display: flex; flex-direction: column; min-height: 0; position: relative; }
+.ov-result { display: flex; flex-direction: column; min-height: 0; position: relative; height: 100%; overflow: hidden; }
 /* 场景模板网格 */
 .ov-scene-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .ov-scene { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--c-border); border-radius: 10px; background: #fff; cursor: pointer; font-family: var(--font); font-size: 13px; color: var(--c-ink); text-align: left; transition: all .15s; }
@@ -3568,7 +3568,7 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 .ov-style-ico { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; font-size: 14px; }
 .ov-block-note { margin: 8px 0 0; font-size: 12.5px; color: #d9480f; text-align: center; }
 /* 生成历史 */
-.ov-runs { display: flex; flex-direction: column; gap: 18px; overflow-y: auto; }
+.ov-runs { display: flex; flex-direction: column; gap: 18px; overflow-y: auto; flex: 1; min-height: 0; padding-bottom: 8px; }
 .ov-run-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .ov-run-mode { flex: 0 0 auto; font-size: 11px; background: var(--c-primary-bg); color: var(--c-primary-dark); padding: 3px 9px; border-radius: 6px; font-weight: 600; }
 .ov-run-prompt { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
