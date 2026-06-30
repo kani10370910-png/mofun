@@ -3585,6 +3585,8 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 .ov-video-dur { position: absolute; bottom: 10px; right: 12px; z-index: 2; font-size: 12px; color: #fff; background: rgba(0,0,0,.5); padding: 2px 8px; border-radius: 6px; }
 .ov-video-audio { position: absolute; top: 10px; left: 12px; z-index: 2; font-size: 12px; color: #fff; background: rgba(34,102,68,.62); padding: 2px 8px; border-radius: 6px; }
 .ov-run-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+/* 自动审核通过标识（替代手动「提交审核」按钮）：生成完成即自动过内容安全审核 */
+.ov-review-pass { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding: 0 6px; font-size: 12.5px; font-weight: 600; color: var(--c-primary-dark); }
 
 /* —— 音画一体生成管线（生成中卡片）—— */
 .ov-pipe { gap: 9px; width: 84%; padding: 14px 12px; border-radius: 12px; background: rgba(0,0,0,.42); backdrop-filter: blur(2px); }

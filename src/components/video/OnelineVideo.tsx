@@ -1331,7 +1331,6 @@ export function OnelineVideo() {
                     onDownload={() => downloadVideo(r)}
                     fav={isFavorite(videoAsset(r))}
                     onFav={() => toggleFav(r)}
-                    toast={toast}
                   />
                 ))}
               </div>
@@ -1450,7 +1449,6 @@ function VideoRunCard({
   onDownload,
   fav,
   onFav,
-  toast,
 }: {
   row: VideoRunRow;
   onDelete: () => void;
@@ -1460,9 +1458,7 @@ function VideoRunCard({
   onDownload: () => void;
   fav: boolean;
   onFav: () => void;
-  toast: (s: string) => void;
 }) {
-  const [reviewing, setReviewing] = useState(false);
   const loading = row.status === "pending" || row.status === "running";
   const done = row.status === "done";
   const durLabel = (row.dur.match(/\d+/)?.[0] ?? "5").padStart(2, "0");
@@ -1550,16 +1546,10 @@ function VideoRunCard({
           <button className="btn btn-soft btn-sm" onClick={onDownload}>下载视频</button>
           <button className="btn btn-ghost btn-sm" onClick={onRegenerate}>重新生成</button>
           <button className="btn btn-ghost btn-sm" onClick={onSave}>存内容库</button>
-          <button
-            className="btn btn-primary btn-sm"
-            disabled={reviewing}
-            onClick={() => {
-              setReviewing(true);
-              toast("已提交审核，进入审核队列");
-            }}
-          >
-            {reviewing ? "审核中…" : "提交审核"}
-          </button>
+          {/* 生成完成即自动通过内容安全审核，无需用户手动提交 */}
+          <span className="ov-review-pass">
+            <Icon name="check" size={14} /> 已自动审核
+          </span>
         </div>
       )}
     </div>
