@@ -887,15 +887,15 @@ export function OnelineVideo() {
                         </span>
                       ))}
                     </div>
-                    <div className="ov-scene-grid">
+                    <div id="ovSceneSub" className="preset-grid">
                       {scenes.map((s) => (
                         <button
                           key={s.scene}
                           type="button"
-                          className={scene === s.scene ? "ov-scene on" : "ov-scene"}
+                          className={scene === s.scene ? "preset-chip on" : "preset-chip"}
                           onClick={() => pickScene(s.scene, s.prompt)}
                         >
-                          <span className="ov-scene-name">{s.scene}</span>
+                          {s.scene}
                         </button>
                       ))}
                     </div>
