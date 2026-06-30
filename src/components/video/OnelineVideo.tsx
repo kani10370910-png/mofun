@@ -175,7 +175,7 @@ async function genRealVideo(prompt: string, ratio: string, dur: string, videoMod
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt, ratio, dur, model: videoModel, ...(imageUrl ? { imageUrl } : {}) }),
-      signal: AbortSignal.timeout(110_000), // 稍低于后端 120s 上限
+      signal: AbortSignal.timeout(290_000), // 稍低于后端 300s maxDuration，视频生成实测 ~130s
     });
     if (!r.ok) return null;
     const j = (await r.json()) as { videoUrl?: string };
