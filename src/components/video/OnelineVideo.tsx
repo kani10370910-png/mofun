@@ -371,7 +371,7 @@ export function OnelineVideo() {
   const [lastFrame, setLastFrame] = useState(""); // 尾帧图 URL（首尾帧模式）
   const [endFrameOn, setEndFrameOn] = useState(false); // 首尾帧开关 F10-04
   const [motion, setMotion] = useState(""); // 运动描述
-  const [motionCat, setMotionCat] = useState(motionWords[0].cat);
+  const [motionCat, setMotionCat] = useState(""); // "" = 不使用预设（默认，不展示预设运动词）
   // —— 公共参数 ——
   const [ratio, setRatio] = useState<string>(videoRatios[0]);
   const [durSec, setDurSec] = useState(5); // 视频时长（秒），滑杆控制
@@ -1011,28 +1011,30 @@ export function OnelineVideo() {
                           {m.cat}
                         </span>
                       ))}
-                      <span className={motion.trim() === "" ? "sel-chip on" : "sel-chip"} onClick={() => setMotion("")}>
+                      <span className={motionCat === "" ? "sel-chip on" : "sel-chip"} onClick={() => { setMotionCat(""); setMotion(""); }}>
                         不使用预设
                       </span>
                     </div>
-                    <div className="ov-word-row">
-                      {motionGroup.words.map((w) => {
-                        const on = motion
-                          .split(/[，,]/)
-                          .map((s) => s.trim())
-                          .includes(w);
-                        return (
-                          <button
-                            key={w}
-                            type="button"
-                            className={on ? "ov-word on" : "ov-word"}
-                            onClick={() => toggleMotionWord(w)}
-                          >
-                            {w}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    {motionCat !== "" && (
+                      <div className="ov-word-row">
+                        {motionGroup.words.map((w) => {
+                          const on = motion
+                            .split(/[，,]/)
+                            .map((s) => s.trim())
+                            .includes(w);
+                          return (
+                            <button
+                              key={w}
+                              type="button"
+                              className={on ? "ov-word on" : "ov-word"}
+                              onClick={() => toggleMotionWord(w)}
+                            >
+                              {w}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                     <div className="ws-label" style={{ marginTop: 14 }}>
                       运动描述 <span className="req">*</span>
                     </div>
