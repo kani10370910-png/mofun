@@ -1013,6 +1013,13 @@ export function OnelineVideo() {
                       ))}
                     </div>
                     <div className="ov-word-row">
+                      <button
+                        type="button"
+                        className={motion.trim() === "" ? "ov-word on" : "ov-word"}
+                        onClick={() => setMotion("")}
+                      >
+                        不使用预设
+                      </button>
                       {motionGroup.words.map((w) => {
                         const on = motion
                           .split(/[，,]/)
