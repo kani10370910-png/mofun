@@ -784,7 +784,6 @@ export function OnelineVideo() {
                           className={scene === s.scene ? "ov-scene on" : "ov-scene"}
                           onClick={() => pickScene(s.scene, s.prompt)}
                         >
-                          <span className="ov-scene-emoji">{s.emoji}</span>
                           <span className="ov-scene-name">{s.scene}</span>
                         </button>
                       ))}
