@@ -192,26 +192,22 @@ async function blobUrlToDataUrl(url: string): Promise<string | null> {
 
 // 调真实视频模型（Seedance 2.0 / MiniMax 等）生成含音画的视频文件；失败返回 null，前端自动降级 Ken Burns
 // imageUrl：图生视频时传首帧图（data URL 或 https URL），文生视频时不传
-async function genRealVideo(prompt: string, ratio: string, dur: string, videoModel: string, generateAudio: boolean, imageUrl?: string): Promise<string | null> {
-  try {
-    const r = await fetch("/api/video", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, ratio, dur, model: videoModel, generateAudio, ...(imageUrl ? { imageUrl } : {}) }),
-      signal: AbortSignal.timeout(290_000),
-    });
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      console.error("[video] API error", r.status, err);
-      return null;
-    }
-    const j = (await r.json()) as { videoUrl?: string; error?: unknown };
-    if (!j.videoUrl) console.error("[video] no videoUrl in response", j);
-    return j.videoUrl ?? null;
-  } catch (e) {
-    console.error("[video] fetch failed", e);
-    return null;
+async function genRealVideo(prompt: string, ratio: string, dur: string, videoModel: string, generateAudio: boolean, imageUrl?: string): Promise<string> {
+  const r = await fetch("/api/video", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, ratio, dur, model: videoModel, generateAudio, ...(imageUrl ? { imageUrl } : {}) }),
+    signal: AbortSignal.timeout(290_000),
+  });
+  const j = (await r.json()) as { videoUrl?: string; error?: unknown };
+  if (!r.ok || !j.videoUrl) {
+    const reason = typeof j.error === "string" ? j.error
+      : j.error && typeof j.error === "object" && "message" in j.error ? String((j.error as { message?: unknown }).message)
+      : r.status === 504 ? "生成超时（视频耗时过长）"
+      : `HTTP ${r.status}`;
+    throw new Error(reason);
   }
+  return j.videoUrl;
 }
 
 // Ken Burns 多帧动画 → 真实视频文件（canvas + MediaRecorder），返回 object URL；不支持时返回 null
@@ -672,7 +668,13 @@ export function OnelineVideo() {
           ? (await blobUrlToDataUrl(p.poster) ?? undefined)
           : p.poster;
       }
-      const videoUrl = await genRealVideo(p.text, p.ratio, p.dur, vm, p.withAudio !== false, imgUrl).catch(() => null);
+      let videoUrl: string | null = null;
+      let failReason = "生成失败，请重试";
+      try {
+        videoUrl = await genRealVideo(p.text, p.ratio, p.dur, vm, p.withAudio !== false, imgUrl);
+      } catch (e) {
+        failReason = e instanceof Error ? e.message : "生成失败，请重试";
+      }
       window.clearInterval(iv);
       if (videoUrl) {
         const poster = await captureFirstFrame(videoUrl).catch(() => null);
@@ -690,7 +692,7 @@ export function OnelineVideo() {
         toast("🎬 视频已生成，已存入「我的作品」");
       } else {
         upd({ status: "failed", pct: 0 });
-        toast("视频生成失败，请重试", "warn");
+        toast(failReason, "warn");
       }
       setBusy(false);
     })();
