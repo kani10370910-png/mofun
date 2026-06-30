@@ -723,6 +723,24 @@ export function OnelineVideo() {
     toast("已按原参数重新生成");
   }
 
+  // 复制：把该记录参数回填到左侧表单（不自动生成），方便微调后再出片
+  function copyToForm(row: VideoRunRow) {
+    setTab(row.mode);
+    if (row.mode === "t2v") {
+      // 回填场景时同步一级分类，让对应预设 chip 正确高亮
+      const tpl = videoSceneTpls.find((t) => t.scene === row.scene);
+      if (tpl) { setSceneCat(tpl.cat); setPresetCleared(false); }
+      setScene(row.scene ?? "");
+      setPrompt(row.prompt);
+    } else {
+      setMotion(row.prompt);
+    }
+    setRatio(row.ratio);
+    setDurSec(durSeconds(row.dur));
+    setStyle(row.style);
+    toast("已复制该视频参数到左侧表单");
+  }
+
   // 视频记录 → 作品卡（收藏/存库口径一致；assetKey 取 类型+名称，name 对单条稳定）
   function videoAsset(row: VideoRunRow): AssetCard {
     return {
@@ -1256,6 +1274,7 @@ export function OnelineVideo() {
                     onDelete={() => deleteRun(r.id)}
                     onPlay={() => setPlayingId(r.id)}
                     onRegenerate={() => regenerate(r)}
+                    onCopy={() => copyToForm(r)}
                     onDownload={() => downloadVideo(r)}
                     fav={isFavorite(videoAsset(r))}
                     onFav={() => toggleFav(r)}
@@ -1367,6 +1386,7 @@ function VideoRunCard({
   onDelete,
   onPlay,
   onRegenerate,
+  onCopy,
   onDownload,
   fav,
   onFav,
@@ -1375,6 +1395,7 @@ function VideoRunCard({
   onDelete: () => void;
   onPlay: () => void;
   onRegenerate: () => void;
+  onCopy: () => void;
   onDownload: () => void;
   fav: boolean;
   onFav: () => void;
@@ -1389,6 +1410,11 @@ function VideoRunCard({
         <span className="ov-run-mode">{row.mode === "i2v" ? "图生视频" : "文生视频"}</span>
         <span className="ov-run-prompt">{row.prompt}</span>
         <span className="lg-cat">{row.style} · {row.ratio} · {row.dur}</span>
+        {!loading && (
+          <button className="lh-ico lh-tip" data-tip="复制参数到左侧" aria-label="复制参数" onClick={onCopy}>
+            <Icon name="copy" size={14} />
+          </button>
+        )}
         {!loading && (
           <button className="lh-ico lh-tip" data-tip="删除" aria-label="删除" onClick={onDelete}>
             <Icon name="trash" size={14} />
