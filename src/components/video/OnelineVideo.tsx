@@ -989,11 +989,14 @@ export function OnelineVideo() {
                       <span
                         className={presetCleared ? "sel-chip on" : "sel-chip"}
                         onClick={() => {
-                          // 再次点击可取消选中（toggle）；选中时清空已填场景/提示词
-                          setPresetCleared((v) => {
-                            if (!v) { setScene(""); setPrompt(""); }
-                            return !v;
-                          });
+                          // 再次点击取消选中（toggle）；首次选中时清空已填场景/提示词
+                          if (presetCleared) {
+                            setPresetCleared(false);
+                          } else {
+                            setPresetCleared(true);
+                            setScene("");
+                            setPrompt("");
+                          }
                         }}
                       >
                         不使用预设
