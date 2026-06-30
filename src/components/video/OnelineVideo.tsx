@@ -644,13 +644,14 @@ export function OnelineVideo() {
       });
     }
 
-    // 进度动画：缓慢爬升到 90%，等真实视频返回后跳 100%
+    // 进度动画：前段（4→40%）快速推进显示模型接收，后段（40→85%）缓慢等待出片，完成后跳 100%
     timers.current.push(window.setTimeout(() => upd({ status: "running", pct: 4 }), 800));
     let pct = 4;
     const iv = window.setInterval(() => {
-      pct = Math.min(90, pct + 1);
-      upd({ pct });
-    }, 600);
+      const step = pct < 40 ? 3 : 0.8; // 前段 3%/tick，后段 0.8%/tick
+      pct = Math.min(85, pct + step);
+      upd({ pct: Math.round(pct) });
+    }, 400);
     timers.current.push(iv as unknown as number);
 
     // 调真实视频模型；i2v 携带首帧图（blob→base64 data URL）
@@ -1484,11 +1485,18 @@ function VideoRunCard({
                     </div>
                   )}
                   <div className="ov-video-bar"><span style={{ width: `${row.pct}%` }} /></div>
-                  <div className="ov-video-pct">{row.pct}% · 合成有声视频</div>
+                  <div className="ov-video-pct">{row.pct}% · 视频生成中</div>
                 </div>
               );
             })()
           )
+        ) : row.status === "failed" ? (
+          <div className="ov-video-loading">
+            <Icon name="close" size={26} />
+            <div className="ov-video-status" style={{ color: "var(--color-warn, #f59e0b)" }}>
+              生成失败，请检查网络或重试
+            </div>
+          </div>
         ) : (
           <>
             <button
@@ -1512,6 +1520,12 @@ function VideoRunCard({
           </>
         )}
       </div>
+
+      {row.status === "failed" && (
+        <div className="ov-run-acts">
+          <button className="btn btn-ghost btn-sm" onClick={onRegenerate}>重新生成</button>
+        </div>
+      )}
 
       {row.status === "done" && (
         <div className="ov-run-acts">
