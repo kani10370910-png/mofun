@@ -3535,7 +3535,7 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 
 /* ============ 视频 · 一句话成片（F10） ============ */
 /* position: relative 作为「选择视频风格」浮层（.propose-pane）的定位上下文 */
-.ov-result { display: flex; flex-direction: column; min-height: 0; position: relative; height: 100%; overflow: hidden; }
+.ov-result { display: flex; flex-direction: column; min-height: 0; position: relative; max-height: calc(100vh - var(--topbar-h) - 22px - 56px); overflow: hidden; }
 /* 场景模板网格 */
 .ov-scene-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .ov-scene { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--c-border); border-radius: 10px; background: #fff; cursor: pointer; font-family: var(--font); font-size: 13px; color: var(--c-ink); text-align: left; transition: all .15s; }
