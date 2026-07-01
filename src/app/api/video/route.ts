@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
     dur: string;
     model?: string;
     imageUrl?: string;
+    tailImageUrl?: string; // 首尾帧模式的尾帧图（Seedance firstTailGenerate）
     generateAudio?: boolean; // 让视频模型自带音频（Seedance 原生能力）
   };
 
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
   const baseURL = (process.env.VIDEO_BASE_URL || process.env.IMAGE_BASE_URL || "").replace(/\/$/, "");
   const model   = body.model || process.env.VIDEO_MODEL || "seedance-2.0";
 
-  console.log("[video] model:", model, "| baseURL:", baseURL || "(empty)", "| key:", apiKey ? "set" : "MISSING", "| imageUrl:", body.imageUrl ? body.imageUrl.slice(0, 40) + `… (${(body.imageUrl.length/1024).toFixed(0)}KB)` : "none");
+  console.log("[video] model:", model, "| baseURL:", baseURL || "(empty)", "| key:", apiKey ? "set" : "MISSING", "| imageUrl:", body.imageUrl ? body.imageUrl.slice(0, 40) + `… (${(body.imageUrl.length/1024).toFixed(0)}KB)` : "none", "| tailImageUrl:", body.tailImageUrl ? `(${(body.tailImageUrl.length/1024).toFixed(0)}KB)` : "none");
   if (!apiKey || !baseURL) return Response.json({ error: "no API key" }, { status: 503 });
 
   const duration = parseInt(String(body.dur).match(/\d+/)?.[0] ?? "5", 10);
@@ -50,7 +51,7 @@ async function handleSeedance(p: {
   baseURL: string;
   headers: Record<string, string>;
   model: string;
-  body: { prompt: string; ratio: string; imageUrl?: string };
+  body: { prompt: string; ratio: string; imageUrl?: string; tailImageUrl?: string };
   duration: number;
   generateAudio: boolean;
 }): Promise<Response> {
@@ -63,6 +64,14 @@ async function handleSeedance(p: {
       type: "image_url",
       image_url: { url: p.body.imageUrl },
       role: "first_frame",
+    });
+  }
+  // 首尾帧模式：追加尾帧，网关据「first_frame + last_frame」双帧自动走 firstTailGenerate
+  if (p.body.tailImageUrl) {
+    content.push({
+      type: "image_url",
+      image_url: { url: p.body.tailImageUrl },
+      role: "last_frame",
     });
   }
 

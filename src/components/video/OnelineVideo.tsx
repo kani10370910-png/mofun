@@ -193,12 +193,12 @@ async function blobUrlToDataUrl(url: string): Promise<string | null> {
 }
 
 // 调真实视频模型（Seedance 2.0 / MiniMax 等）生成含音画的视频文件；失败返回 null，前端自动降级 Ken Burns
-// imageUrl：图生视频时传首帧图（data URL 或 https URL），文生视频时不传
-async function genRealVideo(prompt: string, ratio: string, dur: string, videoModel: string, generateAudio: boolean, imageUrl?: string): Promise<string> {
+// imageUrl：图生视频首帧图；tailImageUrl：首尾帧模式的尾帧图（触发 firstTailGenerate）；文生视频均不传
+async function genRealVideo(prompt: string, ratio: string, dur: string, videoModel: string, generateAudio: boolean, imageUrl?: string, tailImageUrl?: string): Promise<string> {
   const r = await fetch("/api/video", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, ratio, dur, model: videoModel, generateAudio, ...(imageUrl ? { imageUrl } : {}) }),
+    body: JSON.stringify({ prompt, ratio, dur, model: videoModel, generateAudio, ...(imageUrl ? { imageUrl } : {}), ...(tailImageUrl ? { tailImageUrl } : {}) }),
     signal: AbortSignal.timeout(290_000),
   });
   const j = (await r.json()) as { videoUrl?: string; error?: unknown };
@@ -599,6 +599,7 @@ export function OnelineVideo() {
       dur: `${durSec}秒`,
       style: appliedStyle,
       poster: isI2v ? firstFrame : undefined,
+      tailPoster: isI2v && endFrameOn ? lastFrame : undefined,
       withAudio: genAudio,
       videoModel: videoModels.find((m) => m.name === model)?.modelId ?? videoModels[0]?.modelId ?? model,
     });
@@ -613,6 +614,7 @@ export function OnelineVideo() {
     dur: string;
     style: string;
     poster?: string;
+    tailPoster?: string; // 首尾帧模式的尾帧图
     withAudio?: boolean;
     videoModel?: string; // 当前选中的视频模型（用于真实视频生成）
   }) {
@@ -631,6 +633,7 @@ export function OnelineVideo() {
       status: "pending",
       pct: 0,
       poster: p.poster,
+      tailPoster: p.tailPoster,
       grad,
       withAudio: p.withAudio !== false, // 默认 true，显式传 false 时关闭
     };
@@ -650,19 +653,22 @@ export function OnelineVideo() {
     }, 400);
     timers.current.push(iv as unknown as number);
 
-    // 调真实视频模型；i2v 携带首帧图（blob→base64 data URL）
+    // 调真实视频模型；i2v 携带首帧图（blob→base64 data URL），首尾帧模式再带尾帧
     void (async () => {
       const vm = p.videoModel ?? videoModels.find((m) => m.name === model)?.modelId ?? videoModels[0]?.modelId ?? model;
+      // blob: URL 需转 base64 data URL 才能送到后端网关；其余（data:/https:）原样传
+      const toSendable = async (u?: string) =>
+        !u ? undefined : u.startsWith("blob:") ? (await blobUrlToDataUrl(u) ?? undefined) : u;
       let imgUrl: string | undefined;
-      if (p.mode === "i2v" && p.poster) {
-        imgUrl = p.poster.startsWith("blob:")
-          ? (await blobUrlToDataUrl(p.poster) ?? undefined)
-          : p.poster;
+      let tailImgUrl: string | undefined;
+      if (p.mode === "i2v") {
+        imgUrl = await toSendable(p.poster);
+        tailImgUrl = await toSendable(p.tailPoster);
       }
       let videoUrl: string | null = null;
       let failReason = "生成失败，请重试";
       try {
-        videoUrl = await genRealVideo(p.text, p.ratio, p.dur, vm, p.withAudio !== false, imgUrl);
+        videoUrl = await genRealVideo(p.text, p.ratio, p.dur, vm, p.withAudio !== false, imgUrl, tailImgUrl);
       } catch (e) {
         failReason = e instanceof Error ? e.message : "生成失败，请重试";
       }
@@ -710,6 +716,7 @@ export function OnelineVideo() {
       dur: row.dur,
       style: row.style,
       poster: row.poster,
+      tailPoster: row.tailPoster,
       withAudio: row.withAudio,
     });
     toast("已按原参数重新生成");
