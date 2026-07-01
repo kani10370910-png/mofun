@@ -431,7 +431,7 @@ export function OnelineVideo() {
   // —— 公共参数 ——
   const [ratio, setRatio] = useState<string>(videoRatios[0]);
   const [durSec, setDurSec] = useState(5); // 视频时长（秒），滑杆控制
-  const [quality, setQuality] = useState<string>(videoQualities[1]); // 默认 720P
+  const [quality, setQuality] = useState<string>(videoQualities[0]); // 默认 480P
   const [genAudio, setGenAudio] = useState(true); // 是否同时生成声音
   const [style, setStyle] = useState("智能匹配"); // 默认智能匹配（auto）
   const [styleOpen, setStyleOpen] = useState(false); // 视频风格选择浮层
