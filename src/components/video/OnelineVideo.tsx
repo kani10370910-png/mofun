@@ -115,9 +115,9 @@ function captureFirstFrame(videoUrl: string): Promise<string | null> {
 
 // 参考灵感：6 张安吉文旅具体范例（含真实提示词与样张），供右栏一键套用到提示词。
 // cat/scene 对应真实场景模板，套用后预设 chip 自动高亮。
-const INSPIRE: { cat: string; scene: string; emoji: string; prompt: string; poster: string; videoUrl: string }[] = [
-  { cat: "农业宣传", scene: "农产品推广", emoji: "🌾", prompt: "安吉白茶明前头采，茶农指尖采摘嫩芽，云雾茶山实景，产地直发宣传短视频", poster: "/poster-gen/ins-baicha.jpg", videoUrl: "/demo-videos/hist-baicha.mp4" },
-  { cat: "文化旅游", scene: "景区宣传", emoji: "⛰️", prompt: "安吉余村绿水青山，竹海骑行与古村漫步，适合亲子游的生态文旅目的地", poster: "/poster-gen/ins-yucun.jpg", videoUrl: "/demo-videos/hist-yucun.mp4" },
+const INSPIRE: { cat: string; scene: string; emoji: string; prompt: string; poster: string; videoUrl: string; ratio: string; dur: string; style: string }[] = [
+  { cat: "农业宣传", scene: "农产品推广", emoji: "🌾", prompt: "安吉白茶明前头采，茶农指尖采摘嫩芽，云雾茶山实景，产地直发宣传短视频", poster: "/poster-gen/ins-baicha.jpg", videoUrl: "/demo-videos/hist-baicha.mp4", ratio: "16:9", dur: "6秒", style: "写实" },
+  { cat: "文化旅游", scene: "景区宣传", emoji: "⛰️", prompt: "安吉余村绿水青山，竹海骑行与古村漫步，适合亲子游的生态文旅目的地", poster: "/poster-gen/ins-yucun.jpg", videoUrl: "/demo-videos/hist-yucun.mp4", ratio: "9:16", dur: "10秒", style: "航拍大片" },
 ];
 
 // "5秒" → 5
@@ -442,7 +442,8 @@ export function OnelineVideo() {
   const [resultTab, setResultTab] = useState<"history" | "inspire">("history"); // 右侧面板 Tab
   const [onlyFav, setOnlyFav] = useState(false); // 只看收藏
   const [playingId, setPlayingId] = useState<string | null>(null); // 播放器中预览记录的 id
-  const playing = playingId ? (runs.find((r) => r.id === playingId) ?? null) : null; // 衍生：始终取 runs 最新状态
+  const [playingExtra, setPlayingExtra] = useState<VideoRunRow | null>(null); // 参考灵感等非历史记录的播放
+  const playing = playingId ? (runs.find((r) => r.id === playingId) ?? null) : playingExtra; // 衍生：历史记录取 runs 最新状态，否则用外部记录
   const [busy, setBusy] = useState(false);
   const [safe, setSafe] = useState<null | "checking" | "blocked">(null); // 安全预检状态
   const timers = useRef<number[]>([]);
@@ -482,6 +483,27 @@ export function OnelineVideo() {
     setPresetCleared(false); // 套用灵感即选中具体场景，复位「不使用预设」高亮
     setPrompt(it.prompt);
     toast("已套用参考灵感到提示词");
+  }
+
+  // 点击参考灵感卡片（非按钮区）：用播放器打开对应视频查看
+  function playInspire(it: (typeof INSPIRE)[number]) {
+    setPlayingId(null);
+    setPlayingExtra({
+      id: `inspire-${it.scene}`,
+      mode: "t2v",
+      prompt: it.prompt,
+      scene: it.scene,
+      ratio: it.ratio,
+      dur: it.dur,
+      style: it.style,
+      time: "",
+      status: "done",
+      pct: 100,
+      poster: it.poster,
+      videoUrl: it.videoUrl,
+      grad: "thumb-grad-1",
+      withAudio: true,
+    });
   }
 
   // AI 扩写（演示）：在原描述后补一段镜头/光影细节
@@ -1287,7 +1309,7 @@ export function OnelineVideo() {
           ) : (
             <div className="ag-grid">
               {INSPIRE.map((it) => (
-                <InspireCard key={it.scene} it={it} onUse={() => useInspire(it)} />
+                <InspireCard key={it.scene} it={it} onUse={() => useInspire(it)} onPlay={() => playInspire(it)} />
               ))}
             </div>
           )}
@@ -1306,7 +1328,7 @@ export function OnelineVideo() {
       {playing && (
         <VideoPlayerModal
           row={playing}
-          onClose={() => setPlayingId(null)}
+          onClose={() => { setPlayingId(null); setPlayingExtra(null); }}
           onDownload={() => downloadVideo(playing)}
           onStudio={() => router.push("/video?sub=studio&from=history")}
         />
@@ -1396,9 +1418,11 @@ function FrameUploadBox({
 function InspireCard({
   it,
   onUse,
+  onPlay,
 }: {
   it: (typeof INSPIRE)[number];
   onUse: () => void;
+  onPlay: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -1416,7 +1440,8 @@ function InspireCard({
     <div
       className="ag-card"
       style={{ cursor: "pointer" }}
-      onClick={onUse}
+      onClick={onPlay}
+      title="点击查看视频"
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
     >
