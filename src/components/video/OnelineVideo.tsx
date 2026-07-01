@@ -1594,7 +1594,7 @@ function VideoRunCard({
       {row.status === "done" && (
         <div className="ov-run-acts">
           <button className="btn btn-soft btn-sm" onClick={onDownload}>下载视频</button>
-          <button className="btn btn-soft btn-sm" onClick={onCopy}>
+          <button className="btn btn-ghost btn-sm" onClick={onCopy}>
             <Icon name="edit" size={13} /> 重新编辑
           </button>
           <button className="btn btn-ghost btn-sm" onClick={onRegenerate}>
