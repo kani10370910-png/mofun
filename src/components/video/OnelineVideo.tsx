@@ -1720,17 +1720,20 @@ function VideoPlayerModal({
     <div className="modal-mask" onClick={onClose}>
       <div className="vp-panel" onClick={(e) => e.stopPropagation()}>
         <div className="vp-head">
-          <span className="ov-run-mode">{row.mode === "i2v" ? "图生视频" : "文生视频"}</span>
+          {/* 提示词整宽置顶（2 行省略、点击展开），元数据单独一行，与生成历史一致 */}
           <ClampText text={row.prompt} lines={2} className="vp-title" />
-          <span className="vp-meta-chips">
-            <span className="vp-chip">{row.style}</span>
-            <span className="vp-chip">{row.ratio}</span>
-            <span className="vp-chip">{row.dur}</span>
-            {row.withAudio !== false && <span className="vp-chip vp-chip-audio">有声</span>}
-          </span>
-          <button className="vp-close" onClick={onClose} aria-label="关闭">
-            <Icon name="close" size={18} />
-          </button>
+          <div className="vp-head-meta">
+            <span className="ov-run-mode">{row.mode === "i2v" ? "图生视频" : "文生视频"}</span>
+            <span className="vp-meta-chips">
+              <span className="vp-chip">{row.style}</span>
+              <span className="vp-chip">{row.ratio}</span>
+              <span className="vp-chip">{row.dur}</span>
+              {row.withAudio !== false && <span className="vp-chip vp-chip-audio">有声</span>}
+            </span>
+            <button className="vp-close" onClick={onClose} aria-label="关闭">
+              <Icon name="close" size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="vp-stage">
