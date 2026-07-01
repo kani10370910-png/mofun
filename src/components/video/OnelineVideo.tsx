@@ -1478,12 +1478,17 @@ function VideoRunCard({
   const loading = row.status === "pending" || row.status === "running";
   const done = row.status === "done";
   const durLabel = (row.dur.match(/\d+/)?.[0] ?? "5").padStart(2, "0");
+  const [promptExpanded, setPromptExpanded] = useState(false);
 
   return (
     <div className="ov-run">
       <div className="ov-run-head">
         <span className="ov-run-mode">{row.mode === "i2v" ? "图生视频" : "文生视频"}</span>
-        <span className="ov-run-prompt">{row.prompt}</span>
+        <span
+          className={promptExpanded ? "ov-run-prompt expanded" : "ov-run-prompt"}
+          onClick={(e) => { e.stopPropagation(); setPromptExpanded((v) => !v); }}
+          title={promptExpanded ? "点击收起" : "点击展开完整提示词"}
+        >{row.prompt}</span>
         <span className="lg-cat">{row.style} · {row.ratio} · {row.dur}</span>
         {!loading && (
           <button className="lh-ico lh-tip" data-tip="复制参数到左侧" aria-label="复制参数" onClick={onCopy}>
