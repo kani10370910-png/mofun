@@ -1720,8 +1720,7 @@ function VideoPlayerModal({
     <div className="modal-mask" onClick={onClose}>
       <div className="vp-panel" onClick={(e) => e.stopPropagation()}>
         <div className="vp-head">
-          {/* 提示词整宽置顶（2 行省略、点击展开），元数据单独一行，与生成历史一致 */}
-          <ClampText text={row.prompt} lines={2} className="vp-title" />
+          {/* 元数据行在上（含关闭），提示词整宽置于其下（2 行省略、点击展开） */}
           <div className="vp-head-meta">
             <span className="ov-run-mode">{row.mode === "i2v" ? "图生视频" : "文生视频"}</span>
             <span className="vp-meta-chips">
@@ -1734,6 +1733,7 @@ function VideoPlayerModal({
               <Icon name="close" size={18} />
             </button>
           </div>
+          <ClampText text={row.prompt} lines={2} className="vp-title" />
         </div>
 
         <div className="vp-stage">
