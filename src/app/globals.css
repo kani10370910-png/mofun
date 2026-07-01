@@ -3561,6 +3561,40 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 .ov-frame img { width: 100%; height: 100%; object-fit: contain; background: #f3f4f6; display: block; }
 .ov-frame-tag { position: absolute; top: 6px; left: 6px; font-size: 10px; background: rgba(0,0,0,.45); color: #fff; padding: 2px 7px; border-radius: 10px; }
 .ov-frame-clear { position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; border-radius: 50%; border: none; background: rgba(0,0,0,.5); color: #fff; cursor: pointer; display: grid; place-items: center; }
+/* 从仓库选取按钮行 */
+.ov-lib-pick-row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.ov-lib-pick-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12.5px; color: var(--c-primary); background: var(--c-primary-bg);
+  border: 1px solid var(--c-primary-light, #b2dfd8); border-radius: 20px;
+  padding: 5px 12px; cursor: pointer; font-family: var(--font); transition: background .15s;
+}
+.ov-lib-pick-btn:hover { background: var(--c-primary-bg2, #d1f0ea); }
+/* 仓库图片选取弹窗 */
+.lib-picker-panel {
+  background: var(--c-white); border-radius: var(--radius-lg); width: min(560px, 92vw);
+  max-height: 80vh; display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,.18);
+}
+.lib-picker-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 20px 14px; border-bottom: 1px solid var(--c-line);
+}
+.lib-picker-title { font-size: 15px; font-weight: 700; color: var(--c-ink); }
+.lib-picker-close { background: none; border: none; cursor: pointer; color: var(--c-muted); display: grid; place-items: center; padding: 2px; }
+.lib-picker-close:hover { color: var(--c-ink); }
+.lib-picker-tabs { display: flex; gap: 0; padding: 12px 20px 0; border-bottom: 1px solid var(--c-line); }
+.lib-picker-tab {
+  font-size: 13.5px; font-weight: 500; color: var(--c-muted); padding: 0 4px 10px;
+  margin-right: 20px; cursor: pointer; border-bottom: 2px solid transparent; transition: color .15s, border-color .15s;
+}
+.lib-picker-tab.on { color: var(--c-primary); border-bottom-color: var(--c-primary); font-weight: 600; }
+.lib-picker-empty { padding: 40px 20px; text-align: center; font-size: 13px; color: var(--c-muted); }
+.lib-picker-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 16px 20px; overflow-y: auto; }
+.lib-picker-item { cursor: pointer; border-radius: var(--radius-md); overflow: hidden; border: 2px solid transparent; transition: border-color .15s; }
+.lib-picker-item:hover { border-color: var(--c-primary); }
+.lib-picker-img { width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; background: var(--c-bg); }
+.lib-picker-name { font-size: 11.5px; color: var(--c-muted); padding: 5px 6px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 运动参考词 */
 .ov-word-row { display: flex; flex-wrap: wrap; gap: 7px; }
 .ov-word { border: 1px solid var(--c-border); background: #fff; border-radius: 16px; padding: 5px 12px; font-size: 12.5px; color: var(--c-ink); font-family: var(--font); cursor: pointer; transition: all .15s; }

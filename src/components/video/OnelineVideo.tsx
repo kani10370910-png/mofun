@@ -427,6 +427,7 @@ export function OnelineVideo() {
   const [endFrameOn, setEndFrameOn] = useState(false); // 首尾帧开关 F10-04
   const [motion, setMotion] = useState(""); // 运动描述
   const [motionCat, setMotionCat] = useState(""); // "" = 不使用预设（默认，不展示预设运动词）
+  const [libPickerTarget, setLibPickerTarget] = useState<"first" | "last" | null>(null); // 仓库图片选取目标槽
   // —— 公共参数 ——
   const [ratio, setRatio] = useState<string>(videoRatios[0]);
   const [durSec, setDurSec] = useState(5); // 视频时长（秒），滑杆控制
@@ -1067,6 +1068,26 @@ export function OnelineVideo() {
                         />
                       )}
                     </div>
+                    <div className="ov-lib-pick-row">
+                      <button
+                        type="button"
+                        className="ov-lib-pick-btn"
+                        onClick={() => setLibPickerTarget("first")}
+                      >
+                        <Icon name="storage" size={13} />
+                        {endFrameOn ? "从仓库选取首帧" : "从仓库选取"}
+                      </button>
+                      {endFrameOn && (
+                        <button
+                          type="button"
+                          className="ov-lib-pick-btn"
+                          onClick={() => setLibPickerTarget("last")}
+                        >
+                          <Icon name="storage" size={13} />
+                          从仓库选取尾帧
+                        </button>
+                      )}
+                    </div>
                     <div className="field-hint">
                       {endFrameOn ? "AI 自动补全首尾帧之间的过渡动画" : "上传单张首帧，AI 让画面动起来"}
                     </div>
@@ -1283,6 +1304,16 @@ export function OnelineVideo() {
         </div>
       </div>
 
+      {libPickerTarget && (
+        <LibraryPicker
+          onSelect={(img) => {
+            if (libPickerTarget === "first") setFirstFrame(img);
+            else setLastFrame(img);
+            setLibPickerTarget(null);
+          }}
+          onClose={() => setLibPickerTarget(null)}
+        />
+      )}
       {playing && (
         <VideoPlayerModal
           row={playing}
@@ -1400,6 +1431,64 @@ function InspireCard({
         </div>
       </div>
       <div className="ag-name">{it.scene}</div>
+    </div>
+  );
+}
+
+function LibraryPicker({
+  onSelect,
+  onClose,
+}: {
+  onSelect: (img: string) => void;
+  onClose: () => void;
+}) {
+  const { works, materials } = useLibrary();
+  const [pickerTab, setPickerTab] = useState<"works" | "materials">("works");
+
+  const allItems = pickerTab === "works" ? works : materials;
+  const imgItems = allItems.filter((item) => item.img);
+
+  return (
+    <div className="modal-mask" onClick={onClose}>
+      <div className="lib-picker-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="lib-picker-head">
+          <span className="lib-picker-title">从仓库选取图片</span>
+          <button type="button" className="lib-picker-close" onClick={onClose}>
+            <Icon name="close" size={16} />
+          </button>
+        </div>
+        <div className="lib-picker-tabs">
+          <span
+            className={pickerTab === "works" ? "lib-picker-tab on" : "lib-picker-tab"}
+            onClick={() => setPickerTab("works")}
+          >
+            我的作品
+          </span>
+          <span
+            className={pickerTab === "materials" ? "lib-picker-tab on" : "lib-picker-tab"}
+            onClick={() => setPickerTab("materials")}
+          >
+            我的素材
+          </span>
+        </div>
+        {imgItems.length === 0 ? (
+          <div className="lib-picker-empty">暂无图片素材，可先在仓库上传</div>
+        ) : (
+          <div className="lib-picker-grid">
+            {imgItems.map((item, i) => (
+              <div
+                key={i}
+                className="lib-picker-item"
+                onClick={() => onSelect(item.img!)}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img className="lib-picker-img" src={item.img} alt={item.name} />
+                <div className="lib-picker-name">{item.name}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

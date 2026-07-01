@@ -2,21 +2,21 @@ import type { AssetCard, Brand, BrandType } from "@/lib/types";
 
 /* ---------- 个人仓库 ---------- */
 export const myWorks: AssetCard[] = [
-  { emoji: "🍃", kind: "图片", name: "明前白茶上市海报-终", sub: "宣传图片 · 06/08", grad: "thumb-grad-1" },
+  { emoji: "🍃", kind: "图片", name: "明前白茶上市海报-终", sub: "宣传图片 · 06/08", grad: "thumb-grad-1", img: "/poster-gen/ins-baicha.jpg" },
   { emoji: "📰", kind: "文案", name: "竹博园公众号推文", sub: "内容创作 · 06/07", grad: "thumb-grad-6" },
-  { emoji: "🎬", kind: "视频", name: "余村文旅推介片 30s", sub: "视频生成 · 06/05", grad: "thumb-grad-3" },
+  { emoji: "🎬", kind: "视频", name: "余村文旅推介片 30s", sub: "视频生成 · 06/05", grad: "thumb-grad-3", img: "/poster-gen/hist-yucun.jpg" },
   { emoji: "🏷️", kind: "图片", name: "鲜笋秒杀价签", sub: "宣传图片 · 06/04", grad: "thumb-grad-5" },
   { emoji: "📕", kind: "文案", name: "白茶小红书笔记", sub: "内容创作 · 06/03", grad: "thumb-grad-2" },
   { emoji: "📊", kind: "图片", name: "和美乡村成果展板", sub: "宣传图片 · 06/01", grad: "thumb-grad-6" },
 ];
 
 export const myMaterials: AssetCard[] = [
-  { emoji: "🍵", kind: "产品照", name: "白茶罐装实拍.jpg", sub: "2480×3508", grad: "thumb-grad-1" },
+  { emoji: "🍵", kind: "产品照", name: "白茶罐装实拍.jpg", sub: "2480×3508", grad: "thumb-grad-1", img: "/poster-gen/ins-baicha.jpg" },
   { emoji: "🏪", kind: "门头照", name: "合作社门店.jpg", sub: "4032×3024", grad: "thumb-grad-3" },
-  { emoji: "🎋", kind: "历史物料", name: "去年茶文化节主视觉.png", sub: "1920×1080", grad: "thumb-grad-5" },
-  { emoji: "🌄", kind: "产品照", name: "高山茶园航拍.jpg", sub: "6000×4000", grad: "thumb-grad-3" },
+  { emoji: "🎋", kind: "历史物料", name: "去年茶文化节主视觉.png", sub: "1920×1080", grad: "thumb-grad-5", img: "/poster-gen/hist-yucun.jpg" },
+  { emoji: "🌄", kind: "产品照", name: "高山茶园航拍.jpg", sub: "6000×4000", grad: "thumb-grad-3", img: "/poster-gen/hist-baicha.jpg" },
   { emoji: "🥢", kind: "产品照", name: "笋干礼盒.png", sub: "2000×2000", grad: "thumb-grad-2" },
-  { emoji: "👩‍🌾", kind: "历史物料", name: "采茶工特写.jpg", sub: "3000×2000", grad: "thumb-grad-6" },
+  { emoji: "👩‍🌾", kind: "历史物料", name: "采茶工特写.jpg", sub: "3000×2000", grad: "thumb-grad-6", img: "/poster-gen/ins-yucun.jpg" },
 ];
 
 // 品牌资产：按「家」（品牌主体）组织。每家自带 资产/作品/素材。
