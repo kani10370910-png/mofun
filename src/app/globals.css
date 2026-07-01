@@ -3591,16 +3591,13 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 .ov-block-note { margin: 8px 0 0; font-size: 12.5px; color: #d9480f; text-align: center; }
 /* 生成历史 */
 .ov-runs { display: flex; flex-direction: column; gap: 18px; overflow-y: auto; flex: 1; min-height: 0; padding-bottom: 8px; }
-/* 提示词默认最多 2 行省略，点击展开全部；其余元素固定不换行不缩，顶部对齐 */
-.ov-run-head { display: flex; align-items: flex-start; gap: 8px; flex-wrap: nowrap; margin-bottom: 10px; }
+/* 提示词整宽置顶（默认 2 行省略，溢出可点击展开，交互复用 ClampText），元数据单独一行 */
+.ov-run-head { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.ov-run-prompt { font-size: 13.5px; font-weight: 600; color: var(--c-ink); }
+.ov-run-meta { display: flex; align-items: center; gap: 8px; }
 .ov-run-mode { flex: 0 0 auto; font-size: 11px; background: var(--c-primary-bg); color: var(--c-primary-dark); padding: 3px 9px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
-.ov-run-prompt {
-  flex: 1 1 auto; min-width: 0; font-size: 13.5px; font-weight: 600; color: var(--c-ink); cursor: pointer;
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
-}
-.ov-run-prompt.expanded { -webkit-line-clamp: unset; overflow: visible; }
-.ov-run-head .lg-cat { flex: 0 0 auto; white-space: nowrap; }
-.ov-run-time { flex: 0 0 auto; font-size: 12px; color: var(--c-muted); white-space: nowrap; }
+.ov-run-meta .lg-cat { flex: 0 0 auto; white-space: nowrap; }
+.ov-run-time { margin-left: auto; flex: 0 0 auto; font-size: 12px; color: var(--c-muted); white-space: nowrap; }
 /* 视频卡 16:9 */
 .ov-video { position: relative; aspect-ratio: 16/9; max-height: 260px; border-radius: 14px; overflow: hidden; display: grid; place-items: center; box-shadow: var(--shadow-sm); } /* aspect-ratio 由 inline style 覆盖；max-height 防止竖版视频卡过高 */
 .ov-video-poster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: brightness(.92); }

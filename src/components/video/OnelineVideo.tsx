@@ -23,6 +23,7 @@ import type { VideoRunRow, Grad, AssetCard } from "@/lib/types";
 import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
 import { VideoStyleModal } from "./VideoStyleModal";
 import { LibraryPickerModal } from "@/components/image/LibraryPickerModal";
+import { ClampText } from "@/components/ui/ClampText";
 
 /* F10 一句话视频：文生视频(T2V) / 图生视频(I2V) 双 Tab。
    演示骨架：场景引导词库 + 参数 + 首尾帧 + 内容安全预检/复检 + 进度状态机 + 后处理/审核流。
@@ -1478,29 +1479,27 @@ function VideoRunCard({
   const loading = row.status === "pending" || row.status === "running";
   const done = row.status === "done";
   const durLabel = (row.dur.match(/\d+/)?.[0] ?? "5").padStart(2, "0");
-  const [promptExpanded, setPromptExpanded] = useState(false);
 
   return (
     <div className="ov-run">
       <div className="ov-run-head">
-        <span className="ov-run-mode">{row.mode === "i2v" ? "图生视频" : "文生视频"}</span>
-        <span
-          className={promptExpanded ? "ov-run-prompt expanded" : "ov-run-prompt"}
-          onClick={(e) => { e.stopPropagation(); setPromptExpanded((v) => !v); }}
-          title={promptExpanded ? "点击收起" : "点击展开完整提示词"}
-        >{row.prompt}</span>
-        <span className="lg-cat">{row.style} · {row.ratio} · {row.dur}</span>
-        {!loading && (
-          <button className="lh-ico lh-tip" data-tip="复制参数到左侧" aria-label="复制参数" onClick={onCopy}>
-            <Icon name="copy" size={14} />
-          </button>
-        )}
-        {!loading && (
-          <button className="lh-ico lh-tip" data-tip="删除" aria-label="删除" onClick={onDelete}>
-            <Icon name="trash" size={14} />
-          </button>
-        )}
-        <span className="ov-run-time">{row.time}</span>
+        {/* 提示词整宽置顶：默认 2 行省略，溢出时点击展开/收起（复用生图 ClampText 交互） */}
+        <ClampText text={row.prompt} lines={2} className="ov-run-prompt" />
+        <div className="ov-run-meta">
+          <span className="ov-run-mode">{row.mode === "i2v" ? "图生视频" : "文生视频"}</span>
+          <span className="lg-cat">{row.style} · {row.ratio} · {row.dur}</span>
+          {!loading && (
+            <button className="lh-ico lh-tip" data-tip="复制参数到左侧" aria-label="复制参数" onClick={onCopy}>
+              <Icon name="copy" size={14} />
+            </button>
+          )}
+          {!loading && (
+            <button className="lh-ico lh-tip" data-tip="删除" aria-label="删除" onClick={onDelete}>
+              <Icon name="trash" size={14} />
+            </button>
+          )}
+          <span className="ov-run-time">{row.time}</span>
+        </div>
       </div>
 
       <div
