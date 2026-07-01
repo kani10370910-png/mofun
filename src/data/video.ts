@@ -61,7 +61,7 @@ export const videoTypes: VideoType[] = [
 export const videoSceneTpls: VideoSceneTpl[] = [
   { cat: "文化旅游", scene: "非遗展示",   emoji: "🎭", prompt: "【县名】非遗【项目名】，传承人现场展示技艺，匠心细节特写，传统文化韵味" },
   { cat: "农业宣传", scene: "农产品推广", emoji: "🌾", prompt: "【县名】特产【产品名】，产地直发新鲜直达，卖点展示，横版宣传短视频" },
-  { cat: "农业宣传", scene: "生长环境展示", emoji: "🌱", prompt: "【县名】【作物】原生态种植环境，山水土壤气候，优质产地溯源展示" },
+  { cat: "农业宣传", scene: "环境展示", emoji: "🌱", prompt: "【县名】【作物】原生态种植环境，山水土壤气候，优质产地溯源展示" },
   { cat: "农业宣传", scene: "农事活动",   emoji: "🚜", prompt: "【县名】农忙时节农田全景，农机作业，农人劳作，生机盎然田园实景" },
   { cat: "农业宣传", scene: "丰收季节",   emoji: "🌽", prompt: "金秋丰收，【县名】【作物】喜获丰收，硕果累累，农民笑脸特写，喜悦氛围" },
   { cat: "文化旅游", scene: "景区宣传",   emoji: "⛰️", prompt: "【景区名】四季美景，山水风光航拍，适合亲子游的旅游目的地推介" },
