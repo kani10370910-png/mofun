@@ -3552,6 +3552,8 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 /* 首尾帧开关 */
 .ov-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--c-muted); cursor: pointer; user-select: none; }
 .ov-switch input { display: none; }
+/* 参考图片标签行右侧：仓库 + 首尾帧 */
+.i2v-label-actions { display: inline-flex; align-items: center; gap: 12px; }
 /* 首尾帧上传 */
 .ov-frames { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .ov-frames.two { grid-template-columns: 1fr 1fr; }

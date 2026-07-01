@@ -1044,50 +1044,102 @@ export function OnelineVideo() {
                       <div className="ws-label">
                         参考图片 <span className="req">*</span>
                       </div>
-                      <label className="ov-switch">
-                        <input type="checkbox" checked={endFrameOn} onChange={(e) => setEndFrameOn(e.target.checked)} />
-                        <span className="lg-switch" />
-                        首尾帧
-                      </label>
+                      <div className="i2v-label-actions">
+                        {!endFrameOn && (
+                          <a className="ws-link" onClick={() => setLibPickerTarget("first")}>仓库</a>
+                        )}
+                        <label className="ov-switch">
+                          <input type="checkbox" checked={endFrameOn} onChange={(e) => setEndFrameOn(e.target.checked)} />
+                          <span className="lg-switch" />
+                          首尾帧
+                        </label>
+                      </div>
                     </div>
-                    <div className={`ov-frames ${endFrameOn ? "two" : ""}`}>
-                      <FrameSlot
-                        label="首帧"
-                        url={firstFrame}
-                        inputRef={firstRef}
-                        onPick={(f) => pickFile("first", f)}
-                        onClear={() => setFirstFrame("")}
-                      />
-                      {endFrameOn && (
-                        <FrameSlot
-                          label="尾帧"
-                          url={lastFrame}
-                          inputRef={lastRef}
-                          onPick={(f) => pickFile("last", f)}
-                          onClear={() => setLastFrame("")}
+
+                    {!endFrameOn ? (
+                      /* 单帧模式：upload-box 风格，与生图参考图一致 */
+                      <>
+                        <input
+                          ref={firstRef}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          hidden
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) pickFile("first", f);
+                            e.target.value = "";
+                          }}
                         />
-                      )}
-                    </div>
-                    <div className="ov-lib-pick-row">
-                      <button
-                        type="button"
-                        className="ov-lib-pick-btn"
-                        onClick={() => setLibPickerTarget("first")}
-                      >
-                        <Icon name="storage" size={13} />
-                        {endFrameOn ? "从仓库选取首帧" : "从仓库选取"}
-                      </button>
-                      {endFrameOn && (
-                        <button
-                          type="button"
-                          className="ov-lib-pick-btn"
-                          onClick={() => setLibPickerTarget("last")}
+                        <div
+                          className={`upload-box ${firstFrame ? "filled" : ""}`}
+                          style={firstFrame ? { minHeight: 120, padding: 0, overflow: "hidden", position: "relative" } : undefined}
+                          onClick={() => firstRef.current?.click()}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const f = e.dataTransfer.files?.[0];
+                            if (f) pickFile("first", f);
+                          }}
                         >
-                          <Icon name="storage" size={13} />
-                          从仓库选取尾帧
-                        </button>
-                      )}
-                    </div>
+                          {firstFrame ? (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={firstFrame}
+                                alt="首帧"
+                                style={{ width: "100%", height: 160, objectFit: "contain", display: "block", background: "#f3f4f6" }}
+                              />
+                              <button
+                                type="button"
+                                className="upload-clear"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (firstFrame.startsWith("blob:")) URL.revokeObjectURL(firstFrame);
+                                  setFirstFrame("");
+                                }}
+                              >
+                                <Icon name="close" size={14} />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <span className="ub-ico"><Icon name="image" size={26} /></span>
+                              <div className="ub-main">点击 / 拖拽上传图片</div>
+                              <div className="ub-sub">支持 jpg / jpeg / png，或从「仓库」选图</div>
+                            </>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      /* 首尾帧模式：双槽格式 */
+                      <>
+                        <div className="ov-frames two">
+                          <FrameSlot
+                            label="首帧"
+                            url={firstFrame}
+                            inputRef={firstRef}
+                            onPick={(f) => pickFile("first", f)}
+                            onClear={() => setFirstFrame("")}
+                          />
+                          <FrameSlot
+                            label="尾帧"
+                            url={lastFrame}
+                            inputRef={lastRef}
+                            onPick={(f) => pickFile("last", f)}
+                            onClear={() => setLastFrame("")}
+                          />
+                        </div>
+                        <div className="ov-lib-pick-row">
+                          <button type="button" className="ov-lib-pick-btn" onClick={() => setLibPickerTarget("first")}>
+                            <Icon name="storage" size={13} />从仓库选取首帧
+                          </button>
+                          <button type="button" className="ov-lib-pick-btn" onClick={() => setLibPickerTarget("last")}>
+                            <Icon name="storage" size={13} />从仓库选取尾帧
+                          </button>
+                        </div>
+                      </>
+                    )}
+
                     <div className="field-hint">
                       {endFrameOn ? "AI 自动补全首尾帧之间的过渡动画" : "上传单张首帧，AI 让画面动起来"}
                     </div>
