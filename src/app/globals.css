@@ -1838,6 +1838,12 @@ input[type="range"].slider::-moz-range-thumb {
   transition: object-position 1.5s ease-in-out;
 }
 .ag-card:hover .ag-thumb .ag-img { object-position: bottom center; transition: object-position 2.75s ease-in-out; }
+.ag-hover-video {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; display: block;
+  opacity: 0; transition: opacity .25s; z-index: 1; pointer-events: none;
+}
+.ag-card:hover .ag-hover-video { opacity: 1; }
 .ag-thumb .ag-sub {
   position: absolute; top: 10px; left: 10px; font-size: 11px; color: #fff;
   background: rgba(0,0,0,.32); backdrop-filter: blur(4px); padding: 3px 9px; border-radius: 20px;

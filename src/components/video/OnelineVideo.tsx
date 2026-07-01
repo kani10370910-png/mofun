@@ -115,9 +115,9 @@ function captureFirstFrame(videoUrl: string): Promise<string | null> {
 
 // 参考灵感：6 张安吉文旅具体范例（含真实提示词与样张），供右栏一键套用到提示词。
 // cat/scene 对应真实场景模板，套用后预设 chip 自动高亮。
-const INSPIRE: { cat: string; scene: string; emoji: string; prompt: string; poster: string }[] = [
-  { cat: "农业宣传", scene: "农产品展示", emoji: "🌾", prompt: "安吉白茶明前头采，茶农指尖采摘嫩芽，云雾茶山实景，产地直发宣传短视频", poster: "/poster-gen/ins-baicha.jpg" },
-  { cat: "文化旅游", scene: "景区宣传", emoji: "⛰️", prompt: "安吉余村绿水青山，竹海骑行与古村漫步，适合亲子游的生态文旅目的地", poster: "/poster-gen/ins-yucun.jpg" },
+const INSPIRE: { cat: string; scene: string; emoji: string; prompt: string; poster: string; videoUrl: string }[] = [
+  { cat: "农业宣传", scene: "农产品展示", emoji: "🌾", prompt: "安吉白茶明前头采，茶农指尖采摘嫩芽，云雾茶山实景，产地直发宣传短视频", poster: "/poster-gen/ins-baicha.jpg", videoUrl: "/demo-videos/hist-baicha.mp4" },
+  { cat: "文化旅游", scene: "景区宣传", emoji: "⛰️", prompt: "安吉余村绿水青山，竹海骑行与古村漫步，适合亲子游的生态文旅目的地", poster: "/poster-gen/ins-yucun.jpg", videoUrl: "/demo-videos/hist-yucun.mp4" },
 ];
 
 // "5秒" → 5
@@ -1276,24 +1276,7 @@ export function OnelineVideo() {
           ) : (
             <div className="ag-grid">
               {INSPIRE.map((it) => (
-                <div className="ag-card" key={it.scene} style={{ cursor: "pointer" }} onClick={() => useInspire(it)}>
-                  <div className="ag-thumb">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img className="ag-img" src={it.poster} alt={it.scene} loading="lazy" />
-                    <div className="case-hover">
-                      <button
-                        className="btn btn-primary btn-sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          useInspire(it);
-                        }}
-                      >
-                        套用灵感
-                      </button>
-                    </div>
-                  </div>
-                  <div className="ag-name">{it.scene}</div>
-                </div>
+                <InspireCard key={it.scene} it={it} onUse={() => useInspire(it)} />
               ))}
             </div>
           )}
@@ -1361,6 +1344,62 @@ function FrameSlot({
         </>
       )}
       <span className="ov-frame-tag">{label}</span>
+    </div>
+  );
+}
+
+function InspireCard({
+  it,
+  onUse,
+}: {
+  it: (typeof INSPIRE)[number];
+  onUse: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  function handleEnter() {
+    videoRef.current?.play().catch(() => undefined);
+  }
+  function handleLeave() {
+    const v = videoRef.current;
+    if (!v) return;
+    v.pause();
+    v.currentTime = 0;
+  }
+
+  return (
+    <div
+      className="ag-card"
+      style={{ cursor: "pointer" }}
+      onClick={onUse}
+      onMouseEnter={handleEnter}
+      onMouseLeave={handleLeave}
+    >
+      <div className="ag-thumb">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="ag-img" src={it.poster} alt={it.scene} loading="lazy" />
+        <video
+          ref={videoRef}
+          className="ag-hover-video"
+          src={it.videoUrl}
+          muted
+          loop
+          playsInline
+          preload="none"
+        />
+        <div className="case-hover">
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onUse();
+            }}
+          >
+            套用灵感
+          </button>
+        </div>
+      </div>
+      <div className="ag-name">{it.scene}</div>
     </div>
   );
 }
