@@ -117,7 +117,7 @@ function captureFirstFrame(videoUrl: string): Promise<string | null> {
 // 参考灵感：6 张安吉文旅具体范例（含真实提示词与样张），供右栏一键套用到提示词。
 // cat/scene 对应真实场景模板，套用后预设 chip 自动高亮。
 const INSPIRE: { cat: string; scene: string; emoji: string; prompt: string; poster: string; videoUrl: string }[] = [
-  { cat: "农业宣传", scene: "农产品展示", emoji: "🌾", prompt: "安吉白茶明前头采，茶农指尖采摘嫩芽，云雾茶山实景，产地直发宣传短视频", poster: "/poster-gen/ins-baicha.jpg", videoUrl: "/demo-videos/hist-baicha.mp4" },
+  { cat: "农业宣传", scene: "农产品推广", emoji: "🌾", prompt: "安吉白茶明前头采，茶农指尖采摘嫩芽，云雾茶山实景，产地直发宣传短视频", poster: "/poster-gen/ins-baicha.jpg", videoUrl: "/demo-videos/hist-baicha.mp4" },
   { cat: "文化旅游", scene: "景区宣传", emoji: "⛰️", prompt: "安吉余村绿水青山，竹海骑行与古村漫步，适合亲子游的生态文旅目的地", poster: "/poster-gen/ins-yucun.jpg", videoUrl: "/demo-videos/hist-yucun.mp4" },
 ];
 
@@ -466,12 +466,13 @@ export function OnelineVideo() {
     });
   }
 
-  // 选场景模板：填充引导词（保留【变量】占位，模拟「县域知识库未录入」提示）
-  function pickScene(s: string, p: string) {
-    setScene(s);
-    setPrompt(p);
+  // 选场景模板：填充引导词并带出所属分类（供生成侧「场景分类」变量）
+  function pickScene(tpl: (typeof videoSceneTpls)[number]) {
+    setScene(tpl.scene);
+    setSceneCat(tpl.cat);
+    setPrompt(tpl.prompt);
     setPresetCleared(false); // 选了具体预设，取消「不使用预设」高亮
-    if (/【.+?】/.test(p)) toast("引导词含县域变量，发布时将从县域知识库自动填充（演示）");
+    if (/【.+?】/.test(tpl.prompt)) toast("引导词含县域变量，发布时将从县域知识库自动填充（演示）");
   }
 
   // 套用右栏参考灵感：切到文生视频并填入对应场景提示词
@@ -952,7 +953,7 @@ export function OnelineVideo() {
     setRuns((prev) => prev.filter((r) => r.id !== id));
   }
 
-  const scenes = videoSceneTpls.filter((t) => t.cat === sceneCat);
+  const scenes = videoSceneTpls; // 扁平单列表：不再按分类筛选，展示全部场景模板
   const motionGroup = motionWords.find((m) => m.cat === motionCat) ?? motionWords[0];
   const shownRuns = onlyFav ? runs.filter((r) => isFavorite(videoAsset(r))) : runs;
 
@@ -979,20 +980,10 @@ export function OnelineVideo() {
                   {/* 场景模板库 F10-01 */}
                   <div className="field">
                     <div className="ws-label">场景模板</div>
-                    <div className="filter-row" style={{ marginBottom: 10 }}>
-                      {videoSceneCats.map((c) => (
-                        <span
-                          key={c}
-                          className={sceneCat === c && !presetCleared ? "sel-chip on" : "sel-chip"}
-                          onClick={() => { setSceneCat(c); setPresetCleared(false); }}
-                        >
-                          {c}
-                        </span>
-                      ))}
-                    </div>
-                    <div className="filter-row" style={{ marginBottom: 10 }}>
-                      <span
-                        className={presetCleared ? "sel-chip on" : "sel-chip"}
+                    <div id="ovSceneSub" className="preset-grid">
+                      <button
+                        type="button"
+                        className={presetCleared ? "preset-chip on" : "preset-chip"}
                         onClick={() => {
                           // 再次点击取消选中（toggle）；首次选中时清空已填场景/提示词
                           if (presetCleared) {
@@ -1005,15 +996,13 @@ export function OnelineVideo() {
                         }}
                       >
                         不使用预设
-                      </span>
-                    </div>
-                    <div id="ovSceneSub" className="preset-grid">
+                      </button>
                       {scenes.map((s) => (
                         <button
                           key={s.scene}
                           type="button"
-                          className={scene === s.scene ? "preset-chip on" : "preset-chip"}
-                          onClick={() => pickScene(s.scene, s.prompt)}
+                          className={scene === s.scene && !presetCleared ? "preset-chip on" : "preset-chip"}
+                          onClick={() => pickScene(s)}
                         >
                           {s.scene}
                         </button>
