@@ -1721,7 +1721,7 @@ function VideoPlayerModal({
       <div className="vp-panel" onClick={(e) => e.stopPropagation()}>
         <div className="vp-head">
           <span className="ov-run-mode">{row.mode === "i2v" ? "图生视频" : "文生视频"}</span>
-          <span className="vp-title">{row.prompt}</span>
+          <ClampText text={row.prompt} lines={2} className="vp-title" />
           <span className="vp-meta-chips">
             <span className="vp-chip">{row.style}</span>
             <span className="vp-chip">{row.ratio}</span>
