@@ -1276,6 +1276,7 @@ export function OnelineVideo() {
                     onRegenerate={() => regenerate(r)}
                     onCopy={() => copyToForm(r)}
                     onDownload={() => downloadVideo(r)}
+                    onStudio={() => router.push("/video?sub=studio&from=history")}
                     fav={isFavorite(videoAsset(r))}
                     onFav={() => toggleFav(r)}
                   />
@@ -1388,6 +1389,7 @@ function VideoRunCard({
   onRegenerate,
   onCopy,
   onDownload,
+  onStudio,
   fav,
   onFav,
 }: {
@@ -1397,6 +1399,7 @@ function VideoRunCard({
   onRegenerate: () => void;
   onCopy: () => void;
   onDownload: () => void;
+  onStudio: () => void;
   fav: boolean;
   onFav: () => void;
 }) {
@@ -1491,10 +1494,9 @@ function VideoRunCard({
         <div className="ov-run-acts">
           <button className="btn btn-soft btn-sm" onClick={onDownload}>下载视频</button>
           <button className="btn btn-ghost btn-sm" onClick={onRegenerate}>重新生成</button>
-          {/* 生成完成即自动通过内容安全审核，无需用户手动提交 */}
-          <span className="ov-review-pass">
-            <Icon name="check" size={14} /> 已自动审核
-          </span>
+          <button className="btn btn-primary btn-sm ov-run-studio" onClick={onStudio}>
+            去制作大片 <Icon name="chevron" size={14} />
+          </button>
         </div>
       )}
     </div>
