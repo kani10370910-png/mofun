@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // 视频生成通常需要 90-150s，留足余量
+export const maxDuration = 500; // 图生视频/首尾帧实测约 230s（含排队），留足余量至 500s
 
 // Anyfast Seedance: ratio 字段直接传，智能 → adaptive
 const SEEDANCE_RATIO_MAP: Record<string, string> = { "智能": "adaptive" };
@@ -131,8 +131,8 @@ async function handleSeedance(p: {
   const taskId = data?.id ?? data?.task_id;
   if (!taskId) return Response.json({ error: "no task_id", raw: data }, { status: 502 });
 
-  // 异步轮询（视频生成通常 90-150s，给 270s 余量）
-  const deadline = Date.now() + 270_000;
+  // 异步轮询：图生视频/首尾帧实测约 230s（含排队），网关偶发 TLS 抖动会拖慢，给 420s 余量
+  const deadline = Date.now() + 420_000;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 2_000));
     const pr = await fetch(`${p.baseURL}/v1/video/generations/${taskId}`, {
@@ -213,7 +213,7 @@ async function handleKling(p: {
   const taskId = data?.data?.task_id ?? data?.task_id;
   if (!taskId) return Response.json({ error: "no task_id", raw: data }, { status: 502 });
 
-  const deadline = Date.now() + 270_000;
+  const deadline = Date.now() + 420_000;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 2_000));
     const pr = await fetch(`${p.baseURL}/kling/v1/videos/${taskId}`, {

@@ -199,7 +199,7 @@ async function genRealVideo(prompt: string, ratio: string, dur: string, videoMod
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt, ratio, dur, model: videoModel, generateAudio, ...(imageUrl ? { imageUrl } : {}), ...(tailImageUrl ? { tailImageUrl } : {}) }),
-    signal: AbortSignal.timeout(290_000),
+    signal: AbortSignal.timeout(450_000), // 需大于路由 420s 轮询窗口，避免前端先行放弃
   });
   const j = (await r.json()) as { videoUrl?: string; error?: unknown };
   if (!r.ok || !j.videoUrl) {
