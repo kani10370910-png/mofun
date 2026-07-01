@@ -759,7 +759,7 @@ export function OnelineVideo() {
     setRatio(row.ratio);
     setDurSec(durSeconds(row.dur));
     setStyle(row.style);
-    toast("已复制该视频参数到左侧表单");
+    toast("参数已回填到左侧，可编辑后再生成");
   }
 
   // 视频记录 → 作品卡（收藏/存库口径一致；assetKey 取 类型+名称，name 对单条稳定）
@@ -1514,11 +1514,6 @@ function VideoRunCard({
           <span className="ov-run-mode">{row.mode === "i2v" ? "图生视频" : "文生视频"}</span>
           <span className="lg-cat">{row.style} · {row.ratio} · {row.dur}</span>
           {!loading && (
-            <button className="lh-ico lh-tip" data-tip="复制参数到左侧" aria-label="复制参数" onClick={onCopy}>
-              <Icon name="copy" size={14} />
-            </button>
-          )}
-          {!loading && (
             <button className="lh-ico lh-tip" data-tip="删除" aria-label="删除" onClick={onDelete}>
               <Icon name="trash" size={14} />
             </button>
@@ -1587,14 +1582,24 @@ function VideoRunCard({
 
       {row.status === "failed" && (
         <div className="ov-run-acts">
-          <button className="btn btn-ghost btn-sm" onClick={onRegenerate}>重新生成</button>
+          <button className="btn btn-soft btn-sm" onClick={onCopy}>
+            <Icon name="edit" size={13} /> 重新编辑
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={onRegenerate}>
+            <Icon name="refresh" size={13} /> 再次生成
+          </button>
         </div>
       )}
 
       {row.status === "done" && (
         <div className="ov-run-acts">
           <button className="btn btn-soft btn-sm" onClick={onDownload}>下载视频</button>
-          <button className="btn btn-ghost btn-sm" onClick={onRegenerate}>重新生成</button>
+          <button className="btn btn-soft btn-sm" onClick={onCopy}>
+            <Icon name="edit" size={13} /> 重新编辑
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={onRegenerate}>
+            <Icon name="refresh" size={13} /> 再次生成
+          </button>
           <button className="btn btn-primary btn-sm ov-run-studio" onClick={onStudio}>
             去制作大片 <Icon name="chevron" size={14} />
           </button>
