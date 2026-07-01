@@ -22,6 +22,7 @@ import {
 import type { VideoRunRow, Grad, AssetCard } from "@/lib/types";
 import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
 import { VideoStyleModal } from "./VideoStyleModal";
+import { LibraryPickerModal } from "@/components/image/LibraryPickerModal";
 
 /* F10 一句话视频：文生视频(T2V) / 图生视频(I2V) 双 Tab。
    演示骨架：场景引导词库 + 参数 + 首尾帧 + 内容安全预检/复检 + 进度状态机 + 后处理/审核流。
@@ -1299,11 +1300,10 @@ export function OnelineVideo() {
       </div>
 
       {libPickerTarget && (
-        <LibraryPicker
-          onSelect={(img) => {
+        <LibraryPickerModal
+          onPick={(img) => {
             if (libPickerTarget === "first") setFirstFrame(img);
             else setLastFrame(img);
-            setLibPickerTarget(null);
           }}
           onClose={() => setLibPickerTarget(null)}
         />
@@ -1453,65 +1453,6 @@ function InspireCard({
     </div>
   );
 }
-
-function LibraryPicker({
-  onSelect,
-  onClose,
-}: {
-  onSelect: (img: string) => void;
-  onClose: () => void;
-}) {
-  const { works, materials } = useLibrary();
-  const [pickerTab, setPickerTab] = useState<"works" | "materials">("works");
-
-  const allItems = pickerTab === "works" ? works : materials;
-  const imgItems = allItems.filter((item) => item.img);
-
-  return (
-    <div className="modal-mask" onClick={onClose}>
-      <div className="lib-picker-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="lib-picker-head">
-          <span className="lib-picker-title">从仓库选取图片</span>
-          <button type="button" className="lib-picker-close" onClick={onClose}>
-            <Icon name="close" size={16} />
-          </button>
-        </div>
-        <div className="lib-picker-tabs">
-          <span
-            className={pickerTab === "works" ? "lib-picker-tab on" : "lib-picker-tab"}
-            onClick={() => setPickerTab("works")}
-          >
-            我的作品
-          </span>
-          <span
-            className={pickerTab === "materials" ? "lib-picker-tab on" : "lib-picker-tab"}
-            onClick={() => setPickerTab("materials")}
-          >
-            我的素材
-          </span>
-        </div>
-        {imgItems.length === 0 ? (
-          <div className="lib-picker-empty">暂无图片素材，可先在仓库上传</div>
-        ) : (
-          <div className="lib-picker-grid">
-            {imgItems.map((item, i) => (
-              <div
-                key={i}
-                className="lib-picker-item"
-                onClick={() => onSelect(item.img!)}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img className="lib-picker-img" src={item.img} alt={item.name} />
-                <div className="lib-picker-name">{item.name}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 const STATUS_TEXT: Record<VideoRunRow["status"], string> = {
   pending: "排队中，预计等待 1 分钟",
   running: "AI 正在生成视频，请稍候…",
