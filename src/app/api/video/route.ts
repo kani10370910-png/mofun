@@ -76,18 +76,41 @@ async function handleSeedance(p: {
     watermark: false,
   };
 
-  const submitRes = await fetch(`${p.baseURL}/v1/video/generations`, {
-    method: "POST",
-    headers: p.headers,
-    body: JSON.stringify(submitBody),
-    signal: AbortSignal.timeout(40_000), // i2v 携带图片，上传可能较慢
-  }).catch(() => null);
+  // i2v 携带 base64 首帧，网关校验/上传耗时较长，给足 90s 上传窗口。
+  // 网关偶发瞬时抖动（fetch 直接抛错），正常提交仅需 ~2s，故对「抛异常」重试至多 3 次。
+  let submitRes: Response | null = null;
+  let submitErr: unknown = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    submitErr = null;
+    submitRes = await fetch(`${p.baseURL}/v1/video/generations`, {
+      method: "POST",
+      headers: p.headers,
+      body: JSON.stringify(submitBody),
+      signal: AbortSignal.timeout(90_000),
+    }).catch((e) => {
+      submitErr = e;
+      return null;
+    });
+    // 拿到响应（无论 2xx/4xx）即停止重试；只有 fetch 抛异常才重试
+    if (submitRes) break;
+    console.warn(`[video/seedance] submit 第 ${attempt}/3 次抛异常 →`, submitErr instanceof Error ? `${submitErr.name}: ${submitErr.message}` : submitErr);
+    if (attempt < 3) await new Promise((r) => setTimeout(r, 1_500));
+  }
 
   if (!submitRes?.ok) {
-    const raw = await submitRes?.json().catch(() => ({})) as { error?: { message?: string }; message?: string; code?: string };
-    const errMsg = raw?.error?.message ?? raw?.message ?? raw?.code ?? `HTTP ${submitRes?.status ?? "??"}`;
-    console.error("[video/seedance] submit failed", submitRes?.status, errMsg);
-    return Response.json({ error: errMsg }, { status: submitRes?.status ?? 503 });
+    // 三次都抛异常（submitRes 为 null）：区分超时 / 连接失败，回传可读原因
+    if (!submitRes) {
+      const isTimeout = submitErr instanceof Error && (submitErr.name === "TimeoutError" || submitErr.name === "AbortError");
+      const reason = isTimeout
+        ? "提交生成任务超时，请稍后重试（图片过大时可先压缩）"
+        : "视频生成网关暂时无响应，请稍后重试";
+      console.error("[video/seedance] submit 重试 3 次仍失败 →", submitErr instanceof Error ? `${submitErr.name}: ${submitErr.message}` : submitErr);
+      return Response.json({ error: reason }, { status: 502 });
+    }
+    const raw = await submitRes.json().catch(() => ({})) as { error?: { message?: string }; message?: string; code?: string };
+    const errMsg = raw?.error?.message ?? raw?.message ?? raw?.code ?? `HTTP ${submitRes.status}`;
+    console.error("[video/seedance] submit failed", submitRes.status, errMsg);
+    return Response.json({ error: errMsg }, { status: submitRes.status });
   }
 
   const data = await submitRes.json() as { id?: string; task_id?: string; video_url?: string; status?: string };
