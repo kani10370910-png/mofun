@@ -3552,6 +3552,8 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 /* 首尾帧开关 */
 .ov-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--c-muted); cursor: pointer; user-select: none; }
 .ov-switch input { display: none; }
+.ov-switch input:checked + .lg-switch { background: var(--c-primary); }
+.ov-switch input:checked + .lg-switch::after { transform: translateX(17px); }
 /* 图生视频参考图上传框（对标生图 upload-box） */
 .i2v-upbox-wrap { display: flex; flex-direction: column; gap: 6px; }
 .i2v-upbox-lib { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; align-self: flex-start; }
