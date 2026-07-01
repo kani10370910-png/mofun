@@ -1525,6 +1525,12 @@ function VideoPlayerModal({
   const last = useRef(0);
   const seeking = useRef(false);
   const audio = useRef<PlayerAudio | null>(null);
+  const realVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  // 关闭「有声」时真实视频强制静音（视频文件可能自带音轨，React 的 muted 属性不总生效，用 ref 兜底）
+  useEffect(() => {
+    if (realVideoRef.current) realVideoRef.current.muted = row.withAudio === false;
+  }, [row.withAudio]);
 
   // 声轨引擎：仅在「同时生成声音=开启」时创建，关闭时不生成任何音轨
   useEffect(() => {
@@ -1631,12 +1637,14 @@ function VideoPlayerModal({
             /* 真实视频：原生 <video>，内置音画同步音轨 */
             // eslint-disable-next-line jsx-a11y/media-has-caption
             <video
+              ref={realVideoRef}
               className="vp-real-video"
               src={row.videoUrl}
               autoPlay
               controls
               playsInline
               loop
+              muted={row.withAudio === false}
               // 隐藏原生控件溢出菜单的下载 / 播放速度 / 画中画
               controlsList="nodownload noplaybackrate"
               disablePictureInPicture
