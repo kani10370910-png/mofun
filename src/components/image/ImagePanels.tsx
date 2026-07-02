@@ -685,11 +685,11 @@ export function ImageLogoPanel({
       <div className="field">
         <div className="ws-label-row">
           <div className="ws-label">品牌名称 <span className="req">*</span></div>
-          <span className={`ws-char-count${state.brand.length >= 28 ? " warn" : ""}`}>{state.brand.length} / 30</span>
+          <span className={`ws-char-count${state.brand.length >= 18 ? " warn" : ""}`}>{state.brand.length} / 20</span>
         </div>
         <input
           type="text"
-          maxLength={30}
+          maxLength={20}
           value={state.brand}
           onChange={(e) => set("brand", e.target.value)}
           placeholder="必填项，例如：安吉白茶"
