@@ -34,6 +34,10 @@ export const videoPipeline: VideoPipelineStage[] = [
 // audioTracks 保留供类型引用，但不再在 UI 中显示虚假的多轨道进度
 export const audioTracks: AudioTrack[] = [];
 
+/* ---------- 制作大片：分镜运镜 + 景别（M5 分镜脚本结构化） ---------- */
+export const studioCameras = ["航拍俯瞰", "缓缓推近", "特写镜头", "环绕拍摄", "上移俯拍", "横移跟拍"] as const;
+export const studioShotSizes = ["远景", "全景", "中景", "近景", "特写"] as const;
+
 /* ---------- 视频「制作大片」6 步流程（参考 360 漫剧） ---------- */
 export const studioSteps: StudioStep[] = [
   { key: "script", no: 1, name: "剧本编辑", desc: "填写或 AI 生成视频剧本 / 文案" },

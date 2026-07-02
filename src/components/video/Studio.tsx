@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { EditorRail, type RailItem } from "@/components/ui/EditorRail";
 import { useToast } from "@/components/ui/Toast";
-import { studioSteps } from "@/data/video";
+import { studioSteps, studioCameras, studioShotSizes } from "@/data/video";
+import { useLibrary } from "@/lib/store";
+import { nowStamp } from "@/lib/datetime";
 import type { IconName } from "@/data/icons";
+import type { AssetCard } from "@/lib/types";
 import {
   posterFor,
   ratioToCanvas,
@@ -22,14 +25,21 @@ import {
    剧本 → 视频设定 → 场景角色道具 → AI 拆分镜 → 逐镜生成 → 合成预览 + 导出长视频。
    分镜画面复用海报样张 + Ken Burns 运镜；预览=多镜顺序连续播放；导出=MediaRecorder 把多镜合成一段真实长视频。 */
 
+/* M5 分镜脚本结构化：一个镜头 = 画面描述 + 口播旁白 + 字幕 + 调度（运镜/景别/出镜元素） */
 interface Shot {
   id: string;
-  line: string; // 旁白 / 画面描述
+  shotDesc: string; // 画面描述（喂给图/视频模型的提示词）
+  narration: string; // 口播旁白（喂给 TTS 配音）
+  caption: string; // 字幕（默认继承旁白，可独立编辑）
   camera: string; // 运镜
+  shotSize: string; // 景别：远/全/中/近/特
+  assetRefs: string[]; // 出镜元素引用（关联场景角色道具，跨镜一致性）
   dur: number; // 秒
+  locked: boolean; // 锁定：重新拆分镜时保留
   poster: string;
-  status: "idle" | "gen" | "done";
+  status: "idle" | "gen" | "done" | "failed";
   pct: number;
+  failReason?: string; // 失败原因（已映射为中文）
 }
 
 interface Asset {
@@ -37,19 +47,26 @@ interface Asset {
   emoji: string;
   name: string;
   kind: "场景" | "角色" | "道具";
+  refImg?: string; // 参考图（一致性锚点），生成时注入
 }
 
-const CAMERAS = ["航拍俯瞰", "缓缓推近", "特写镜头", "环绕拍摄", "上移俯拍", "横移跟拍"];
+const ASSET_KINDS: Asset["kind"][] = ["场景", "角色", "道具"];
+
+const CAMERAS = [...studioCameras];
+const SHOT_SIZES = [...studioShotSizes];
 const ASSET_EMOJIS = ["🏞️", "👩‍🌾", "🍵", "🌾", "🏮", "🎐", "🛶", "🍂"];
 
 const DEFAULT_SCRIPT =
   "安吉明前白茶产品介绍：海拔800米高山茶园产地。氨基酸高、鲜爽回甘的口感特点。手工采摘明前嫩芽。古法工艺匠心制作。限量预订，产地直发到家。";
 
-const SETTING_FIELDS: { label: string; opts: string[] }[] = [
+const SETTING_FIELDS: { label: string; opts: string[]; hint?: string }[] = [
   { label: "画幅", opts: ["横屏 16:9", "竖屏 9:16", "方形 1:1"] },
-  { label: "整体风格", opts: ["国风清新", "真实纪实", "活泼种草"] },
+  { label: "整体风格", opts: ["国风清新", "真实纪实", "活泼种草", "电影感", "航拍大片"] },
   { label: "总时长", opts: ["15s", "30s", "60s"] },
   { label: "配音", opts: ["温柔女声", "沉稳男声", "不配音"] },
+  { label: "配乐", opts: ["舒缓", "轻快", "大气", "国风", "无"] },
+  { label: "字幕", opts: ["显示", "隐藏"] },
+  { label: "画质", opts: ["720P 清晰", "1080P 高清"], hint: "1080P 消耗 2 倍额度" },
 ];
 
 // 剧本 → 结构化分镜数据
@@ -69,8 +86,13 @@ function makeShots(script: string, total: number): Shot[] {
   const per = Math.max(3, Math.min(6, Math.round(total / lines.length) || 4));
   return lines.map((line, i) => ({
     id: `shot-${i}-${line.length}-${line.charCodeAt(0) || 0}`,
-    line,
+    shotDesc: line, // 演示：画面描述 = 该句；实际由结构化拆分引擎产出
+    narration: line, // 口播旁白默认同句，可独立编辑
+    caption: line, // 字幕默认继承旁白
     camera: CAMERAS[i % CAMERAS.length],
+    shotSize: SHOT_SIZES[i % SHOT_SIZES.length],
+    assetRefs: [] as string[],
+    locked: false,
     dur: per,
     poster: posterFor(line + i),
     status: "idle" as const,
@@ -93,8 +115,10 @@ export function Studio({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const { addWork } = useLibrary();
   const timers = useRef<number[]>([]);
 
+  const [projectName, setProjectName] = useState("未命名项目");
   const [stepKey, setStepKey] = useState(studioSteps.find((s) => s.key === initialStep)?.key ?? "script");
   const [script, setScript] = useState(DEFAULT_SCRIPT);
   const [aiBusy, setAiBusy] = useState(false);
@@ -103,6 +127,9 @@ export function Studio({
     整体风格: "国风清新",
     总时长: "30s",
     配音: "温柔女声",
+    配乐: "舒缓",
+    字幕: "显示",
+    画质: "720P 清晰",
   });
   const [assets, setAssets] = useState<Asset[]>([
     { id: "a1", emoji: "🏞️", name: "高山云雾茶园", kind: "场景" },
@@ -143,24 +170,40 @@ export function Studio({
   }
 
   // —— 行为 ——
+  // M2：AI 结构化生成——把要点/成稿组织成「开场钩子 → 卖点 → 场景 → 行动号召」四段式剧本
   function aiScript() {
     setAiBusy(true);
     timers.current.push(
       window.setTimeout(() => {
-        setScript(
-          (cur) =>
-            cur.trim() +
-            "。镜头从高山茶园全景航拍切入，推近至嫩芽特写；采茶、冲泡、罐装产地直发逐一呈现，暖色调清新自然、有地域辨识度，配舒缓背景音乐与温柔旁白。"
-        );
+        setScript((cur) => {
+          const core = cur.trim().replace(/[。.!！?？\s]+$/, "");
+          const subject = core.slice(0, 12) || "本产品";
+          return [
+            `【开场】航拍缓缓切入，${subject}的产地全景在晨光中展开，瞬间抓住眼球。`,
+            `【卖点】推近特写，逐一呈现核心卖点：${core}。`,
+            `【场景】切入真实使用/生产场景，人物动作自然，画面有地域辨识度。`,
+            `【号召】结尾定格产品与标识，配一句行动号召，引导下单/到店/关注。`,
+          ].join("\n");
+        });
         setAiBusy(false);
-        toast("已 AI 扩写剧本（演示）");
+        toast("已生成结构化剧本（开场/卖点/场景/号召，演示）");
       }, 1100)
     );
   }
 
+  // 非破坏式重拆：锁定的镜头保留，其余按剧本重新拆分
   function rebuildShots() {
-    setShots(makeShots(script, durSeconds(settings.总时长)));
-    toast(`已按剧本拆出分镜（共 ${makeShots(script, durSeconds(settings.总时长)).length} 镜）`);
+    setShots((prev) => {
+      const locked = prev.filter((s) => s.locked);
+      const fresh = makeShots(script, durSeconds(settings.总时长));
+      if (!locked.length) {
+        toast(`已按剧本拆出分镜（共 ${fresh.length} 镜）`);
+        return fresh;
+      }
+      const merged = [...locked, ...fresh];
+      toast(`已重新拆分镜，保留 ${locked.length} 个锁定镜头（共 ${merged.length} 镜）`);
+      return merged;
+    });
   }
 
   function editShot(id: string, patch: Partial<Shot>) {
@@ -176,8 +219,13 @@ export function Studio({
         ...prev,
         {
           id: `shot-new-${i}-${Date.now() % 100000}`,
-          line: "新镜头：补充画面描述",
+          shotDesc: "新镜头：补充画面描述",
+          narration: "",
+          caption: "",
           camera: CAMERAS[i % CAMERAS.length],
+          shotSize: SHOT_SIZES[i % SHOT_SIZES.length],
+          assetRefs: [],
+          locked: false,
           dur: 4,
           poster: posterFor("new" + i + Date.now()),
           status: "idle",
@@ -186,10 +234,43 @@ export function Studio({
       ];
     });
   }
+  // 镜头排序：上移 / 下移
+  function moveShot(id: string, dir: -1 | 1) {
+    setShots((prev) => {
+      const i = prev.findIndex((s) => s.id === id);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }
+  // 复制镜头：在其后插入一份副本（重置生成状态）
+  function duplicateShot(id: string) {
+    setShots((prev) => {
+      const i = prev.findIndex((s) => s.id === id);
+      if (i < 0) return prev;
+      const src = prev[i];
+      const copy: Shot = {
+        ...src,
+        id: `shot-copy-${i}-${Date.now() % 100000}`,
+        locked: false,
+        status: "idle",
+        pct: 0,
+      };
+      const next = [...prev];
+      next.splice(i + 1, 0, copy);
+      return next;
+    });
+  }
+  function toggleLock(id: string) {
+    setShots((prev) => prev.map((s) => (s.id === id ? { ...s, locked: !s.locked } : s)));
+  }
 
-  // 逐镜生成（进度状态机：idle → gen → done）
+  // 逐镜生成（状态机：idle/failed → gen → done / failed）
+  // 演示：约 12% 概率失败，落到失败态并给出映射后的中文原因 + 可重试
   function genShot(id: string) {
-    setShots((prev) => prev.map((s) => (s.id === id && s.status !== "gen" ? { ...s, status: "gen", pct: 6 } : s)));
+    setShots((prev) => prev.map((s) => (s.id === id && s.status !== "gen" ? { ...s, status: "gen", pct: 6, failReason: undefined } : s)));
     let pct = 6;
     const iv = window.setInterval(() => {
       pct = Math.min(92, pct + 11);
@@ -198,20 +279,40 @@ export function Studio({
     timers.current.push(iv);
     const to = window.setTimeout(() => {
       window.clearInterval(iv);
-      setShots((prev) => prev.map((s) => (s.id === id ? { ...s, status: "done", pct: 100 } : s)));
+      const fail = Math.random() < 0.12;
+      setShots((prev) =>
+        prev.map((s) =>
+          s.id === id
+            ? fail
+              ? { ...s, status: "failed", pct: 0, failReason: "生成失败，请重试（额度已退还）" }
+              : { ...s, status: "done", pct: 100, failReason: undefined }
+            : s
+        )
+      );
     }, 1700 + Math.random() * 700);
     timers.current.push(to);
   }
 
+  // 批量生成：生成前弹额度预估确认（1080P 计 2 倍额度）
   function genAll() {
+    const pending = shots.filter((s) => s.status !== "done");
+    if (!pending.length) {
+      toast("全部分镜已生成完成");
+      return;
+    }
+    const mult = settings.画质?.includes("1080") ? 2 : 1;
+    const cost = pending.length * mult;
+    const ok = window.confirm(
+      `本次将生成 ${pending.length} 个分镜，预计消耗 ${cost} 次生成额度${mult === 2 ? "（1080P 高清 ×2）" : ""}。是否继续？`
+    );
+    if (!ok) return;
     let stagger = 0;
-    shots.forEach((s) => {
-      if (s.status === "done") return;
+    pending.forEach((s) => {
       const to = window.setTimeout(() => genShot(s.id), stagger);
       timers.current.push(to);
       stagger += 360;
     });
-    toast("已开始批量生成全部分镜");
+    toast(`已开始批量生成 ${pending.length} 个分镜`);
   }
 
   // 导出：把分镜逐镜画面用 Ken Burns 录制并拼接为一段真实长视频
@@ -271,7 +372,7 @@ export function Studio({
         await new Promise<void>((resolve) => {
           const tick = () => {
             const p = Math.min(1, (performance.now() - t0) / 1000 / dur);
-            drawKenBurns(ctx, img, cw, ch, p, filmShots[i].line);
+            drawKenBurns(ctx, img, cw, ch, p, filmShots[i].caption);
             setExportPct(Math.round(((i + p) / filmShots.length) * 100));
             if (p >= 1) resolve();
             else requestAnimationFrame(tick);
@@ -290,6 +391,44 @@ export function Studio({
     }
   }
 
+  // M9：成片交付——存入「我的作品 / 仓库」（写入作品库，缩略图取首个已生成分镜）
+  function saveToLibrary() {
+    const film = doneShots.length ? doneShots : shots;
+    if (!film.length) {
+      toast("请先在「分镜脚本」拆出镜头", "warn");
+      return;
+    }
+    const card: AssetCard = {
+      emoji: "🎬",
+      grad: "thumb-grad-1",
+      kind: "视频",
+      name: `${projectName} · ${film.length}镜 / ${film.reduce((a, s) => a + s.dur, 0)}s`,
+      sub: "视频生成 · 制作大片",
+      img: film[0].poster,
+      time: nowStamp(),
+      edit: { sub: "studio" },
+    };
+    try {
+      addWork(card);
+      toast("已存入「我的作品 · 仓库」");
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "QuotaExceededError") {
+        toast("本地存储空间不足，作品可能未保存", "warn");
+      } else {
+        toast("存入失败，请重试", "warn");
+      }
+    }
+  }
+
+  // M9：提交审核（演示——真实流程接入平台审核队列）
+  function submitReview() {
+    if (!doneShots.length) {
+      toast("请先生成分镜并合成成片，再提交审核", "warn");
+      return;
+    }
+    toast("已提交审核，结果将在「我的作品」中更新（演示）");
+  }
+
   return (
     <div className="page">
       <div className="editor-layout">
@@ -302,8 +441,18 @@ export function Studio({
                   <Icon name="chevron" size={18} />
                 </button>
               )}
-              <span className="st-proj">
-                未命名项目 · {active.name} · {shots.length} 镜 / {totalDur}s
+              <input
+                className="st-proj-input"
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+                aria-label="项目名称"
+                title="点击修改项目名称"
+              />
+              <span className="st-proj-meta">
+                {active.name} · {shots.length} 镜 / {totalDur}s
+              </span>
+              <span className="st-progress">
+                第 {activeIdx + 1}/{studioSteps.length} 步 · {doneShots.length}/{shots.length} 镜已生成
               </span>
             </div>
             <div className="st-right">
@@ -358,9 +507,15 @@ export function Studio({
                   editShot={editShot}
                   removeShot={removeShot}
                   addShot={addShot}
+                  moveShot={moveShot}
+                  duplicateShot={duplicateShot}
+                  toggleLock={toggleLock}
                   genShot={genShot}
                   genAll={genAll}
                   exportFilm={exportFilm}
+                  saveToLibrary={saveToLibrary}
+                  submitReview={submitReview}
+                  exporting={exporting}
                 />
               </div>
 
@@ -391,9 +546,15 @@ function StudioStepView(props: {
   editShot: (id: string, patch: Partial<Shot>) => void;
   removeShot: (id: string) => void;
   addShot: () => void;
+  moveShot: (id: string, dir: -1 | 1) => void;
+  duplicateShot: (id: string) => void;
+  toggleLock: (id: string) => void;
   genShot: (id: string) => void;
   genAll: () => void;
   exportFilm: () => void;
+  saveToLibrary: () => void;
+  submitReview: () => void;
+  exporting: boolean;
 }) {
   const { stepKey, goStep, toast } = props;
 
@@ -401,17 +562,23 @@ function StudioStepView(props: {
     return (
       <div className="stage-panel">
         <div className="sp-title">① 剧本编辑</div>
-        <div className="sp-sub">填写要点，AI 自动生成视频剧本；也可直接粘贴文案。一句话（句号/分号分隔）会拆成一个镜头。</div>
+        <div className="sp-sub">填写要点或粘贴成稿，AI 生成「开场/卖点/场景/号召」结构化剧本；一句话（句号/分号分隔）会拆成一个镜头。</div>
         <textarea
           className="sp-textarea"
           value={props.script}
           onChange={(e) => props.setScript(e.target.value)}
           placeholder="输入产品 / 场景要点，或粘贴成稿文案…"
         />
+        <div className="sp-estimate">
+          {(() => {
+            const n = props.script.split(/[。\n；;！!？?]+/).map((x) => x.trim()).filter(Boolean).slice(0, 6).length || 1;
+            return <>预计 ≈ <b>{n}</b> 镜 / 总时长 <b>{props.settings.总时长}</b>（{props.settings.画质} · {props.settings.字幕 === "隐藏" ? "无字幕" : "含字幕"}）</>;
+          })()}
+        </div>
         <div className="sp-actions">
           <button className="btn btn-soft btn-sm" disabled={props.aiBusy} onClick={props.aiScript}>
             <Icon name={props.aiBusy ? "refresh" : "sparkle"} size={14} className={props.aiBusy ? "ico-spin" : undefined} />{" "}
-            {props.aiBusy ? "AI 生成中…" : "AI 扩写剧本"}
+            {props.aiBusy ? "AI 生成中…" : "AI 生成结构化剧本"}
           </button>
           <button className="btn btn-primary btn-sm" onClick={() => goStep("setting")}>
             下一步 · 视频设定 →
@@ -432,7 +599,8 @@ function StudioStepView(props: {
               key={g.label}
               label={g.label}
               opts={g.opts}
-              value={props.settings[g.label === "整体风格" ? "整体风格" : g.label] ?? g.opts[0]}
+              hint={g.hint}
+              value={props.settings[g.label] ?? g.opts[0]}
               onPick={(v) => props.setSettings((s) => ({ ...s, [g.label]: v }))}
             />
           ))}
@@ -450,20 +618,20 @@ function StudioStepView(props: {
     return (
       <div className="stage-panel">
         <div className="sp-title">③ 场景角色道具</div>
-        <div className="sp-sub">设定出镜元素，AI 在分镜里保持一致性。点 × 删除，可继续添加。</div>
-        <div className="sp-cards">
+        <div className="sp-sub">设定出镜元素并上传参考图，可改名称/类型；在「分镜脚本」为每镜勾选出镜元素，生成时注入参考图保持跨镜一致。</div>
+        <div className="sp-cards2">
           {props.assets.map((a) => (
-            <div className="sp-card" key={a.id}>
-              <button className="sp-card-x" onClick={() => props.setAssets((list) => list.filter((x) => x.id !== a.id))} aria-label="删除">
-                <Icon name="close" size={12} />
-              </button>
-              <div className="sp-card-ico">{a.emoji}</div>
-              <div>{a.name}</div>
-              <span className="tag green">{a.kind}</span>
-            </div>
+            <AssetCardEdit
+              key={a.id}
+              asset={a}
+              toast={toast}
+              onChange={(patch) => props.setAssets((list) => list.map((x) => (x.id === a.id ? { ...x, ...patch } : x)))}
+              onRemove={() => props.setAssets((list) => list.filter((x) => x.id !== a.id))}
+            />
           ))}
-          <div
-            className="sp-card sp-card-add"
+          <button
+            type="button"
+            className="sp-card2 sp-card2-add"
             onClick={() =>
               props.setAssets((list) => [
                 ...list,
@@ -477,7 +645,7 @@ function StudioStepView(props: {
             }
           >
             ＋ 添加元素
-          </div>
+          </button>
         </div>
         <div className="sp-actions">
           <button className="btn btn-primary btn-sm" onClick={() => goStep("storyboard")}>
@@ -493,35 +661,118 @@ function StudioStepView(props: {
       <div className="stage-panel">
         <div className="sp-title">④ 分镜脚本</div>
         <div className="sp-sub">
-          AI 已按剧本拆出 {props.shots.length} 个镜头，可改旁白、调时长、增删镜头。
+          AI 已按剧本拆出 {props.shots.length} 个镜头。每镜可分别编辑「画面描述 / 口播旁白 / 字幕」，并设定运镜、景别、时长；可排序、复制、锁定、增删。
         </div>
         <div className="sb-list">
           {props.shots.map((s, i) => (
-            <div className="sb-shot" key={s.id}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img className="sb-thumb-img" src={s.poster} alt={`镜头${i + 1}`} />
-              <div className="sb-meta">
-                <div className="sb-no">
-                  镜头 {i + 1} <span className="sb-cam">{s.camera}</span>
+            <div className={`sb-shot2 ${s.locked ? "locked" : ""}`} key={s.id}>
+              <div className="sb-head">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img className="sb-thumb-img" src={s.poster} alt={`镜头${i + 1}`} />
+                <div className="sb-headinfo">
+                  <div className="sb-no">
+                    镜头 {i + 1}
+                    {s.locked && <span className="sb-lock-tag">已锁定</span>}
+                  </div>
+                  <div className="sb-tools">
+                    <button className="sb-tool" onClick={() => props.moveShot(s.id, -1)} disabled={i === 0} aria-label="上移" title="上移">↑</button>
+                    <button className="sb-tool" onClick={() => props.moveShot(s.id, 1)} disabled={i === props.shots.length - 1} aria-label="下移" title="下移">↓</button>
+                    <button className="sb-tool" onClick={() => props.duplicateShot(s.id)} aria-label="复制" title="复制镜头">复制</button>
+                    <button className={`sb-tool ${s.locked ? "on" : ""}`} onClick={() => props.toggleLock(s.id)} aria-label="锁定" title="锁定后重新拆分镜时保留">{s.locked ? "解锁" : "锁定"}</button>
+                    <button className="sb-tool danger" onClick={() => props.removeShot(s.id)} aria-label="删除镜头" title="删除">
+                      <Icon name="trash" size={13} />
+                    </button>
+                  </div>
                 </div>
+              </div>
+
+              <div className="sb-fields">
+                <label className="sb-flabel">画面描述</label>
+                <textarea
+                  className="sb-field-ta"
+                  rows={2}
+                  value={s.shotDesc}
+                  placeholder="这一镜画面里有什么（用于生成）…"
+                  onChange={(e) => props.editShot(s.id, { shotDesc: e.target.value })}
+                />
+                <label className="sb-flabel">口播旁白</label>
                 <input
-                  className="sb-line-input"
-                  value={s.line}
-                  onChange={(e) => props.editShot(s.id, { line: e.target.value })}
+                  className="sb-field-in"
+                  value={s.narration}
+                  placeholder="这一镜的配音文案（用于 TTS）…"
+                  onChange={(e) => props.editShot(s.id, { narration: e.target.value })}
+                />
+                <label className="sb-flabel">
+                  字幕
+                  <button
+                    className="sb-sync"
+                    type="button"
+                    onClick={() => props.editShot(s.id, { caption: s.narration })}
+                    title="用口播旁白填充字幕"
+                  >
+                    同步旁白
+                  </button>
+                </label>
+                <input
+                  className="sb-field-in"
+                  value={s.caption}
+                  placeholder="屏幕字幕（默认继承旁白）…"
+                  onChange={(e) => props.editShot(s.id, { caption: e.target.value })}
                 />
               </div>
-              <div className="sb-dur-ctl">
-                <button onClick={() => props.editShot(s.id, { dur: Math.max(2, s.dur - 1) })} aria-label="减少时长">
-                  −
-                </button>
-                <span>{s.dur}s</span>
-                <button onClick={() => props.editShot(s.id, { dur: Math.min(10, s.dur + 1) })} aria-label="增加时长">
-                  ＋
-                </button>
+
+              <div className="sb-ctls">
+                <label className="sb-ctl">
+                  <span>运镜</span>
+                  <select className="sb-sel" value={s.camera} onChange={(e) => props.editShot(s.id, { camera: e.target.value })}>
+                    {CAMERAS.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="sb-ctl">
+                  <span>景别</span>
+                  <select className="sb-sel" value={s.shotSize} onChange={(e) => props.editShot(s.id, { shotSize: e.target.value })}>
+                    {SHOT_SIZES.map((z) => (
+                      <option key={z} value={z}>{z}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="sb-dur-ctl">
+                  <button onClick={() => props.editShot(s.id, { dur: Math.max(2, s.dur - 1) })} aria-label="减少时长">−</button>
+                  <span>{s.dur}s</span>
+                  <button onClick={() => props.editShot(s.id, { dur: Math.min(15, s.dur + 1) })} aria-label="增加时长">＋</button>
+                </div>
               </div>
-              <button className="sb-del" onClick={() => props.removeShot(s.id)} aria-label="删除镜头">
-                <Icon name="trash" size={14} />
-              </button>
+
+              {props.assets.length > 0 && (
+                <div className="sb-assets">
+                  <span className="sb-assets-lbl">出镜元素</span>
+                  {props.assets.map((a) => {
+                    const on = s.assetRefs.includes(a.id);
+                    return (
+                      <span
+                        key={a.id}
+                        className={on ? "sb-asset-chip on" : "sb-asset-chip"}
+                        onClick={() =>
+                          props.editShot(s.id, {
+                            assetRefs: on ? s.assetRefs.filter((x) => x !== a.id) : [...s.assetRefs, a.id],
+                          })
+                        }
+                        title={on ? "点击取消绑定" : "点击绑定该元素"}
+                      >
+                        {a.refImg ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={a.refImg} alt="" className="sb-asset-thumb" />
+                        ) : (
+                          <span className="sb-asset-emoji">{a.emoji}</span>
+                        )}
+                        {a.name}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -567,6 +818,14 @@ function StudioStepView(props: {
                       <Icon name="check" size={11} /> 已生成
                     </span>
                   </>
+                ) : s.status === "failed" ? (
+                  <div className="clip-fail">
+                    <Icon name="close" size={16} />
+                    <span className="clip-fail-msg">{s.failReason ?? "生成失败"}</span>
+                    <button className="clip-retry" onClick={() => props.genShot(s.id)}>
+                      <Icon name="refresh" size={12} /> 重试
+                    </button>
+                  </div>
                 ) : (
                   <button className="clip-gen" onClick={() => props.genShot(s.id)}>
                     <Icon name="sparkle" size={14} /> 生成
@@ -577,7 +836,7 @@ function StudioStepView(props: {
                 <span>镜头 {i + 1}</span>
                 {s.status !== "gen" && (
                   <button className="btn btn-ghost btn-sm" onClick={() => props.genShot(s.id)}>
-                    <Icon name="refresh" size={12} /> {s.status === "done" ? "重生成" : "生成"}
+                    <Icon name="refresh" size={12} /> {s.status === "done" ? "重生成" : s.status === "failed" ? "重试" : "生成"}
                   </button>
                 )}
               </div>
@@ -615,12 +874,18 @@ function StudioStepView(props: {
     <div className="stage-panel">
       <div className="sp-title">⑥ 视频预览</div>
       <div className="sp-sub">
-        {ready.length} 个分镜按顺序连续播放（共 {ready.reduce((a, s) => a + s.dur, 0)}s）。满意后点右上角「导出视频」生成长片。
+        {ready.length} 个分镜按顺序连续播放（共 {ready.reduce((a, s) => a + s.dur, 0)}s）。满意后可导出到本地、存入作品库或提交审核。
       </div>
       <FilmPlayer shots={ready} ratio={props.ratio} />
       <div className="sp-actions">
-        <button className="btn btn-primary btn-sm" onClick={props.exportFilm}>
-          <Icon name="upload" size={14} /> 导出长视频
+        <button className="btn btn-primary btn-sm" disabled={props.exporting} onClick={props.exportFilm}>
+          <Icon name="upload" size={14} /> {props.exporting ? "导出中…" : "导出到本地"}
+        </button>
+        <button className="btn btn-soft btn-sm" onClick={props.saveToLibrary}>
+          <Icon name="check" size={14} /> 存入作品库
+        </button>
+        <button className="btn btn-soft btn-sm" onClick={props.submitReview}>
+          <Icon name="upload" size={14} /> 提交审核
         </button>
       </div>
     </div>
@@ -692,7 +957,7 @@ function FilmPlayer({ shots, ratio }: { shots: Shot[]; ratio: string }) {
         p = 1;
       }
       const img = imgs.current[shots[ci].poster];
-      if (img) drawKenBurns(ctx, img, cw, ch, p, shots[ci].line);
+      if (img) drawKenBurns(ctx, img, cw, ch, p, shots[ci].caption);
       if (Math.abs(tRef.current - uiRef.current) > 0.1) {
         uiRef.current = tRef.current;
         setT(tRef.current);
@@ -765,16 +1030,21 @@ function SettingField({
   label,
   opts,
   value,
+  hint,
   onPick,
 }: {
   label: string;
   opts: string[];
   value: string;
+  hint?: string;
   onPick: (v: string) => void;
 }) {
   return (
     <div className="sp-field">
-      <div className="sp-label">{label}</div>
+      <div className="sp-label">
+        {label}
+        {hint && <span className="sp-hint">{hint}</span>}
+      </div>
       <div className="chip-row">
         {opts.map((o) => (
           <span key={o} className={value === o ? "sel-chip on" : "sel-chip"} onClick={() => onPick(o)}>
@@ -786,10 +1056,80 @@ function SettingField({
   );
 }
 
+// M4：可编辑元素卡——名称 / 类型 / 参考图（一致性锚点）
+function AssetCardEdit({
+  asset,
+  toast,
+  onChange,
+  onRemove,
+}: {
+  asset: Asset;
+  toast: (s: string, k?: "warn") => void;
+  onChange: (patch: Partial<Asset>) => void;
+  onRemove: () => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  function onFile(e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!["jpg", "jpeg", "png", "webp"].includes(ext)) {
+      toast("仅支持 JPG、PNG、WEBP 格式图片", "warn");
+      return;
+    }
+    if (f.size > 10 * 1024 * 1024) {
+      toast("图片大小不能超过 10 MB，请压缩后重试", "warn");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => onChange({ refImg: String(reader.result) });
+    reader.readAsDataURL(f);
+  }
+  return (
+    <div className="sp-card2">
+      <button className="sp-card2-x" onClick={onRemove} aria-label="删除">
+        <Icon name="close" size={12} />
+      </button>
+      <button className="sp-card2-img" type="button" onClick={() => fileRef.current?.click()} title="上传参考图">
+        {asset.refImg ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={asset.refImg} alt={asset.name} />
+        ) : (
+          <span className="sp-card2-ph">
+            <span className="sp-card2-emoji">{asset.emoji}</span>
+            <span className="sp-card2-up">＋ 参考图</span>
+          </span>
+        )}
+      </button>
+      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={onFile} />
+      <input
+        className="sp-card2-name"
+        value={asset.name}
+        placeholder="元素名称"
+        onChange={(e) => onChange({ name: e.target.value })}
+      />
+      <div className="sp-card2-kinds">
+        {ASSET_KINDS.map((k) => (
+          <span
+            key={k}
+            className={asset.kind === k ? "sp-kind on" : "sp-kind"}
+            onClick={() => onChange({ kind: k })}
+          >
+            {k}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // 多轨时间轴：视频轨按分镜分段（已生成显示封面），配音/字幕/音乐随设定
 function Timeline({ shots, totalDur, settings }: { shots: Shot[]; totalDur: number; settings: Record<string, string> }) {
   const total = totalDur || 1;
   const hasVoice = settings.配音 && settings.配音 !== "不配音";
+  const hasBgm = settings.配乐 && settings.配乐 !== "无";
+  const showCaption = settings.字幕 !== "隐藏";
   return (
     <div className="timeline">
       <div className="tl-playhead" />
@@ -804,7 +1144,7 @@ function Timeline({ shots, totalDur, settings }: { shots: Shot[]; totalDur: numb
                 key={s.id}
                 className={`tl-seg ${s.status === "done" ? "done" : s.status === "gen" ? "gen" : "idle"}`}
                 style={{ width: `${(s.dur / total) * 100}%` }}
-                title={`镜头${i + 1} · ${s.line}`}
+                title={`镜头${i + 1} · ${s.shotDesc}`}
               >
                 {s.status === "done" && (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -825,10 +1165,12 @@ function Timeline({ shots, totalDur, settings }: { shots: Shot[]; totalDur: numb
       <div className="tl-row">
         <span className="tl-label">字幕</span>
         <div className="tl-track tl-sub">
-          {shots.length ? (
+          {!showCaption ? (
+            <span className="tl-none">已隐藏</span>
+          ) : shots.length ? (
             shots.map((s, i) => (
-              <div key={s.id} className="tl-seg-sub" style={{ width: `${(s.dur / total) * 100}%` }} title={s.line}>
-                {s.line}
+              <div key={s.id} className="tl-seg-sub" style={{ width: `${(s.dur / total) * 100}%` }} title={s.caption}>
+                {s.caption}
               </div>
             ))
           ) : (
@@ -839,7 +1181,7 @@ function Timeline({ shots, totalDur, settings }: { shots: Shot[]; totalDur: numb
       <div className="tl-row">
         <span className="tl-label">音乐</span>
         <div className="tl-track tl-music">
-          {shots.length ? <div className="tl-fullbar">♪ 背景音乐 · 舒缓</div> : <span className="tl-none">♪ 无</span>}
+          {shots.length && hasBgm ? <div className="tl-fullbar">♪ 背景音乐 · {settings.配乐}</div> : <span className="tl-none">♪ 无</span>}
         </div>
       </div>
     </div>
