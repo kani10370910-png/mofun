@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import type { AssetCard } from "@/lib/types";
@@ -241,6 +241,13 @@ export function IpGallery({
   );
 }
 
+const LOAD_PHASES = [
+  "正在理解您的 IP 创意…",
+  "AI 正在绘制形象草稿…",
+  "细化线条与色彩中，稍等片刻…",
+  "即将完成，请耐心等待…",
+];
+
 function IpRunRowView({
   row,
   toast,
@@ -263,6 +270,12 @@ function IpRunRowView({
   onGenerate: (payload: IpGenPayload) => void;
 }) {
   const loading = row.pct < 100;
+  const [phaseIdx, setPhaseIdx] = useState(0);
+  useEffect(() => {
+    if (!loading) return;
+    const t = window.setInterval(() => setPhaseIdx((p) => (p + 1) % LOAD_PHASES.length), 8_000);
+    return () => window.clearInterval(t);
+  }, [loading]);
   const cells = row.grads.map((grad, i) => ({ grad, i, key: `ip-${row.id}-${i}` }));
   const shown = !loading && !row.error && onlyFav ? cells.filter(({ key }) => isFav(key)) : cells;
   // 「只看收藏」下，已完成且无收藏结果的行整行隐藏
@@ -340,12 +353,12 @@ function IpRunRowView({
               <span className="lh-progress">{row.pct}%完成</span>
               <span className="lh-think">
                 <Icon name="sparkle" size={22} />
-                <em>正在构思…</em>
+                <em>{LOAD_PHASES[phaseIdx]}</em>
               </span>
             </div>
           ) : row.error ? (
-            <div className={`lh-img ${grad}`} key={i} style={{ aspectRatio: ratioToAspect(row.ratioName), display: "grid", placeItems: "center", padding: 12 }}>
-              <span className="lh-fail">生成失败</span>
+            <div className={`lh-img ${grad}`} key={i} style={{ aspectRatio: ratioToAspect(row.ratioName), display: "grid", placeItems: "center", padding: 12, textAlign: "center" }}>
+              <span className="lh-fail">{row.error}</span>
             </div>
           ) : (
             <IpResultCard
@@ -402,6 +415,7 @@ function IpResultCard({
 }) {
   const [zoom, setZoom] = useState(false); // 点击图片放大预览
   const [imgError, setImgError] = useState(false); // 图片加载失败（URL 失效/超时）
+  const [reloadKey, setReloadKey] = useState(0); // 强制重新加载图片
   const [story, setStory] = useState(false); // IP 故事弹窗
   const [dlOpen, setDlOpen] = useState(false); // 编辑/下载（生成信息）弹窗
 
@@ -440,13 +454,24 @@ function IpResultCard({
         // eslint-disable-next-line @next/next/no-img-element
         <img
           className="lh-result-img"
-          src={img}
+          src={`${img}${reloadKey ? `#r${reloadKey}` : ""}`}
           alt={name}
           loading="lazy"
           onError={() => setImgError(true)}
         />
+      ) : imgError ? (
+        <div className="lh-img-err" onClick={(e) => e.stopPropagation()}>
+          <Icon name="image" size={28} />
+          <span>图片加载失败</span>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={(e) => { e.stopPropagation(); setImgError(false); setReloadKey((k) => k + 1); }}
+          >
+            重新加载
+          </button>
+        </div>
       ) : (
-        <span className="lh-emoji">{imgError ? "🖼️" : "🧸"}</span>
+        <span className="lh-emoji">🧸</span>
       )}
       {/* hover 遮罩：居中「编辑/下载」胶囊按钮（结构 1:1 对齐 logo / AI 字体卡片） */}
       <div className="lh-hover lh-hover-bottom">

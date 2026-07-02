@@ -58,8 +58,10 @@ function loadKeys(key: string): string[] {
 function save(key: string, value: unknown) {
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* 忽略写入失败（隐私模式等） */
+  } catch (e) {
+    if (e instanceof DOMException && (e.name === "QuotaExceededError" || e.code === 22)) {
+      window.dispatchEvent(new CustomEvent("mofun:storage-quota"));
+    }
   }
 }
 

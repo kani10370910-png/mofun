@@ -11,6 +11,31 @@ import { LibraryPickerModal } from "./LibraryPickerModal";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 import { imgToDataUrl } from "@/lib/image";
 
+// 参考图/IP 图上传校验
+const ALLOWED_IMG_EXTS = new Set(["jpg", "jpeg", "png", "webp"]);
+const MAX_IMG_BYTES = 10 * 1024 * 1024; // 10 MB
+
+function validateImgFile(f: File, toast: (s: string, k?: "warn") => void): boolean {
+  const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
+  if (!ALLOWED_IMG_EXTS.has(ext)) {
+    toast("仅支持 JPG、PNG、WEBP 格式图片", "warn");
+    return false;
+  }
+  if (f.size > MAX_IMG_BYTES) {
+    toast("图片大小不能超过 10 MB，请压缩后重试", "warn");
+    return false;
+  }
+  return true;
+}
+
+// 简单敏感词列表（本地前置拦截，服务端仍有完整审核）
+const BLOCKED_WORDS = ["色情", "裸露", "暴力", "毒品", "赌博", "色图", "porn", "nude", "fuck", "shit"];
+
+function hasBlockedWord(text: string): boolean {
+  const lower = text.toLowerCase();
+  return BLOCKED_WORDS.some((w) => lower.includes(w));
+}
+
 // IP 设计的画面尺寸只显示比例名称，不显示「1080 × 1080 px」；末尾追加「自定义」
 const CUSTOM_RATIO = "自定义";
 const ratioOpts: DropdownOption[] = [
@@ -228,6 +253,10 @@ function IpCreate({
       toast("请输入创意描述！", "warn");
       return;
     }
+    if (hasBlockedWord(desc)) {
+      toast("包含不允许的词语，请修改后重试", "warn");
+      return;
+    }
     // 自定义比例需为正整数
     if (isCustomRatio && (!Number(cw) || !Number(ch))) {
       toast("请填写有效的自定义宽高比例！", "warn");
@@ -388,6 +417,7 @@ function IpCreate({
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) {
+              if (!validateImgFile(f, toast)) { e.target.value = ""; return; }
               if (refUrl) URL.revokeObjectURL(refUrl);
               setRefUrl(URL.createObjectURL(f));
               toast(`已选择参考图：${f.name}`);
@@ -798,6 +828,7 @@ function IpExtend({
   ) {
     const f = e.target.files?.[0];
     if (f) {
+      if (!validateImgFile(f, toast)) { e.target.value = ""; return; }
       if (prevUrl && !prevIsRemote) URL.revokeObjectURL(prevUrl);
       set(URL.createObjectURL(f));
       toast(`已选择${label}：${f.name}`);
@@ -826,6 +857,10 @@ function IpExtend({
   async function handleExtGenerate() {
     if (!ipImgUrl) {
       toast("请先上传 IP 图！", "warn");
+      return;
+    }
+    if (extDesc.trim() && hasBlockedWord(extDesc)) {
+      toast("包含不允许的词语，请修改后重试", "warn");
       return;
     }
     // 本次实际涉及的延展项（标题列全）：

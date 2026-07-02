@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { EditorRail, type RailItem } from "@/components/ui/EditorRail";
@@ -118,6 +118,14 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   const sim = useSimGenerate();
   const { addWork } = useLibrary();
 
+  // 监听 localStorage 空间不足事件（由 store.tsx 的 save() 触发）
+  useEffect(() => {
+    const handler = () => toast("本地存储空间不足，历史记录可能无法保存", "warn");
+    window.addEventListener("mofun:storage-quota", handler);
+    return () => window.removeEventListener("mofun:storage-quota", handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [active, setActive] = useState<ImageTypeKey>(
     (imageTypes.find((t) => t.key === initialSub)?.key as ImageTypeKey) ?? imageTypes[0].key
   );
@@ -185,6 +193,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   const [ipRuns, setIpRuns] = useState<IpRunRow[]>(SEED_IP_RUNS);
   const [ipBusy, setIpBusy] = useState(false);
   const ipTimer = useRef<number | null>(null);
+  // 每日配额耗尽弹层
+  const [quotaOpen, setQuotaOpen] = useState(false);
   // IP 右侧 tab：默认看「生成历史」（已有预置演示历史）
   const [ipTab, setIpTab] = useState<"history" | "inspire">("history");
   // 「延展设计」：把某张生成图作为待延展的 IP 图，带去 IP扩展设计子表单
@@ -445,11 +455,21 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
             ...(payload!.refImage ? { image: payload!.refImage } : {}),
           }),
         });
-        const j = await r.json();
+        const j = await r.json() as { images?: string[]; error?: string };
+        const errMsg = j?.error ?? "";
+        // 配额耗尽 / 内容安全：不重试，直接向上抛带 code 的错误
+        if (r.status === 429 || /quota|limit/i.test(errMsg)) {
+          throw Object.assign(new Error(errMsg || "quota"), { code: "quota" });
+        }
+        if (r.status === 400 && /content|safety|policy/i.test(errMsg)) {
+          throw Object.assign(new Error(errMsg || "safety"), { code: "safety" });
+        }
         const url = (j?.images?.[0] as string) || "";
         if (url) return url;
-      } catch {
-        /* 网络错误，落到重试 */
+      } catch (e) {
+        const code = (e as { code?: string })?.code;
+        if (code === "quota" || code === "safety") throw e; // 不重试
+        /* 其他网络错误，落到重试 */
       }
       if (attempt < 3) {
         await new Promise((res) => setTimeout(res, 1000 * (attempt + 1)));
@@ -471,8 +491,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
 
       const ok = imgs.filter(Boolean);
       if (ok.length === 0) {
-        setIpRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: 100, error: "生成失败" } : r)));
-        toast("文生图失败，请稍后重试或检查图像 API 配置。", "warn");
+        setIpRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: 100, error: "未能生成合适的结果，请尝试修改描述或参考图" } : r)));
+        toast("文生图未返回结果，请调整描述后重试。", "warn");
         return;
       }
       setIpRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: 100, imgs } : r)));
@@ -494,10 +514,21 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         time: nowStamp(),
         edit: { sub: "ip", input: payload.prompt },
       });
-    } catch {
+    } catch (e) {
       finishTimer();
-      setIpRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: 100, error: "生成失败" } : r)));
-      toast("网络错误，文生图失败。", "warn");
+      const code = (e as { code?: string })?.code;
+      const rawMsg = (e as Error)?.message ?? "";
+      if (code === "quota") {
+        setIpRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: 100, error: "今日生成次数已达上限" } : r)));
+        setQuotaOpen(true);
+      } else if (code === "safety") {
+        setIpRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: 100, error: "描述内容未通过安全审核，请调整后重试" } : r)));
+        toast("内容未通过安全审核，请修改描述后重试", "warn");
+      } else {
+        const display = mapIpError(rawMsg);
+        setIpRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: 100, error: display } : r)));
+        toast(display, "warn");
+      }
     } finally {
       setIpBusy(false);
     }
@@ -948,8 +979,36 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         </div>
       </div>
       <GenModal state={sim.state} title="正在生成图片" />
+      {quotaOpen && (
+        <div className="img-zoom-mask" onClick={() => setQuotaOpen(false)}>
+          <div className="quota-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="quota-modal-ico">⚡</div>
+            <div className="quota-modal-title">今日免费生成次数已用完</div>
+            <div className="quota-modal-desc">每日生成次数已达上限，明日零点自动刷新</div>
+            <div className="quota-modal-btns">
+              <button className="btn btn-ghost" onClick={() => setQuotaOpen(false)}>明日再来</button>
+              <button className="btn btn-primary" onClick={() => setQuotaOpen(false)}>联系客服解锁次数</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+/* IP 设计生成失败：将 API 错误信息映射为用户可读中文 */
+const IP_ERROR_MAP: [RegExp, string][] = [
+  [/timeout/i, "生成超时，请稍后重试"],
+  [/content|safety|policy|审核/i, "内容未通过审核，请修改描述"],
+  [/quota|limit|次数/i, "今日生成次数已达上限"],
+  [/model|unavailable|unavail/i, "模型暂时不可用，请稍后重试"],
+  [/network|connect|econnreset/i, "网络连接失败，请稍后重试"],
+];
+function mapIpError(msg: string): string {
+  for (const [re, text] of IP_ERROR_MAP) {
+    if (re.test(msg)) return text;
+  }
+  return "生成失败，请稍后重试";
 }
 
 /* IP 画面比例名 → 文生图尺寸（豆包 Seedream 要求 ≥ 约 369 万像素，即 1920×1920）。

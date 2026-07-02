@@ -2334,7 +2334,28 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 @keyframes lhSpin {
   to { transform: rotate(360deg); }
 }
-.lh-fail { color: #b42318; font-size: 13px; font-weight: 600; }
+.lh-fail { color: #b42318; font-size: 13px; font-weight: 600; line-height: 1.5; }
+
+/* 图片加载失败：灰色占位 + 重新加载按钮 */
+.lh-img-err {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  color: var(--c-text-3); font-size: 12px; pointer-events: auto;
+}
+.lh-img-err svg { opacity: .5; }
+.lh-img-err .btn { font-size: 12px; padding: 4px 12px; margin-top: 2px; }
+
+/* 每日配额耗尽弹层 */
+.quota-modal {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  background: var(--c-surface); border-radius: var(--radius-lg);
+  padding: 32px 28px; width: 320px; text-align: center;
+  box-shadow: 0 8px 40px rgba(0,0,0,.18); z-index: 1001;
+}
+.quota-modal-ico { font-size: 36px; margin-bottom: 12px; }
+.quota-modal-title { font-size: 16px; font-weight: 700; color: var(--c-text-1); margin-bottom: 8px; }
+.quota-modal-desc { font-size: 13px; color: var(--c-text-3); line-height: 1.6; margin-bottom: 24px; }
+.quota-modal-btns { display: flex; gap: 10px; justify-content: center; }
+.quota-modal-btns .btn { flex: 1; }
 
 /* 点击生成图放大预览 */
 .img-zoom-mask {
