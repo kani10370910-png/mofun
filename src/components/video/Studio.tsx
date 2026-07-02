@@ -190,6 +190,14 @@ function blankShot(i: number): Shot {
   };
 }
 
+// 视频比例字符串 → CSS aspect-ratio（"智能"/无匹配默认 16:9）
+function ratioToCss(ratio: string): string {
+  const m = ratio.match(/(\d+)\s*[:：]\s*(\d+)/);
+  const w = m ? Number(m[1]) : 16;
+  const h = m ? Number(m[2]) : 9;
+  return `${w} / ${h}`;
+}
+
 // 把总时长精确分配到各镜（base 均分，余数派前若干镜），每镜 2–15s
 function redistribute(list: Shot[], total: number): Shot[] {
   const n = list.length || 1;
@@ -991,7 +999,7 @@ function StudioStepView(props: {
         <div className="clip-grid">
           {props.shots.map((s, i) => (
             <div className="clip-card" key={s.id}>
-              <div className="clip-thumb">
+              <div className="clip-thumb" style={{ aspectRatio: ratioToCss(props.ratio) }}>
                 {s.status === "gen" ? (
                   <div className="clip-progress">
                     <Icon name="refresh" size={18} className="ico-spin" />
@@ -1003,8 +1011,9 @@ function StudioStepView(props: {
                 ) : s.status === "done" ? (
                   s.videoUrl ? (
                     <>
+                      {/* 不设 poster，播放器自动以生成视频的第一帧作封面 */}
                       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                      <video className="clip-video" src={s.videoUrl} poster={s.poster} controls playsInline preload="metadata" />
+                      <video className="clip-video" src={`${s.videoUrl}#t=0.1`} controls playsInline preload="metadata" />
                       <span className="clip-ok">
                         <Icon name="check" size={11} /> 已生成
                       </span>
