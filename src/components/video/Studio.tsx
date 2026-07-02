@@ -113,14 +113,17 @@ function makeShots(script: string, total: number, targetShots?: number): Shot[] 
   const rem = total - base * n;
   return Array.from({ length: n }, (_, i) => {
     const dur = Math.max(2, Math.min(15, base + (i < rem ? 1 : 0)));
-    // 把句子按比例分配到 n 个镜头：句子多于镜头则合并，少于镜头则循环兜底
-    const start = Math.floor((i * L) / n);
-    const end = Math.floor(((i + 1) * L) / n);
-    const seg = lines.slice(start, Math.max(end, start + 1));
-    const text = seg.join("，") || lines[i % L] || `镜头 ${i + 1} 画面`;
+    // 只按脚本实际内容填充画面描述：
+    // 句子 ≥ 镜头 → 按比例合并；镜头 > 句子 → 一句一镜，多出的镜头画面描述留空（不杜撰内容）
+    const text =
+      n <= L
+        ? lines.slice(Math.floor((i * L) / n), Math.floor(((i + 1) * L) / n)).join("，")
+        : i < L
+          ? lines[i]
+          : "";
     return {
       id: `shot-${i}-${text.length}-${text.charCodeAt(0) || 0}`,
-      shotDesc: text, // 脚本内容只填充画面描述
+      shotDesc: text, // 仅填脚本实际提到的内容，无对应句子则留空
       narration: "", // 口播旁白留空，由用户填写
       caption: "", // 字幕留空，由用户填写
       camera: CAMERAS[i % CAMERAS.length],
@@ -776,8 +779,14 @@ function StudioStepView(props: {
           {props.shots.map((s, i) => (
             <div className={`sb-shot2 ${s.locked ? "locked" : ""}`} key={s.id}>
               <div className="sb-head">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img className="sb-thumb-img" src={s.poster} alt={`镜头${i + 1}`} />
+                {s.status === "done" && s.videoUrl ? (
+                  // eslint-disable-next-line jsx-a11y/media-has-caption
+                  <video className="sb-thumb-img" src={s.videoUrl} muted playsInline preload="metadata" />
+                ) : (
+                  <div className="sb-thumb-ph" title="镜头未生成">
+                    <Icon name="video" size={18} />
+                  </div>
+                )}
                 <div className="sb-headinfo">
                   <div className="sb-no">
                     镜头 {i + 1}
@@ -909,8 +918,6 @@ function StudioStepView(props: {
           {props.shots.map((s, i) => (
             <div className="clip-card" key={s.id}>
               <div className="clip-thumb">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={s.poster} alt={`镜头${i + 1}`} />
                 {s.status === "gen" ? (
                   <div className="clip-progress">
                     <Icon name="refresh" size={18} className="ico-spin" />
@@ -930,6 +937,8 @@ function StudioStepView(props: {
                     </>
                   ) : (
                     <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img className="clip-poster" src={s.poster} alt={`镜头${i + 1}`} />
                       <div className="clip-play">▶</div>
                       <span className="clip-dur">{String(s.dur).padStart(2, "0")}s</span>
                       <span className="clip-ok">
