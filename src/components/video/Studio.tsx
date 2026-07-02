@@ -13,7 +13,6 @@ import type { AssetCard } from "@/lib/types";
 import {
   posterFor,
   ratioToCanvas,
-  durSeconds,
   drawKenBurns,
   loadImage,
   recordSupported,
@@ -62,7 +61,6 @@ const DEFAULT_SCRIPT =
 const SETTING_FIELDS: { label: string; opts: string[]; hint?: string }[] = [
   { label: "画幅", opts: ["横屏 16:9", "竖屏 9:16", "方形 1:1"] },
   { label: "整体风格", opts: ["国风清新", "真实纪实", "活泼种草", "电影感", "航拍大片"] },
-  { label: "总时长", opts: ["15s", "30s", "60s"] },
   { label: "配音", opts: ["温柔女声", "沉稳男声", "不配音"] },
   { label: "配乐", opts: ["舒缓", "轻快", "大气", "国风", "无"] },
   { label: "字幕", opts: ["显示", "隐藏"] },
@@ -70,7 +68,9 @@ const SETTING_FIELDS: { label: string; opts: string[]; hint?: string }[] = [
 ];
 
 // 剧本 → 结构化分镜数据
-function makeShots(script: string, total: number): Shot[] {
+// 拆分镜：按「目标镜头数」把剧本切成 n 个镜头，总时长平均分配到每镜。
+// targetShots 省略时按句子数（上限 6）自动定；否则严格产出 n 个镜头。
+function makeShots(script: string, total: number, targetShots?: number): Shot[] {
   const bySentence = script
     .split(/[。\n；;！!？?]+/)
     .map((s) => s.trim())
@@ -81,23 +81,34 @@ function makeShots(script: string, total: number): Shot[] {
         .split(/[，,]+/)
         .map((s) => s.trim())
         .filter(Boolean);
-  lines = lines.slice(0, 6);
   if (!lines.length) lines = ["开场画面"];
-  const per = Math.max(3, Math.min(6, Math.round(total / lines.length) || 4));
-  return lines.map((line, i) => ({
-    id: `shot-${i}-${line.length}-${line.charCodeAt(0) || 0}`,
-    shotDesc: line, // 演示：画面描述 = 该句；实际由结构化拆分引擎产出
-    narration: line, // 口播旁白默认同句，可独立编辑
-    caption: line, // 字幕默认继承旁白
-    camera: CAMERAS[i % CAMERAS.length],
-    shotSize: SHOT_SIZES[i % SHOT_SIZES.length],
-    assetRefs: [] as string[],
-    locked: false,
-    dur: per,
-    poster: posterFor(line + i),
-    status: "idle" as const,
-    pct: 0,
-  }));
+  const L = lines.length;
+  const n = Math.max(1, Math.min(12, targetShots ?? Math.min(6, L)));
+  // 把总时长精确分配到 n 个镜头：base 秒均分，余数派给前若干镜，使各镜时长之和恰等于总时长
+  const base = Math.floor(total / n);
+  const rem = total - base * n;
+  return Array.from({ length: n }, (_, i) => {
+    const dur = Math.max(2, Math.min(15, base + (i < rem ? 1 : 0)));
+    // 把句子按比例分配到 n 个镜头：句子多于镜头则合并，少于镜头则循环兜底
+    const start = Math.floor((i * L) / n);
+    const end = Math.floor(((i + 1) * L) / n);
+    const seg = lines.slice(start, Math.max(end, start + 1));
+    const text = seg.join("，") || lines[i % L] || `镜头 ${i + 1} 画面`;
+    return {
+      id: `shot-${i}-${text.length}-${text.charCodeAt(0) || 0}`,
+      shotDesc: text, // 演示：画面描述 = 分配到的句子；实际由结构化拆分引擎产出
+      narration: text, // 口播旁白默认同句，可独立编辑
+      caption: text, // 字幕默认继承旁白
+      camera: CAMERAS[i % CAMERAS.length],
+      shotSize: SHOT_SIZES[i % SHOT_SIZES.length],
+      assetRefs: [] as string[],
+      locked: false,
+      dur,
+      poster: posterFor(text + i),
+      status: "idle" as const,
+      pct: 0,
+    };
+  });
 }
 
 export function Studio({
@@ -131,12 +142,18 @@ export function Studio({
     字幕: "显示",
     画质: "720P 清晰",
   });
+  // 用户自定义：目标镜头数 + 总时长（秒），驱动拆分镜。用 ref 保存最新值，
+  // 避免两个 stepper 互读对方的陈旧闭包值导致覆盖。
+  const [totalSec, setTotalSec] = useState(30);
+  const [targetShots, setTargetShots] = useState(() => makeShots(DEFAULT_SCRIPT, 30).length);
+  const totalSecRef = useRef(30);
+  const targetShotsRef = useRef(makeShots(DEFAULT_SCRIPT, 30).length);
   const [assets, setAssets] = useState<Asset[]>([
     { id: "a1", emoji: "🏞️", name: "高山云雾茶园", kind: "场景" },
     { id: "a2", emoji: "👩‍🌾", name: "采茶姑娘", kind: "角色" },
     { id: "a3", emoji: "🍵", name: "白茶罐装", kind: "道具" },
   ]);
-  const [shots, setShots] = useState<Shot[]>(() => makeShots(DEFAULT_SCRIPT, durSeconds("30s")));
+  const [shots, setShots] = useState<Shot[]>(() => makeShots(DEFAULT_SCRIPT, 30));
   const [exporting, setExporting] = useState(false);
   const [exportPct, setExportPct] = useState(0);
 
@@ -191,11 +208,11 @@ export function Studio({
     );
   }
 
-  // 非破坏式重拆：锁定的镜头保留，其余按剧本重新拆分
+  // 非破坏式重拆：锁定的镜头保留，其余按「目标镜头数 + 总时长」重新拆分
   function rebuildShots() {
     setShots((prev) => {
       const locked = prev.filter((s) => s.locked);
-      const fresh = makeShots(script, durSeconds(settings.总时长));
+      const fresh = makeShots(script, totalSec, targetShots);
       if (!locked.length) {
         toast(`已按剧本拆出分镜（共 ${fresh.length} 镜）`);
         return fresh;
@@ -204,6 +221,21 @@ export function Studio({
       toast(`已重新拆分镜，保留 ${locked.length} 个锁定镜头（共 ${merged.length} 镜）`);
       return merged;
     });
+  }
+
+  // 用户调整目标镜头数 / 总时长：立即按新参数重拆（剧本编辑阶段，直接覆盖）。
+  // 通过 ref 读取另一维度的最新值，连续调整也不会互相覆盖。
+  function setShotCount(n: number) {
+    const v = Math.max(1, Math.min(12, Math.round(n)));
+    targetShotsRef.current = v;
+    setTargetShots(v);
+    setShots(makeShots(script, totalSecRef.current, v));
+  }
+  function setTotal(sec: number) {
+    const v = Math.max(5, Math.min(180, Math.round(sec)));
+    totalSecRef.current = v;
+    setTotalSec(v);
+    setShots(makeShots(script, v, targetShotsRef.current));
   }
 
   function editShot(id: string, patch: Partial<Shot>) {
@@ -497,6 +529,10 @@ export function Studio({
                   setScript={setScript}
                   aiScript={aiScript}
                   aiBusy={aiBusy}
+                  totalSec={totalSec}
+                  targetShots={targetShots}
+                  setShotCount={setShotCount}
+                  setTotal={setTotal}
                   settings={settings}
                   setSettings={setSettings}
                   assets={assets}
@@ -536,6 +572,10 @@ function StudioStepView(props: {
   setScript: (s: string) => void;
   aiScript: () => void;
   aiBusy: boolean;
+  totalSec: number;
+  targetShots: number;
+  setShotCount: (n: number) => void;
+  setTotal: (sec: number) => void;
   settings: Record<string, string>;
   setSettings: (f: (s: Record<string, string>) => Record<string, string>) => void;
   assets: Asset[];
@@ -569,11 +609,24 @@ function StudioStepView(props: {
           onChange={(e) => props.setScript(e.target.value)}
           placeholder="输入产品 / 场景要点，或粘贴成稿文案…"
         />
-        <div className="sp-estimate">
-          {(() => {
-            const n = props.script.split(/[。\n；;！!？?]+/).map((x) => x.trim()).filter(Boolean).slice(0, 6).length || 1;
-            return <>预计 ≈ <b>{n}</b> 镜 / 总时长 <b>{props.settings.总时长}</b>（{props.settings.画质} · {props.settings.字幕 === "隐藏" ? "无字幕" : "含字幕"}）</>;
-          })()}
+        <div className="sp-setrow">
+          <div className="sp-setctl">
+            <span className="sp-setlbl">镜头数</span>
+            <div className="sp-stepper">
+              <button onClick={() => props.setShotCount(props.targetShots - 1)} disabled={props.targetShots <= 1} aria-label="减少镜头">−</button>
+              <span>{props.targetShots} 镜</span>
+              <button onClick={() => props.setShotCount(props.targetShots + 1)} disabled={props.targetShots >= 12} aria-label="增加镜头">＋</button>
+            </div>
+          </div>
+          <div className="sp-setctl">
+            <span className="sp-setlbl">总时长</span>
+            <div className="sp-stepper">
+              <button onClick={() => props.setTotal(props.totalSec - 5)} disabled={props.totalSec <= 5} aria-label="减少时长">−</button>
+              <span>{props.totalSec}s</span>
+              <button onClick={() => props.setTotal(props.totalSec + 5)} disabled={props.totalSec >= 180} aria-label="增加时长">＋</button>
+            </div>
+          </div>
+          <span className="sp-setnote">每镜约 {Math.max(2, Math.round(props.totalSec / props.targetShots))}s · {props.settings.画质}</span>
         </div>
         <div className="sp-actions">
           <button className="btn btn-soft btn-sm" disabled={props.aiBusy} onClick={props.aiScript}>
@@ -592,7 +645,7 @@ function StudioStepView(props: {
     return (
       <div className="stage-panel">
         <div className="sp-title">② 视频设定</div>
-        <div className="sp-sub">画幅、风格、总时长、配音会贯穿到分镜生成、预览与导出。</div>
+        <div className="sp-sub">画幅、风格、配音、配乐、字幕、画质会贯穿到分镜生成、预览与导出（镜头数与总时长在「剧本编辑」设定）。</div>
         <div className="sp-grid">
           {SETTING_FIELDS.map((g) => (
             <SettingField
