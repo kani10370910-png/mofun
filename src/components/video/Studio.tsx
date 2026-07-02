@@ -113,12 +113,14 @@ function makeShots(script: string, total: number, targetShots?: number): Shot[] 
 
 export function Studio({
   initialStep = "script",
+  initialName,
   railItems,
   iconOf,
   onPickType,
   showBack = false,
 }: {
   initialStep?: string;
+  initialName?: string; // 从首页「新建大片」命名 / 打开项目时带入
   railItems: RailItem[];
   iconOf: (k: string) => IconName;
   onPickType: (k: string) => void;
@@ -129,7 +131,7 @@ export function Studio({
   const { addWork } = useLibrary();
   const timers = useRef<number[]>([]);
 
-  const [projectName, setProjectName] = useState("未命名项目");
+  const [projectName, setProjectName] = useState(initialName?.trim() || "未命名项目");
   const [stepKey, setStepKey] = useState(studioSteps.find((s) => s.key === initialStep)?.key ?? "script");
   const [script, setScript] = useState(DEFAULT_SCRIPT);
   const [aiBusy, setAiBusy] = useState(false);
@@ -224,15 +226,26 @@ export function Studio({
   }
 
   // 用户调整目标镜头数 / 总时长：立即按新参数重拆（剧本编辑阶段，直接覆盖）。
-  // 通过 ref 读取另一维度的最新值，连续调整也不会互相覆盖。
+  // 约束：每镜不超过 15 秒 → 总时长上限 = 镜头数 × 15；通过 ref 读取另一维度的最新值，连续调整也不互相覆盖。
   function setShotCount(n: number) {
     const v = Math.max(1, Math.min(12, Math.round(n)));
     targetShotsRef.current = v;
     setTargetShots(v);
-    setShots(makeShots(script, totalSecRef.current, v));
+    // 镜头减少后若每镜超 15s，则同步收窄总时长
+    let t = totalSecRef.current;
+    if (t > v * 15) {
+      t = v * 15;
+      totalSecRef.current = t;
+      setTotalSec(t);
+      toast("每镜最长 15 秒，已同步调整总时长");
+    }
+    setShots(makeShots(script, t, v));
   }
   function setTotal(sec: number) {
-    const v = Math.max(5, Math.min(180, Math.round(sec)));
+    const cap = targetShotsRef.current * 15; // 每镜 ≤ 15s
+    const want = Math.round(sec);
+    const v = Math.max(5, Math.min(cap, want));
+    if (want > cap) toast("每镜最长 15 秒，请增加镜头数以延长总时长", "warn");
     totalSecRef.current = v;
     setTotalSec(v);
     setShots(makeShots(script, v, targetShotsRef.current));
@@ -623,7 +636,7 @@ function StudioStepView(props: {
             <div className="sp-stepper">
               <button onClick={() => props.setTotal(props.totalSec - 5)} disabled={props.totalSec <= 5} aria-label="减少时长">−</button>
               <span>{props.totalSec}s</span>
-              <button onClick={() => props.setTotal(props.totalSec + 5)} disabled={props.totalSec >= 180} aria-label="增加时长">＋</button>
+              <button onClick={() => props.setTotal(props.totalSec + 5)} disabled={props.totalSec >= props.targetShots * 15} aria-label="增加时长" title="每镜最长 15 秒">＋</button>
             </div>
           </div>
           <span className="sp-setnote">每镜约 {Math.max(2, Math.round(props.totalSec / props.targetShots))}s · {props.settings.画质}</span>

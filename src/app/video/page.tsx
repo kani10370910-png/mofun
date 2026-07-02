@@ -11,6 +11,7 @@ function VideoInner() {
       initialSub={sp.get("sub") ?? undefined}
       initialInput={sp.get("input") ?? undefined}
       initialFrom={sp.get("from") ?? undefined}
+      initialName={sp.get("name") ?? undefined}
     />
   );
 }

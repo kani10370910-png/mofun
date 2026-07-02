@@ -2380,6 +2380,15 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 .sh-tpl-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 11px; }
 .sh-tpl-name { font-size: 13.5px; color: var(--d-text); font-weight: 500; }
 
+/* 新建大片命名弹窗 */
+.sh-mask { position: fixed; inset: 0; z-index: 1400; background: rgba(20,40,36,.45); backdrop-filter: blur(3px); display: grid; place-items: center; animation: fade .2s ease; }
+.sh-dialog { width: min(400px, 92vw); background: #fff; border-radius: 16px; padding: 22px; box-shadow: 0 24px 60px rgba(0,0,0,.28); }
+.sh-dialog-title { font-size: 17px; font-weight: 600; color: var(--d-text); margin-bottom: 14px; }
+.sh-dialog-label { font-size: 13px; color: var(--d-muted); margin-bottom: 8px; }
+.sh-dialog-input { width: 100%; box-sizing: border-box; border: 1px solid var(--d-line); border-radius: 9px; padding: 10px 12px; font-size: 14px; color: var(--d-text); background: var(--c-bg); }
+.sh-dialog-input:focus { border-color: var(--d-accent); outline: none; background: #fff; }
+.sh-dialog-acts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
 /* 分镜视频：封面 + 生成/进度/已完成状态 */
 .clip-thumb { overflow: hidden; }
 .clip-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { EditorRail, type RailItem } from "@/components/ui/EditorRail";
 import { posterFor } from "@/lib/videoFx";
@@ -30,8 +31,15 @@ export function StudioHome({
   railItems: RailItem[];
   iconOf: (k: string) => IconName;
   onPickType: (k: string) => void;
-  onOpen: () => void; // 进入编辑器
+  onOpen: (name?: string) => void; // 进入编辑器（可带项目名）
 }) {
+  const [naming, setNaming] = useState(false);
+  const [draftName, setDraftName] = useState("");
+
+  function confirmNew() {
+    onOpen(draftName.trim() || "未命名大片");
+  }
+
   return (
     <div className="page">
       <div className="editor-layout">
@@ -44,12 +52,12 @@ export function StudioHome({
               <span className="sh-sub">点击视频进入编辑</span>
             </div>
             <div className="sh-folders">
-              <button className="sh-folder sh-folder-new" onClick={onOpen}>
+              <button className="sh-folder sh-folder-new" onClick={() => { setDraftName(""); setNaming(true); }}>
                 <Icon name="plus" size={26} />
                 <span>新建大片</span>
               </button>
               {MY_FILMS.map((f) => (
-                <button className="sh-folder" key={f.id} onClick={onOpen}>
+                <button className="sh-folder" key={f.id} onClick={() => onOpen(f.name)}>
                   <div className="sh-folder-cover" style={{ backgroundImage: `url(${posterFor(f.seed)})` }}>
                     <span className="sh-folder-play">▶</span>
                     <span className="sh-folder-count">{f.dur}</span>
@@ -71,7 +79,7 @@ export function StudioHome({
             </div>
             <div className="sh-templates">
               {TEMPLATES.map((t) => (
-                <button className="sh-tpl" key={t.id} onClick={onOpen}>
+                <button className="sh-tpl" key={t.id} onClick={() => onOpen(t.name)}>
                   <div className="sh-tpl-cover" style={{ backgroundImage: `url(${posterFor(t.seed)})` }}>
                     <span className="sh-tpl-play">▶</span>
                   </div>
@@ -85,6 +93,35 @@ export function StudioHome({
           </section>
         </div>
       </div>
+
+      {naming && (
+        <div className="sh-mask" onClick={() => setNaming(false)}>
+          <div className="sh-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="sh-dialog-title">新建大片</div>
+            <div className="sh-dialog-label">给你的大片起个名字</div>
+            <input
+              className="sh-dialog-input"
+              value={draftName}
+              autoFocus
+              maxLength={40}
+              placeholder="例如：安吉白茶推广片"
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmNew();
+                if (e.key === "Escape") setNaming(false);
+              }}
+            />
+            <div className="sh-dialog-acts">
+              <button className="btn btn-ghost btn-sm" onClick={() => setNaming(false)}>
+                取消
+              </button>
+              <button className="btn btn-primary btn-sm" onClick={confirmNew}>
+                创建并进入
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

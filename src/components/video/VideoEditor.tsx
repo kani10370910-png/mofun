@@ -26,10 +26,12 @@ export function VideoEditor({
   initialSub,
   initialInput,
   initialFrom,
+  initialName,
 }: {
   initialSub?: string;
   initialInput?: string;
   initialFrom?: string;
+  initialName?: string;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -71,13 +73,18 @@ export function VideoEditor({
           railItems={railItems}
           iconOf={iconOf}
           onPickType={switchType}
-          onOpen={() => router.push("/video?sub=studio:script&from=home")}
+          onOpen={(name) =>
+            router.push(
+              `/video?sub=studio:script&from=home${name ? `&name=${encodeURIComponent(name)}` : ""}`
+            )
+          }
         />
       );
     }
     return (
       <Studio
         initialStep={(initialSub ?? "").split(":")[1] || "script"}
+        initialName={initialName}
         railItems={railItems}
         iconOf={iconOf}
         onPickType={switchType}
