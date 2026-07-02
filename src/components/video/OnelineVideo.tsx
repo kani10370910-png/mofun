@@ -50,9 +50,7 @@ const SEED_RUNS: VideoRunRow[] = [
     pct: 100,
     videoUrl: "/demo-videos/hist-minsu-15s.mp4",
     grad: "thumb-grad-1",
-    voice: "温柔女声",
-    bgm: "舒缓",
-    withAudio: true,
+    withAudio: false,
   },
   {
     id: "seed-2",
@@ -67,9 +65,7 @@ const SEED_RUNS: VideoRunRow[] = [
     pct: 100,
     videoUrl: "/demo-videos/hist-minsu-5s.mp4",
     grad: "thumb-grad-3",
-    voice: "温柔女声",
-    bgm: "舒缓",
-    withAudio: true,
+    withAudio: false,
   },
 ];
 
