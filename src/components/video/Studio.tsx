@@ -48,6 +48,7 @@ interface Shot {
   status: "idle" | "gen" | "done" | "failed";
   pct: number;
   failReason?: string; // 失败原因（已映射为中文）
+  videoUrl?: string; // 真实生成的视频片段 URL（/api/video 返回）
 }
 
 interface Asset {
@@ -62,6 +63,19 @@ const ASSET_KINDS: Asset["kind"][] = ["场景", "角色", "道具"];
 
 const CAMERAS = [...studioCameras];
 const SHOT_SIZES = [...studioShotSizes];
+
+// 制作大片逐镜真实生成使用的视频模型（seedance-2.0 系列均有可用通道；默认 doubao 无通道）
+const STUDIO_VIDEO_MODEL = "seedance-2.0-fast";
+
+// 后端错误码 / 文案 → 中文提示
+function mapVideoErr(error: unknown, status: number): string {
+  const raw = (typeof error === "string" ? error : error && typeof error === "object" && "message" in error ? String((error as { message?: unknown }).message) : "").toLowerCase();
+  if (status === 504 || raw.includes("timeout")) return "生成超时（视频耗时过长），请重试";
+  if (raw.includes("content") || raw.includes("safety") || raw.includes("policy") || raw.includes("审核")) return "内容未通过审核，请修改画面描述";
+  if (raw.includes("channel") || raw.includes("unavailable") || raw.includes("no available")) return "模型暂时不可用，请稍后重试";
+  if (status === 429 || raw.includes("quota") || raw.includes("rate")) return "生成频率过高或额度不足，请稍后重试";
+  return "生成失败，请重试（额度已退还）";
+}
 const ASSET_EMOJIS = ["🏞️", "👩‍🌾", "🍵", "🌾", "🏮", "🎐", "🛶", "🍂"];
 
 const DEFAULT_SCRIPT =
@@ -321,30 +335,50 @@ export function Studio({
     setShots((prev) => prev.map((s) => (s.id === id ? { ...s, locked: !s.locked } : s)));
   }
 
-  // 逐镜生成（状态机：idle/failed → gen → done / failed）
-  // 演示：约 12% 概率失败，落到失败态并给出映射后的中文原因 + 可重试
+  // 逐镜生成：真调 /api/video 生成真实视频片段（状态机：idle/failed → gen → done(带 videoUrl) / failed）
   function genShot(id: string) {
-    setShots((prev) => prev.map((s) => (s.id === id && s.status !== "gen" ? { ...s, status: "gen", pct: 6, failReason: undefined } : s)));
-    let pct = 6;
+    const cur = shots.find((s) => s.id === id);
+    if (!cur || cur.status === "gen") return;
+    setShots((prev) => prev.map((s) => (s.id === id ? { ...s, status: "gen", pct: 5, failReason: undefined } : s)));
+    // 真实生成约 200s+，进度条缓慢爬升封顶 90%，拿到结果再跳 100%
+    let pct = 5;
     const iv = window.setInterval(() => {
-      pct = Math.min(92, pct + 11);
+      pct = Math.min(90, pct + 2);
       setShots((prev) => prev.map((s) => (s.id === id && s.status === "gen" ? { ...s, pct } : s)));
-    }, 240);
+    }, 1600);
     timers.current.push(iv);
-    const to = window.setTimeout(() => {
-      window.clearInterval(iv);
-      const fail = Math.random() < 0.12;
-      setShots((prev) =>
-        prev.map((s) =>
-          s.id === id
-            ? fail
-              ? { ...s, status: "failed", pct: 0, failReason: "生成失败，请重试（额度已退还）" }
-              : { ...s, status: "done", pct: 100, failReason: undefined }
-            : s
-        )
-      );
-    }, 1700 + Math.random() * 700);
-    timers.current.push(to);
+
+    const prompt = [settings.视频风格 !== "智能匹配" ? settings.视频风格 : "", cur.shotDesc].filter(Boolean).join("，");
+    const generateAudio = settings.配音 !== "不配音";
+    fetch("/api/video", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        ratio: settings.视频比例,
+        dur: `${cur.dur}秒`,
+        model: STUDIO_VIDEO_MODEL,
+        generateAudio,
+      }),
+      signal: AbortSignal.timeout(450_000),
+    })
+      .then(async (r) => {
+        window.clearInterval(iv);
+        const j = (await r.json().catch(() => ({}))) as { videoUrl?: string; error?: unknown };
+        if (!r.ok || !j.videoUrl) {
+          const reason = mapVideoErr(j.error, r.status);
+          setShots((prev) => prev.map((s) => (s.id === id ? { ...s, status: "failed", pct: 0, failReason: reason } : s)));
+          return;
+        }
+        setShots((prev) => prev.map((s) => (s.id === id ? { ...s, status: "done", pct: 100, videoUrl: j.videoUrl, failReason: undefined } : s)));
+      })
+      .catch((e: unknown) => {
+        window.clearInterval(iv);
+        const timeout = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
+        setShots((prev) =>
+          prev.map((s) => (s.id === id ? { ...s, status: "failed", pct: 0, failReason: timeout ? "生成超时（视频耗时过长），请重试" : "网络异常，请重试" } : s))
+        );
+      });
   }
 
   // 批量生成：生成前弹额度预估确认（1080P 计 2 倍额度）
@@ -357,7 +391,7 @@ export function Studio({
     const mult = settings.视频质量?.includes("1080") ? 2 : 1;
     const cost = pending.length * mult;
     const ok = window.confirm(
-      `本次将生成 ${pending.length} 个分镜，预计消耗 ${cost} 次生成额度${mult === 2 ? "（1080P 高清 ×2）" : ""}。是否继续？`
+      `本次将生成 ${pending.length} 个分镜（真实视频，单镜约 3–4 分钟），预计消耗 ${cost} 次生成额度${mult === 2 ? "（1080P 高清 ×2）" : ""}。是否继续？`
     );
     if (!ok) return;
     let stagger = 0;
@@ -870,7 +904,7 @@ function StudioStepView(props: {
     return (
       <div className="stage-panel">
         <div className="sp-title">⑤ 分镜视频</div>
-        <div className="sp-sub">逐镜生成视频片段（演示：海报 + 运镜）。全部生成后到「视频预览」合成成片。</div>
+        <div className="sp-sub">逐镜调用视频模型生成真实片段（单镜约 3–4 分钟，请耐心等待）。全部生成后到「视频预览」查看成片。</div>
         <div className="clip-grid">
           {props.shots.map((s, i) => (
             <div className="clip-card" key={s.id}>
@@ -883,16 +917,26 @@ function StudioStepView(props: {
                     <div className="clip-bar">
                       <span style={{ width: `${s.pct}%` }} />
                     </div>
-                    <span className="clip-pct">{s.pct}%</span>
+                    <span className="clip-pct">{s.pct}% · 生成中</span>
                   </div>
                 ) : s.status === "done" ? (
-                  <>
-                    <div className="clip-play">▶</div>
-                    <span className="clip-dur">{String(s.dur).padStart(2, "0")}s</span>
-                    <span className="clip-ok">
-                      <Icon name="check" size={11} /> 已生成
-                    </span>
-                  </>
+                  s.videoUrl ? (
+                    <>
+                      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                      <video className="clip-video" src={s.videoUrl} poster={s.poster} controls playsInline preload="metadata" />
+                      <span className="clip-ok">
+                        <Icon name="check" size={11} /> 已生成
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="clip-play">▶</div>
+                      <span className="clip-dur">{String(s.dur).padStart(2, "0")}s</span>
+                      <span className="clip-ok">
+                        <Icon name="check" size={11} /> 已生成
+                      </span>
+                    </>
+                  )
                 ) : s.status === "failed" ? (
                   <div className="clip-fail">
                     <Icon name="close" size={16} />
