@@ -2319,8 +2319,13 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 .sp-shot-input { display: flex; flex-direction: column; gap: 4px; }
 .sp-shot-lbl { font-size: 12px; color: var(--d-muted); display: flex; align-items: center; gap: 8px; }
 .sp-shot-dur { color: var(--d-accent); font-weight: 600; }
-.sp-shot-ta { width: 100%; box-sizing: border-box; background: var(--c-white); border: 1px solid var(--d-line); border-radius: 8px; color: var(--d-text); font-size: 14px; padding: 8px 10px; font-family: inherit; resize: vertical; }
+.sp-shot-box { position: relative; }
+.sp-shot-ta { width: 100%; box-sizing: border-box; background: var(--c-white); border: 1px solid var(--d-line); border-radius: 8px; color: var(--d-text); font-size: 14px; padding: 8px 10px 38px; font-family: inherit; resize: vertical; min-height: 76px; }
 .sp-shot-ta:focus { border-color: var(--d-accent); outline: none; }
+/* AI 扩写：固定在文本框左下角 */
+.sp-shot-ai { position: absolute; left: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; border: 1px solid var(--d-line); border-radius: 7px; background: var(--c-white); color: var(--d-accent); font-size: 12px; cursor: pointer; }
+.sp-shot-ai:hover:not(:disabled) { border-color: var(--d-accent); background: rgba(47,191,143,.08); }
+.sp-shot-ai:disabled { opacity: .6; cursor: default; }
 
 /* M3 设定项额度提示 */
 .sp-hint { margin-left: 8px; font-size: 11px; color: #a4651f; background: #fbeede; border-radius: 5px; padding: 1px 7px; font-weight: 500; }

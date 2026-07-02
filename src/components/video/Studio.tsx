@@ -216,7 +216,7 @@ export function Studio({
   const [projectName, setProjectName] = useState(initialName?.trim() || "未命名项目");
   const [stepKey, setStepKey] = useState(studioSteps.find((s) => s.key === initialStep)?.key ?? "script");
   const [script, setScript] = useState(DEFAULT_SCRIPT);
-  const [aiBusy, setAiBusy] = useState(false);
+  const [aiBusyId, setAiBusyId] = useState<string | null>(null);
   const [settings, setSettings] = useState<Record<string, string>>({
     视频比例: "16:9",
     视频风格: videoStyles[0].name, // 智能匹配
@@ -269,33 +269,20 @@ export function Studio({
   }
 
   // —— 行为 ——
-  // AI 扩写：把每个已填写的镜头画面描述调 /api/video-prompt 优化为更专业的描述（真实 AI）。
-  async function aiScript() {
-    const targets = shots.filter((s) => s.shotDesc.trim());
-    if (!targets.length) {
+  // AI 扩写（逐镜）：把该镜头画面描述调 /api/video-prompt 优化为更专业的描述（真实 AI，失败本地兜底）。
+  async function aiExpandShot(id: string) {
+    const shot = shots.find((s) => s.id === id);
+    const base = shot?.shotDesc.trim();
+    if (!base) {
       toast("请先填写画面内容，再点 AI 扩写", "warn");
       return;
     }
-    setAiBusy(true);
+    setAiBusyId(id);
     const style = settings.视频风格 === "智能匹配" ? undefined : settings.视频风格;
-    const results = await Promise.all(
-      shots.map(async (s) => {
-        const base = s.shotDesc.trim();
-        if (!base) return { id: s.id, text: null as string | null };
-        // 真实模型优先，不可用时本地兜底补专业细节
-        const text = (await optimizeShotPrompt(base, style)) ?? localExpand(base, style);
-        return { id: s.id, text };
-      })
-    );
-    setShots((prev) =>
-      prev.map((s) => {
-        const r = results.find((x) => x.id === s.id);
-        return r?.text ? { ...s, shotDesc: r.text } : s;
-      })
-    );
-    const ok = results.filter((r) => r.text).length;
-    setAiBusy(false);
-    toast(`已 AI 扩写 ${ok} 个镜头画面描述`);
+    const text = (await optimizeShotPrompt(base, style)) ?? localExpand(base, style);
+    setShots((prev) => prev.map((s) => (s.id === id ? { ...s, shotDesc: text } : s)));
+    setAiBusyId(null);
+    toast("已 AI 扩写画面描述");
   }
 
   // 非破坏式重拆：锁定的镜头保留，其余按「目标镜头数 + 总时长」重新拆分
@@ -651,8 +638,8 @@ export function Studio({
                   toast={toast}
                   script={script}
                   setScript={setScript}
-                  aiScript={aiScript}
-                  aiBusy={aiBusy}
+                  aiExpandShot={aiExpandShot}
+                  aiBusyId={aiBusyId}
                   totalSec={totalSec}
                   targetShots={targetShots}
                   setShotCount={setShotCount}
@@ -694,8 +681,8 @@ function StudioStepView(props: {
   toast: (s: string, k?: "warn") => void;
   script: string;
   setScript: (s: string) => void;
-  aiScript: () => void;
-  aiBusy: boolean;
+  aiExpandShot: (id: string) => void;
+  aiBusyId: string | null;
   totalSec: number;
   targetShots: number;
   setShotCount: (n: number) => void;
@@ -749,27 +736,32 @@ function StudioStepView(props: {
         </div>
         {/* 按镜头数逐镜填写画面内容 */}
         <div className="sp-shot-inputs">
-          {props.shots.map((s, i) => (
-            <div className="sp-shot-input" key={s.id}>
-              <label className="sp-shot-lbl">
-                镜头 {i + 1}
-                <span className="sp-shot-dur">{s.dur}s</span>
-              </label>
-              <textarea
-                className="sp-shot-ta"
-                rows={2}
-                value={s.shotDesc}
-                placeholder={`第 ${i + 1} 个镜头的画面内容…`}
-                onChange={(e) => props.editShot(s.id, { shotDesc: e.target.value })}
-              />
-            </div>
-          ))}
+          {props.shots.map((s, i) => {
+            const busy = props.aiBusyId === s.id;
+            return (
+              <div className="sp-shot-input" key={s.id}>
+                <label className="sp-shot-lbl">
+                  镜头 {i + 1}
+                  <span className="sp-shot-dur">{s.dur}s</span>
+                </label>
+                <div className="sp-shot-box">
+                  <textarea
+                    className="sp-shot-ta"
+                    rows={2}
+                    value={s.shotDesc}
+                    placeholder={`第 ${i + 1} 个镜头的画面内容…`}
+                    onChange={(e) => props.editShot(s.id, { shotDesc: e.target.value })}
+                  />
+                  <button className="sp-shot-ai" disabled={busy} onClick={() => props.aiExpandShot(s.id)} title="AI 扩写本镜画面描述">
+                    <Icon name={busy ? "refresh" : "sparkle"} size={13} className={busy ? "ico-spin" : undefined} />{" "}
+                    {busy ? "扩写中…" : "AI 扩写"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
         <div className="sp-actions">
-          <button className="btn btn-soft btn-sm" disabled={props.aiBusy} onClick={props.aiScript}>
-            <Icon name={props.aiBusy ? "refresh" : "sparkle"} size={14} className={props.aiBusy ? "ico-spin" : undefined} />{" "}
-            {props.aiBusy ? "AI 扩写中…" : "AI 扩写"}
-          </button>
           <button className="btn btn-primary btn-sm" onClick={() => goStep("setting")}>
             下一步 · 视频设定 →
           </button>
