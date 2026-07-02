@@ -64,6 +64,15 @@ const ASSET_KINDS: Asset["kind"][] = ["场景", "角色", "道具"];
 const CAMERAS = [...studioCameras];
 const SHOT_SIZES = [...studioShotSizes];
 
+// AI「一键铺满各镜」的画面内容节奏模板（按镜头顺序循环）
+const AI_BEATS = [
+  "航拍缓缓切入，产地/门店全景在晨光中展开，瞬间抓住眼球",
+  "推近特写，逐一呈现核心卖点与产品质感",
+  "切入真实使用/生产场景，人物动作自然，画面有地域辨识度",
+  "细节特写，突出工艺与品质，光影细腻",
+  "结尾定格产品与品牌标识，配行动号召，引导下单/到店",
+];
+
 // 制作大片逐镜真实生成使用的视频模型（seedance-2.0 系列均有可用通道；默认 doubao 无通道）
 const STUDIO_VIDEO_MODEL = "seedance-2.0-fast";
 
@@ -136,6 +145,34 @@ function makeShots(script: string, total: number, targetShots?: number): Shot[] 
       pct: 0,
     };
   });
+}
+
+// 空白镜头（增加镜头数时追加，内容留空由用户填写）
+let blankSeq = 0;
+function blankShot(i: number): Shot {
+  blankSeq += 1;
+  return {
+    id: `shot-blank-${i}-${blankSeq}`,
+    shotDesc: "",
+    narration: "",
+    caption: "",
+    camera: CAMERAS[i % CAMERAS.length],
+    shotSize: SHOT_SIZES[i % SHOT_SIZES.length],
+    assetRefs: [],
+    locked: false,
+    dur: 4,
+    poster: posterFor("blank" + i + "-" + blankSeq),
+    status: "idle",
+    pct: 0,
+  };
+}
+
+// 把总时长精确分配到各镜（base 均分，余数派前若干镜），每镜 2–15s
+function redistribute(list: Shot[], total: number): Shot[] {
+  const n = list.length || 1;
+  const base = Math.floor(total / n);
+  const rem = total - base * n;
+  return list.map((s, i) => ({ ...s, dur: Math.max(2, Math.min(15, base + (i < rem ? 1 : 0))) }));
 }
 
 export function Studio({
@@ -215,23 +252,14 @@ export function Studio({
   }
 
   // —— 行为 ——
-  // M2：AI 结构化生成——把要点/成稿组织成「开场钩子 → 卖点 → 场景 → 行动号召」四段式剧本
+  // M2：AI 一键铺满各镜画面内容——按镜头数把「开场→卖点→场景→细节→号召」节奏铺进每个镜头
   function aiScript() {
     setAiBusy(true);
     timers.current.push(
       window.setTimeout(() => {
-        setScript((cur) => {
-          const core = cur.trim().replace(/[。.!！?？\s]+$/, "");
-          const subject = core.slice(0, 12) || "本产品";
-          return [
-            `【开场】航拍缓缓切入，${subject}的产地全景在晨光中展开，瞬间抓住眼球。`,
-            `【卖点】推近特写，逐一呈现核心卖点：${core}。`,
-            `【场景】切入真实使用/生产场景，人物动作自然，画面有地域辨识度。`,
-            `【号召】结尾定格产品与标识，配一句行动号召，引导下单/到店/关注。`,
-          ].join("\n");
-        });
+        setShots((prev) => prev.map((s, i) => ({ ...s, shotDesc: AI_BEATS[i % AI_BEATS.length] })));
         setAiBusy(false);
-        toast("已生成结构化剧本（开场/卖点/场景/号召，演示）");
+        toast("已 AI 铺满各镜画面内容（演示）");
       }, 1100)
     );
   }
@@ -251,13 +279,12 @@ export function Studio({
     });
   }
 
-  // 用户调整目标镜头数 / 总时长：立即按新参数重拆（剧本编辑阶段，直接覆盖）。
-  // 约束：每镜不超过 15 秒 → 总时长上限 = 镜头数 × 15；通过 ref 读取另一维度的最新值，连续调整也不互相覆盖。
+  // 调整镜头数：增加则在末尾追加空白镜头、减少则从末尾裁剪，保留已填内容；再按总时长重新分配各镜时长。
+  // 约束：每镜不超过 15 秒 → 总时长上限 = 镜头数 × 15。
   function setShotCount(n: number) {
     const v = Math.max(1, Math.min(12, Math.round(n)));
     targetShotsRef.current = v;
     setTargetShots(v);
-    // 镜头减少后若每镜超 15s，则同步收窄总时长
     let t = totalSecRef.current;
     if (t > v * 15) {
       t = v * 15;
@@ -265,7 +292,11 @@ export function Studio({
       setTotalSec(t);
       toast("每镜最长 15 秒，已同步调整总时长");
     }
-    setShots(makeShots(script, t, v));
+    setShots((prev) => {
+      const next = prev.slice(0, v);
+      while (next.length < v) next.push(blankShot(next.length));
+      return redistribute(next, t);
+    });
   }
   function setTotal(sec: number) {
     const cap = targetShotsRef.current * 15; // 每镜 ≤ 15s
@@ -274,7 +305,7 @@ export function Studio({
     if (want > cap) toast("每镜最长 15 秒，请增加镜头数以延长总时长", "warn");
     totalSecRef.current = v;
     setTotalSec(v);
-    setShots(makeShots(script, v, targetShotsRef.current));
+    setShots((prev) => redistribute(prev, v));
   }
 
   function editShot(id: string, patch: Partial<Shot>) {
@@ -661,13 +692,8 @@ function StudioStepView(props: {
     return (
       <div className="stage-panel">
         <div className="sp-title">① 剧本编辑</div>
-        <div className="sp-sub">填写要点或粘贴成稿，AI 生成「开场/卖点/场景/号召」结构化剧本；一句话（句号/分号分隔）会拆成一个镜头。</div>
-        <textarea
-          className="sp-textarea"
-          value={props.script}
-          onChange={(e) => props.setScript(e.target.value)}
-          placeholder="输入产品 / 场景要点，或粘贴成稿文案…"
-        />
+        <div className="sp-sub">先设定镜头数与总时长，下面按镜头数逐镜填写画面内容；也可点「AI 生成」一键铺满各镜。</div>
+        {/* 先选：镜头数 / 总时长 */}
         <div className="sp-setrow">
           <div className="sp-setctl">
             <span className="sp-setlbl">镜头数</span>
@@ -687,10 +713,28 @@ function StudioStepView(props: {
           </div>
           <span className="sp-setnote">每镜约 {Math.max(2, Math.round(props.totalSec / props.targetShots))}s · {props.settings.视频质量}</span>
         </div>
+        {/* 按镜头数逐镜填写画面内容 */}
+        <div className="sp-shot-inputs">
+          {props.shots.map((s, i) => (
+            <div className="sp-shot-input" key={s.id}>
+              <label className="sp-shot-lbl">
+                镜头 {i + 1}
+                <span className="sp-shot-dur">{s.dur}s</span>
+              </label>
+              <textarea
+                className="sp-shot-ta"
+                rows={2}
+                value={s.shotDesc}
+                placeholder={`第 ${i + 1} 个镜头的画面内容…`}
+                onChange={(e) => props.editShot(s.id, { shotDesc: e.target.value })}
+              />
+            </div>
+          ))}
+        </div>
         <div className="sp-actions">
           <button className="btn btn-soft btn-sm" disabled={props.aiBusy} onClick={props.aiScript}>
             <Icon name={props.aiBusy ? "refresh" : "sparkle"} size={14} className={props.aiBusy ? "ico-spin" : undefined} />{" "}
-            {props.aiBusy ? "AI 生成中…" : "AI 生成结构化剧本"}
+            {props.aiBusy ? "AI 生成中…" : "AI 生成各镜内容"}
           </button>
           <button className="btn btn-primary btn-sm" onClick={() => goStep("setting")}>
             下一步 · 视频设定 →
@@ -897,9 +941,6 @@ function StudioStepView(props: {
         <div className="sp-actions">
           <button className="btn btn-soft btn-sm" onClick={props.addShot}>
             <Icon name="plus" size={14} /> 添加镜头
-          </button>
-          <button className="btn btn-soft btn-sm" onClick={props.rebuildShots}>
-            <Icon name="refresh" size={14} /> 按剧本重新拆分镜
           </button>
           <button className="btn btn-primary btn-sm" onClick={() => goStep("clips")}>
             下一步 · 分镜视频 →
