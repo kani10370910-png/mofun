@@ -64,7 +64,7 @@ const ASSET_KINDS: Asset["kind"][] = ["场景", "角色", "道具"];
 const CAMERAS = [...studioCameras];
 const SHOT_SIZES = [...studioShotSizes];
 
-// AI「一键铺满各镜」的画面内容节奏模板（按镜头顺序循环）
+// AI「逐镜铺入」的画面内容节奏模板（多镜时按镜头顺序循环）
 const AI_BEATS = [
   "航拍缓缓切入，产地/门店全景在晨光中展开，瞬间抓住眼球",
   "推近特写，逐一呈现核心卖点与产品质感",
@@ -72,6 +72,9 @@ const AI_BEATS = [
   "细节特写，突出工艺与品质，光影细腻",
   "结尾定格产品与品牌标识，配行动号召，引导下单/到店",
 ];
+// AI「结构化生成」（单镜时整段写入文本框，类似 AI 扩写）
+const AI_STRUCTURED =
+  "航拍缓缓切入，产地全景在晨光中展开瞬间抓住眼球；推近至产品特写，逐一呈现核心卖点与细腻质感；切入真实使用/生产场景，人物动作自然、画面有地域辨识度；结尾定格产品与品牌标识，配一句行动号召引导下单/到店。整体暖色调、浅景深、运镜舒缓，富有电影感。";
 
 // 制作大片逐镜真实生成使用的视频模型（seedance-2.0 系列均有可用通道；默认 doubao 无通道）
 const STUDIO_VIDEO_MODEL = "seedance-2.0-fast";
@@ -207,18 +210,18 @@ export function Studio({
     配乐: "舒缓",
     字幕: "显示",
   });
-  // 用户自定义：目标镜头数 + 总时长（秒），驱动拆分镜。用 ref 保存最新值，
+  // 用户自定义：目标镜头数 + 总时长（秒）。默认 1 镜 / 5 秒。用 ref 保存最新值，
   // 避免两个 stepper 互读对方的陈旧闭包值导致覆盖。
-  const [totalSec, setTotalSec] = useState(30);
-  const [targetShots, setTargetShots] = useState(() => makeShots(DEFAULT_SCRIPT, 30).length);
-  const totalSecRef = useRef(30);
-  const targetShotsRef = useRef(makeShots(DEFAULT_SCRIPT, 30).length);
+  const [totalSec, setTotalSec] = useState(5);
+  const [targetShots, setTargetShots] = useState(1);
+  const totalSecRef = useRef(5);
+  const targetShotsRef = useRef(1);
   const [assets, setAssets] = useState<Asset[]>([
     { id: "a1", emoji: "🏞️", name: "高山云雾茶园", kind: "场景" },
     { id: "a2", emoji: "👩‍🌾", name: "采茶姑娘", kind: "角色" },
     { id: "a3", emoji: "🍵", name: "白茶罐装", kind: "道具" },
   ]);
-  const [shots, setShots] = useState<Shot[]>(() => makeShots(DEFAULT_SCRIPT, 30));
+  const [shots, setShots] = useState<Shot[]>(() => redistribute([blankShot(0)], 5));
   const [exporting, setExporting] = useState(false);
   const [exportPct, setExportPct] = useState(0);
 
@@ -252,14 +255,19 @@ export function Studio({
   }
 
   // —— 行为 ——
-  // M2：AI 一键铺满各镜画面内容——按镜头数把「开场→卖点→场景→细节→号召」节奏铺进每个镜头
+  // M2：AI 生成结构化内容放入文本框（类似 AI 扩写）——
+  // 单镜时把「开场→卖点→场景→号召」结构化描述整段写入该镜文本框；多镜时按镜头顺序逐镜铺入节奏。
   function aiScript() {
     setAiBusy(true);
     timers.current.push(
       window.setTimeout(() => {
-        setShots((prev) => prev.map((s, i) => ({ ...s, shotDesc: AI_BEATS[i % AI_BEATS.length] })));
+        setShots((prev) =>
+          prev.length === 1
+            ? prev.map((s) => ({ ...s, shotDesc: AI_STRUCTURED }))
+            : prev.map((s, i) => ({ ...s, shotDesc: AI_BEATS[i % AI_BEATS.length] }))
+        );
         setAiBusy(false);
-        toast("已 AI 铺满各镜画面内容（演示）");
+        toast("已 AI 生成画面内容（演示）");
       }, 1100)
     );
   }
@@ -734,7 +742,7 @@ function StudioStepView(props: {
         <div className="sp-actions">
           <button className="btn btn-soft btn-sm" disabled={props.aiBusy} onClick={props.aiScript}>
             <Icon name={props.aiBusy ? "refresh" : "sparkle"} size={14} className={props.aiBusy ? "ico-spin" : undefined} />{" "}
-            {props.aiBusy ? "AI 生成中…" : "AI 生成各镜内容"}
+            {props.aiBusy ? "AI 生成中…" : "AI 生成结构化内容"}
           </button>
           <button className="btn btn-primary btn-sm" onClick={() => goStep("setting")}>
             下一步 · 视频设定 →
