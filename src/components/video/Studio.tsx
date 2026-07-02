@@ -64,17 +64,30 @@ const ASSET_KINDS: Asset["kind"][] = ["场景", "角色", "道具"];
 const CAMERAS = [...studioCameras];
 const SHOT_SIZES = [...studioShotSizes];
 
-// AI「逐镜铺入」的画面内容节奏模板（多镜时按镜头顺序循环）
-const AI_BEATS = [
-  "航拍缓缓切入，产地/门店全景在晨光中展开，瞬间抓住眼球",
-  "推近特写，逐一呈现核心卖点与产品质感",
-  "切入真实使用/生产场景，人物动作自然，画面有地域辨识度",
-  "细节特写，突出工艺与品质，光影细腻",
-  "结尾定格产品与品牌标识，配行动号召，引导下单/到店",
-];
-// AI「结构化生成」（单镜时整段写入文本框，类似 AI 扩写）
-const AI_STRUCTURED =
-  "航拍缓缓切入，产地全景在晨光中展开瞬间抓住眼球；推近至产品特写，逐一呈现核心卖点与细腻质感；切入真实使用/生产场景，人物动作自然、画面有地域辨识度；结尾定格产品与品牌标识，配一句行动号召引导下单/到店。整体暖色调、浅景深、运镜舒缓，富有电影感。";
+// 本地兜底扩写：真实模型不可用时，给用户描述补上专业镜头/光影/质感细节
+function localExpand(base: string, style?: string): string {
+  const clean = base.replace(/[。.！!？?\s]+$/, "");
+  const styleHint = style && style !== "智能匹配" ? `${style}风格，` : "";
+  return `${clean}。${styleHint}镜头运动舒缓流畅，黄金时段暖色调、浅景深虚化背景，主体质感细腻、层次分明，画面富有电影感，情绪自然生动。`;
+}
+
+// AI 扩写：把用户写的画面内容优化为更专业的描述（补镜头运动/光影氛围/画面质感），
+// 复用一句话成片的 /api/video-prompt 路由。失败返回 null。
+async function optimizeShotPrompt(input: string, style?: string): Promise<string | null> {
+  try {
+    const r = await fetch("/api/video-prompt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input, style }),
+      signal: AbortSignal.timeout(25_000),
+    });
+    if (!r.ok) return null;
+    const { text } = (await r.json()) as { text?: string | null };
+    return text ?? null;
+  } catch {
+    return null;
+  }
+}
 
 // 制作大片逐镜真实生成使用的视频模型（seedance-2.0 系列均有可用通道；默认 doubao 无通道）
 const STUDIO_VIDEO_MODEL = "seedance-2.0-fast";
@@ -255,21 +268,33 @@ export function Studio({
   }
 
   // —— 行为 ——
-  // M2：AI 生成结构化内容放入文本框（类似 AI 扩写）——
-  // 单镜时把「开场→卖点→场景→号召」结构化描述整段写入该镜文本框；多镜时按镜头顺序逐镜铺入节奏。
-  function aiScript() {
+  // AI 扩写：把每个已填写的镜头画面描述调 /api/video-prompt 优化为更专业的描述（真实 AI）。
+  async function aiScript() {
+    const targets = shots.filter((s) => s.shotDesc.trim());
+    if (!targets.length) {
+      toast("请先填写画面内容，再点 AI 扩写", "warn");
+      return;
+    }
     setAiBusy(true);
-    timers.current.push(
-      window.setTimeout(() => {
-        setShots((prev) =>
-          prev.length === 1
-            ? prev.map((s) => ({ ...s, shotDesc: AI_STRUCTURED }))
-            : prev.map((s, i) => ({ ...s, shotDesc: AI_BEATS[i % AI_BEATS.length] }))
-        );
-        setAiBusy(false);
-        toast("已 AI 生成画面内容（演示）");
-      }, 1100)
+    const style = settings.视频风格 === "智能匹配" ? undefined : settings.视频风格;
+    const results = await Promise.all(
+      shots.map(async (s) => {
+        const base = s.shotDesc.trim();
+        if (!base) return { id: s.id, text: null as string | null };
+        // 真实模型优先，不可用时本地兜底补专业细节
+        const text = (await optimizeShotPrompt(base, style)) ?? localExpand(base, style);
+        return { id: s.id, text };
+      })
     );
+    setShots((prev) =>
+      prev.map((s) => {
+        const r = results.find((x) => x.id === s.id);
+        return r?.text ? { ...s, shotDesc: r.text } : s;
+      })
+    );
+    const ok = results.filter((r) => r.text).length;
+    setAiBusy(false);
+    toast(`已 AI 扩写 ${ok} 个镜头画面描述`);
   }
 
   // 非破坏式重拆：锁定的镜头保留，其余按「目标镜头数 + 总时长」重新拆分
@@ -700,7 +725,7 @@ function StudioStepView(props: {
     return (
       <div className="stage-panel">
         <div className="sp-title">① 剧本编辑</div>
-        <div className="sp-sub">先设定镜头数与总时长，下面按镜头数逐镜填写画面内容；也可点「AI 生成」一键铺满各镜。</div>
+        <div className="sp-sub">先设定镜头数与总时长，下面按镜头数逐镜填写画面内容；填好后可点「AI 扩写」把描述优化得更专业（补镜头运动/光影/质感）。</div>
         {/* 先选：镜头数 / 总时长 */}
         <div className="sp-setrow">
           <div className="sp-setctl">
@@ -742,7 +767,7 @@ function StudioStepView(props: {
         <div className="sp-actions">
           <button className="btn btn-soft btn-sm" disabled={props.aiBusy} onClick={props.aiScript}>
             <Icon name={props.aiBusy ? "refresh" : "sparkle"} size={14} className={props.aiBusy ? "ico-spin" : undefined} />{" "}
-            {props.aiBusy ? "AI 生成中…" : "AI 生成结构化内容"}
+            {props.aiBusy ? "AI 扩写中…" : "AI 扩写"}
           </button>
           <button className="btn btn-primary btn-sm" onClick={() => goStep("setting")}>
             下一步 · 视频设定 →
