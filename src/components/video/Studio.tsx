@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { EditorRail, type RailItem } from "@/components/ui/EditorRail";
@@ -255,6 +256,7 @@ export function Studio({
   const [shots, setShots] = useState<Shot[]>(() => redistribute([blankShot(0)], 5));
   const [exporting, setExporting] = useState(false);
   const [exportPct, setExportPct] = useState(0);
+  const [playingClip, setPlayingClip] = useState<Shot | null>(null); // 分镜视频大播放器
 
   const ratio = settings.视频比例; // "智能"/"16:9" 等，videoFx 会解析
   const totalDur = shots.reduce((a, s) => a + s.dur, 0);
@@ -686,6 +688,7 @@ export function Studio({
                   saveToLibrary={saveToLibrary}
                   submitReview={submitReview}
                   exporting={exporting}
+                  onPlayClip={setPlayingClip}
                 />
               </div>
 
@@ -694,7 +697,44 @@ export function Studio({
           </div>
         </div>
       </div>
+      {playingClip && (
+        <ClipPlayerModal shot={playingClip} ratio={ratio} onClose={() => setPlayingClip(null)} />
+      )}
     </div>
+  );
+}
+
+// 分镜视频大播放器：点击分镜卡片播放按钮弹出，原生 controls 自动播放真实 MP4
+function ClipPlayerModal({ shot, ratio, onClose }: { shot: Shot; ratio: string; onClose: () => void }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  if (!mounted || !shot.videoUrl) return null;
+  return createPortal(
+    <div className="clipm-mask" onClick={onClose}>
+      <div className="clipm-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="clipm-head">
+          <span className="clipm-title">{shot.shotDesc || "分镜视频"}</span>
+          <button className="clipm-close" aria-label="关闭" onClick={onClose}>
+            <Icon name="close" size={20} />
+          </button>
+        </div>
+        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+        <video
+          className="clipm-video"
+          src={shot.videoUrl}
+          style={{ aspectRatio: ratioToCss(ratio) }}
+          controls
+          autoPlay
+          playsInline
+        />
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -729,6 +769,7 @@ function StudioStepView(props: {
   saveToLibrary: () => void;
   submitReview: () => void;
   exporting: boolean;
+  onPlayClip: (s: Shot) => void;
 }) {
   const { stepKey, goStep, toast } = props;
 
@@ -1019,9 +1060,10 @@ function StudioStepView(props: {
                 ) : s.status === "done" ? (
                   s.videoUrl ? (
                     <>
-                      {/* 不设 poster，播放器自动以生成视频的第一帧作封面 */}
+                      {/* 首帧作封面（无 controls），点播放按钮弹出大播放器 */}
                       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                      <video className="clip-video" src={`${s.videoUrl}#t=0.1`} controls playsInline preload="metadata" />
+                      <video className="clip-video" src={`${s.videoUrl}#t=0.1`} muted playsInline preload="metadata" />
+                      <button className="clip-play clip-play-btn" onClick={() => props.onPlayClip(s)} aria-label="播放">▶</button>
                       <span className="clip-ok">
                         <Icon name="check" size={11} /> 已生成
                       </span>
