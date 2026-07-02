@@ -1838,6 +1838,10 @@ input[type="range"].slider::-moz-range-thumb {
 .ag-tab:hover { color: var(--c-ink); }
 .ag-tab.on { color: var(--c-primary-dark); border-bottom-color: var(--c-primary); }
 .ag-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+/* 视频·参考灵感：一排 4 个瀑布流（多列，卡片按视频比例自然高度，非固定海报）——仅视频模块用 */
+.ov-inspire-grid { column-count: 4; column-gap: 16px; }
+.ov-inspire-grid .ag-card { break-inside: avoid; margin-bottom: 16px; display: inline-block; width: 100%; }
+@media (max-width: 1024px) { .ov-inspire-grid { column-count: 2; } }
 .ag-card { cursor: pointer; transition: transform .18s; }
 .ag-card:hover { transform: translateY(-3px); }
 .ag-thumb {
@@ -3764,10 +3768,7 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 .ov-style-ico { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; font-size: 14px; }
 .ov-block-note { margin: 8px 0 0; font-size: 12.5px; color: #d9480f; text-align: center; }
 /* 生成历史 */
-/* 生成历史：瀑布流（多列自适应，竖向滚动）——外层滚动、内层多列 */
-.ov-runs { overflow-y: auto; flex: 1; min-height: 0; padding-bottom: 8px; }
-.ov-runs-masonry { columns: 300px; column-gap: 18px; }
-.ov-run { break-inside: avoid; margin-bottom: 18px; display: inline-block; width: 100%; }
+.ov-runs { display: flex; flex-direction: column; gap: 18px; overflow-y: auto; flex: 1; min-height: 0; padding-bottom: 8px; }
 /* 提示词整宽置顶（默认 2 行省略，溢出可点击展开，交互复用 ClampText），元数据单独一行 */
 .ov-run-head { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
 .ov-run-prompt { font-size: 13.5px; font-weight: 600; color: var(--c-ink); }

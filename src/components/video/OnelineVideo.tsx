@@ -1334,26 +1334,24 @@ export function OnelineVideo() {
               </div>
             ) : (
               <div className="ov-runs">
-                <div className="ov-runs-masonry">
-                  {shownRuns.map((r) => (
-                    <VideoRunCard
-                      key={r.id}
-                      row={r}
-                      onDelete={() => deleteRun(r.id)}
-                      onPlay={() => setPlayingId(r.id)}
-                      onRegenerate={() => regenerate(r)}
-                      onCopy={() => copyToForm(r)}
-                      onDownload={() => downloadVideo(r)}
-                      onStudio={() => router.push("/video?sub=studio&from=history")}
-                      fav={isFavorite(videoAsset(r))}
-                      onFav={() => toggleFav(r)}
-                    />
-                  ))}
-                </div>
+                {shownRuns.map((r) => (
+                  <VideoRunCard
+                    key={r.id}
+                    row={r}
+                    onDelete={() => deleteRun(r.id)}
+                    onPlay={() => setPlayingId(r.id)}
+                    onRegenerate={() => regenerate(r)}
+                    onCopy={() => copyToForm(r)}
+                    onDownload={() => downloadVideo(r)}
+                    onStudio={() => router.push("/video?sub=studio&from=history")}
+                    fav={isFavorite(videoAsset(r))}
+                    onFav={() => toggleFav(r)}
+                  />
+                ))}
               </div>
             )
           ) : (
-            <div className="ag-grid">
+            <div className="ov-inspire-grid">
               {INSPIRE.map((it) => (
                 <InspireCard key={it.scene} it={it} onUse={() => useInspire(it)} onPlay={() => playInspire(it)} />
               ))}
@@ -1505,7 +1503,7 @@ function InspireCard({
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
     >
-      <div className="ag-thumb">
+      <div className="ag-thumb" style={{ aspectRatio: ratioToAspect(it.ratio) }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img className="ag-img" src={it.poster} alt={it.scene} loading="lazy" />
         <video
