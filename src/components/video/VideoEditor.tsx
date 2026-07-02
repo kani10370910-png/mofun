@@ -16,6 +16,7 @@ import { VID_ICON } from "@/data/icons";
 import type { IconName } from "@/data/icons";
 import type { VideoType } from "@/lib/types";
 import { Studio } from "./Studio";
+import { StudioHome } from "./StudioHome";
 import { OnelineVideo } from "./OnelineVideo";
 
 const iconOf = (k: string): IconName => VID_ICON[k] ?? "video";
@@ -35,8 +36,12 @@ export function VideoEditor({
   const sim = useSimGenerate();
   const { addWork } = useLibrary();
 
-  // 「制作大片」：sub === "studio" 或 "studio:step"
+  // 「制作大片」：sub === "studio"（首页）或 "studio:step"（编辑器）
   const isStudio = initialSub === "studio" || (initialSub ?? "").startsWith("studio");
+  // 进入编辑器的条件：带步骤后缀（studio:step）、从生成历史进入、或从首页点项目进入；
+  // 否则（裸 studio）展示制作大片首页（轮播 + 项目文件夹 + 模板）。
+  const openStudioEditor =
+    (initialSub ?? "").startsWith("studio:") || initialFrom === "history" || initialFrom === "home";
   // 当前视频类型完全以 URL（initialSub）为准，避免本地 state 与 URL 冲突导致切不出 Studio
   const current = isStudio ? "studio" : videoTypes.find((t) => t.key === initialSub)?.key ?? videoTypes[0].key;
 
@@ -60,13 +65,23 @@ export function VideoEditor({
   }
 
   if (isStudio) {
+    if (!openStudioEditor) {
+      return (
+        <StudioHome
+          railItems={railItems}
+          iconOf={iconOf}
+          onPickType={switchType}
+          onOpen={() => router.push("/video?sub=studio:script&from=home")}
+        />
+      );
+    }
     return (
       <Studio
         initialStep={(initialSub ?? "").split(":")[1] || "script"}
         railItems={railItems}
         iconOf={iconOf}
         onPickType={switchType}
-        showBack={initialFrom === "history"}
+        showBack={initialFrom === "history" || initialFrom === "home"}
       />
     );
   }
