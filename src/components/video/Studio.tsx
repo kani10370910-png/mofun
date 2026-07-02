@@ -120,9 +120,9 @@ function makeShots(script: string, total: number, targetShots?: number): Shot[] 
     const text = seg.join("，") || lines[i % L] || `镜头 ${i + 1} 画面`;
     return {
       id: `shot-${i}-${text.length}-${text.charCodeAt(0) || 0}`,
-      shotDesc: text, // 演示：画面描述 = 分配到的句子；实际由结构化拆分引擎产出
-      narration: text, // 口播旁白默认同句，可独立编辑
-      caption: text, // 字幕默认继承旁白
+      shotDesc: text, // 脚本内容只填充画面描述
+      narration: "", // 口播旁白留空，由用户填写
+      caption: "", // 字幕留空，由用户填写
       camera: CAMERAS[i % CAMERAS.length],
       shotSize: SHOT_SIZES[i % SHOT_SIZES.length],
       assetRefs: [] as string[],
