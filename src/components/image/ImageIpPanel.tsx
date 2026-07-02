@@ -36,6 +36,39 @@ function hasBlockedWord(text: string): boolean {
   return BLOCKED_WORDS.some((w) => lower.includes(w));
 }
 
+// 品牌/商标保护词：检测到时弹窗提醒（提示版权风险），而非强制拦截
+const BRAND_WORDS = [
+  "可口可乐", "百事可乐", "星巴克", "麦当劳", "肯德基", "必胜客",
+  "nike", "耐克", "adidas", "阿迪达斯", "puma",
+  "苹果", "apple", "华为", "腾讯", "阿里巴巴", "字节跳动", "百度",
+  "google", "微软", "microsoft", "facebook", "instagram", "twitter",
+  "微信", "wechat", "支付宝", "滴滴", "美团", "小红书", "抖音",
+];
+function hasBrandWord(text: string): boolean {
+  const lower = text.toLowerCase();
+  return BRAND_WORDS.some((w) => lower.includes(w.toLowerCase()));
+}
+
+/* 品牌/商标警告弹窗（IpCreate / IpExtend 共用），沿用 .modal-mask + .quota-modal 样式 */
+function BrandWarnModal({ onCancel, onContinue }: { onCancel: () => void; onContinue: () => void }) {
+  return (
+    <div className="modal-mask" onClick={onCancel}>
+      <div className="quota-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380, textAlign: "center" }}>
+        <div className="quota-modal-title">品牌 / 商标风险提示</div>
+        <p className="quota-modal-desc" style={{ marginTop: 10 }}>
+          您的描述中包含可能受版权或商标保护的品牌名称。<br />
+          建议使用自创名称，避免侵权风险。<br />
+          如确认使用，平台不承担由此引发的法律责任。
+        </p>
+        <div className="quota-modal-btns">
+          <button className="btn btn-ghost" onClick={onCancel}>返回修改</button>
+          <button className="btn btn-primary" onClick={onContinue}>了解风险，继续生成</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // IP 设计的画面尺寸只显示比例名称，不显示「1080 × 1080 px」；末尾追加「自定义」
 const CUSTOM_RATIO = "自定义";
 const ratioOpts: DropdownOption[] = [
@@ -191,6 +224,9 @@ function IpCreate({
   const colorBoxRef = useRef<HTMLDivElement>(null);
   const currentRef = useRef(current);
   currentRef.current = current;
+  // 品牌/商标警告弹窗
+  const [brandWarnOpen, setBrandWarnOpen] = useState(false);
+  const brandWarnBypassed = useRef(false);
 
   // 创意描述输入框：随内容增多自动向下变高
   const descRef = useRef<HTMLTextAreaElement>(null);
@@ -257,6 +293,12 @@ function IpCreate({
       toast("包含不允许的词语，请修改后重试", "warn");
       return;
     }
+    // 品牌/商标检测：首次命中弹窗警告，用户确认后 brandWarnBypassed=true 直接跳过
+    if (hasBrandWord(desc) && !brandWarnBypassed.current) {
+      setBrandWarnOpen(true);
+      return;
+    }
+    brandWarnBypassed.current = false;
     // 自定义比例需为正整数
     if (isCustomRatio && (!Number(cw) || !Number(ch))) {
       toast("请填写有效的自定义宽高比例！", "warn");
@@ -479,6 +521,16 @@ function IpCreate({
           {opt.state.loading ? "正在优化描述…" : "立即生成"} <span className="btn-credit">80算力</span>
         </button>
       </div>
+      {brandWarnOpen && (
+        <BrandWarnModal
+          onCancel={() => setBrandWarnOpen(false)}
+          onContinue={() => {
+            setBrandWarnOpen(false);
+            brandWarnBypassed.current = true;
+            handleGenerate();
+          }}
+        />
+      )}
     </>
   );
 }
@@ -519,6 +571,7 @@ export function ProposePanel({
   const fileRef = useRef<HTMLInputElement>(null);
   const [stage, setStage] = useState<"form" | "loading" | "result">("form");
   const [proposals, setProposals] = useState<{ full: string }[]>([]);
+  const [errMsg, setErrMsg] = useState("");
   const empty = !text.trim();
 
   // 帮我提案：调 LLM 按「IP 特征」生成三个设计方案
@@ -545,17 +598,18 @@ export function ProposePanel({
       toast("请输入画面描述！", "warn");
       return;
     }
+    setErrMsg("");
     setStage("loading");
     // 调 LLM：以输入文本作为「IP 特征」生成三个设计方案
     const full = await opt.generate({ scene: "ip-propose", description: text.trim() });
     if (opt.state.error) {
-      toast(opt.state.error, "warn");
+      setErrMsg("提案生成失败，请稍后重试");
       setStage("form");
       return;
     }
     const list = parseProposals(full);
     if (list.length === 0) {
-      toast("提案生成为空，请重试。", "warn");
+      setErrMsg("未能生成提案内容，请修改描述后重试");
       setStage("form");
       return;
     }
@@ -664,6 +718,7 @@ export function ProposePanel({
             "开始生成"
           )}
         </button>
+        {errMsg && <div className="propose-err">{errMsg}</div>}
       </div>
     </div>
   );
@@ -710,6 +765,9 @@ function IpExtend({
   const ipInputRef = useRef<HTMLInputElement>(null);
   const refInputRef = useRef<HTMLInputElement>(null);
   const descFieldRef = useRef<HTMLDivElement>(null); // 复制回填后滚动定位到图片描述词
+  // 品牌/商标警告弹窗
+  const [brandWarnOpen, setBrandWarnOpen] = useState(false);
+  const brandWarnBypassed = useRef(false);
 
   // 从仓库选一张图作为 IP 图（远程 URL，按种子图处理，替换/卸载时不 revoke）
   function pickFromLibrary(url: string, libName: string) {
@@ -863,6 +921,11 @@ function IpExtend({
       toast("包含不允许的词语，请修改后重试", "warn");
       return;
     }
+    if (extDesc.trim() && hasBrandWord(extDesc) && !brandWarnBypassed.current) {
+      setBrandWarnOpen(true);
+      return;
+    }
+    brandWarnBypassed.current = false;
     // 本次实际涉及的延展项（标题列全）：
     // - 视角：选了非「不使用预设」即算（自定义视角也算）
     // - 场景/动作/表情/服装：已选预设的（记录在 segOrderRef）
@@ -912,9 +975,9 @@ function IpExtend({
       <div className="field">
         <div className="ws-label-row">
           <div className="ws-label">上传 IP 图 <span className="req">*</span></div>
-          <a className="ws-link" onClick={() => setLibOpen(true)}>
-            仓库
-          </a>
+          <button type="button" className="ws-chip" onClick={() => setLibOpen(true)}>
+            自 仓库
+          </button>
         </div>
         <input
           ref={ipInputRef}
@@ -1094,6 +1157,16 @@ function IpExtend({
 
       {/* 「仓库」选图弹窗：从我的作品/素材选一张作为 IP 图 */}
       {libOpen && <LibraryPickerModal onPick={pickFromLibrary} onClose={() => setLibOpen(false)} />}
+      {brandWarnOpen && (
+        <BrandWarnModal
+          onCancel={() => setBrandWarnOpen(false)}
+          onContinue={() => {
+            setBrandWarnOpen(false);
+            brandWarnBypassed.current = true;
+            handleExtGenerate();
+          }}
+        />
+      )}
     </>
   );
 }

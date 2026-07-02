@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { activeGalleryItems } from "@/data/image";
@@ -26,18 +26,25 @@ export interface EventRunRow {
   error?: string;
 }
 
+const EVENT_LOAD_PHASES = [
+  "正在构思画面…",
+  "AI 正在排版构图…",
+  "细化视觉细节中，稍等片刻…",
+  "即将完成，请耐心等待…",
+];
+
 // 按生成时间分组标题：今天 / 昨天 / 更早
 function groupLabel(time: string): string {
   const m = time.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
   if (!m) return "今天";
-  const [, y, mo, d, h, mi] = m;
+  const [, y, mo, d] = m;
   const that = new Date(Number(y), Number(mo) - 1, Number(d));
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const diffDays = Math.round((today.getTime() - that.getTime()) / 864e5);
   if (diffDays <= 0) return "今天";
   if (diffDays === 1) return "昨天";
-  return `${mo}-${d} ${h}:${mi}`;
+  return `${y}-${mo}-${d}`;
 }
 
 function groupRuns(rows: EventRunRow[]): [string, EventRunRow[]][] {
@@ -227,11 +234,17 @@ function EventRunRowView({
   onDelete: () => void;
 }) {
   const loading = row.pct < 100;
-  // 完成后按收藏筛选；加载中不筛（保留进度占位）
+  const [phaseIdx, setPhaseIdx] = useState(0);
+  useEffect(() => {
+    if (!loading) return;
+    const t = window.setInterval(() => setPhaseIdx((p) => (p + 1) % EVENT_LOAD_PHASES.length), 8_000);
+    return () => window.clearInterval(t);
+  }, [loading]);
+  // 完成后按收藏筛选；加载中/错误行不筛（保留进度占位/错误展示）
   const cells = row.grads.map((g, i) => ({ g, i, key: `${row.id}-${i}` }));
-  const shown = !loading && onlyFav ? cells.filter(({ key }) => favs.has(key)) : cells;
-  // 「只看收藏」下整行无收藏则隐藏该行
-  if (!loading && onlyFav && shown.length === 0) return null;
+  const shown = !loading && !row.error && onlyFav ? cells.filter(({ key }) => favs.has(key)) : cells;
+  // 「只看收藏」下整行无收藏（且无错误）则隐藏该行
+  if (!loading && !row.error && onlyFav && shown.length === 0) return null;
   return (
     <div className="lh-row">
       <div className="lh-meta">
@@ -259,8 +272,12 @@ function EventRunRowView({
               <span className="lh-progress">{row.pct}%完成</span>
               <span className="lh-think">
                 <Icon name="sparkle" size={22} />
-                <em>正在构思…</em>
+                <em>{EVENT_LOAD_PHASES[phaseIdx]}</em>
               </span>
+            </div>
+          ) : row.error ? (
+            <div className={`lh-img ${g}`} key={i} style={{ display: "grid", placeItems: "center", padding: 12, textAlign: "center" }}>
+              <span className="lh-fail">{row.error}</span>
             </div>
           ) : (
             <EventResultCard
@@ -296,6 +313,8 @@ function EventResultCard({
   const [editOpen, setEditOpen] = useState(false); // 编辑器
   const [deepOpen, setDeepOpen] = useState(false); // 深度编辑（分层画布）
   const [zoom, setZoom] = useState(false); // 点击图片（非按钮处）放大预览
+  const [imgError, setImgError] = useState(false); // 图片加载失败（URL 失效/超时）
+  const [reloadKey, setReloadKey] = useState(0); // 强制重新加载图片
 
   const card = (kind: string): AssetCard => ({
     emoji: "🎨",
@@ -341,10 +360,29 @@ function EventResultCard({
     <div
       className={`lh-img ev-result ${grad}`}
       style={{ cursor: "zoom-in" }}
-      onClick={() => setZoom(true)}
+      onClick={() => !imgError && setZoom(true)}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img className="lh-result-img" src={assetUrl(img)} alt="活动生成图" loading="lazy" />
+      {!imgError ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          className="lh-result-img"
+          src={`${assetUrl(img)}${reloadKey ? `#r${reloadKey}` : ""}`}
+          alt="活动生成图"
+          loading="lazy"
+          onError={() => setImgError(true)}
+        />
+      ) : (
+        <div className="lh-img-err" onClick={(e) => e.stopPropagation()}>
+          <Icon name="image" size={28} />
+          <span>图片加载失败</span>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={(e) => { e.stopPropagation(); setImgError(false); setReloadKey((k) => k + 1); }}
+          >
+            重新加载
+          </button>
+        </div>
+      )}
       {/* hover 居中：编辑 / 深度编辑（点按钮不触发放大预览） */}
       <div className="lh-hover lh-hover-center">
         <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); setEditOpen(true); }}>编辑</button>

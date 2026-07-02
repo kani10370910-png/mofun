@@ -311,7 +311,7 @@ export function ImageEventPanel({
 
   async function onAssociate() {
     if (assocBusy) return;
-    // 把当前画面描述扩写得更丰富，流式实时回填到输入框
+    const saved = state.input;
     const result = await generate({ scene: "t2i-associate", input: state.input.trim() }, (full) => {
       setState({ ...state, input: full });
     });
@@ -320,6 +320,9 @@ export function ImageEventPanel({
       // 联想结果已是扩写成品 → 标记 fromCase，立即生成时不再二次扩写
       setState({ ...state, input: clampAssoc(result), fromCase: true });
       toast("已联想扩写画面描述");
+    } else {
+      setState({ ...state, input: saved });
+      toast("联想扩写失败，请稍后重试", "warn");
     }
   }
 
@@ -467,18 +470,29 @@ export function ImageEventPanel({
               <div className="ws-label">
                 参考图片 <span className="req">*</span>
               </div>
-              <a className="ws-link" onClick={() => onOpenLibrary?.()}>
-                仓库
-              </a>
+              <button type="button" className="ws-chip" onClick={() => onOpenLibrary?.()}>
+                自 仓库
+              </button>
             </div>
             <input
               ref={refFileRef}
               type="file"
-              accept="image/jpeg,image/png"
+              accept="image/jpeg,image/png,image/webp"
               hidden
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (f) {
+                  const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
+                  if (!["jpg", "jpeg", "png", "webp"].includes(ext)) {
+                    toast("仅支持 JPG、PNG、WEBP 格式图片", "warn");
+                    e.target.value = "";
+                    return;
+                  }
+                  if (f.size > 10 * 1024 * 1024) {
+                    toast("图片大小不能超过 10 MB，请压缩后重试", "warn");
+                    e.target.value = "";
+                    return;
+                  }
                   const url = URL.createObjectURL(f);
                   setState({ ...state, refImg: url, refName: f.name, uploaded: true });
                 }

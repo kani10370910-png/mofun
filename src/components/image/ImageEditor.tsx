@@ -189,10 +189,12 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   const [fontRuns, setFontRuns] = useState<FontRunRow[]>([]);
   const [fontBusy, setFontBusy] = useState(false);
   const fontTimer = useRef<number | null>(null);
+  const fontTimeout = useRef<number | null>(null);
   // IP 设计：内联生成历史（含进度 + 真实出图）；预置演示历史，进入即有完整记录
   const [ipRuns, setIpRuns] = useState<IpRunRow[]>(SEED_IP_RUNS);
   const [ipBusy, setIpBusy] = useState(false);
   const ipTimer = useRef<number | null>(null);
+  const ipTimeout = useRef<number | null>(null); // 120s 超时兜底，防止 4 张串行永久卡住
   // 每日配额耗尽弹层
   const [quotaOpen, setQuotaOpen] = useState(false);
   // IP 右侧 tab：默认看「生成历史」（已有预置演示历史）
@@ -203,6 +205,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   const [eventRuns, setEventRuns] = useState<EventRunRow[]>(SEED_EVENT_RUNS);
   const [eventBusy, setEventBusy] = useState(false);
   const eventTimer = useRef<number | null>(null);
+  const eventTimeout = useRef<number | null>(null); // 90s 超时兜底，防止生成永久卡住
   // 活动右侧 tab：默认看「生成历史」（空态会引导）；生成时也停在生成历史看进度
   const [eventTab, setEventTab] = useState<"history" | "cases">("history");
   // 活动·图转文面板：内嵌在右侧结果区（与「帮我提案」同款交互）
@@ -228,9 +231,17 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       window.clearInterval(ipTimer.current);
       ipTimer.current = null;
     }
+    if (ipTimeout.current) {
+      window.clearTimeout(ipTimeout.current);
+      ipTimeout.current = null;
+    }
     if (eventTimer.current) {
       window.clearInterval(eventTimer.current);
       eventTimer.current = null;
+    }
+    if (eventTimeout.current) {
+      window.clearTimeout(eventTimeout.current);
+      eventTimeout.current = null;
     }
     sim.close();
     const t = imageTypes.find((x) => x.key === k) ?? imageTypes[0];
@@ -391,6 +402,10 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       toast("请输入文字内容！", "warn");
       return;
     }
+    if (LOGO_BLOCKED.some((w) => fontForm.text.toLowerCase().includes(w))) {
+      toast("文字内容包含不允许的词语，请修改后重试", "warn");
+      return;
+    }
     setFontBusy(true);
     setFontTab("history");
     const id = "font-" + fontRuns.length + "-" + fontForm.text.length;
@@ -404,19 +419,34 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       desc: `为「${fontForm.text.trim()}」生成「${fontForm.effect}」${fontForm.cat}艺术字，${dirLabel}排版。`,
       time: nowStamp(),
       pct: 0,
+      loadingPhase: 0,
       results: grads.map((g) => ({ grad: g })),
     };
     setFontRuns((prev) => [row, ...prev]);
 
+    // 60s 超时保护
+    fontTimeout.current = window.setTimeout(() => {
+      if (fontTimer.current) window.clearInterval(fontTimer.current);
+      fontTimer.current = null;
+      fontTimeout.current = null;
+      setFontBusy(false);
+      setFontRuns((prev) => prev.filter((r) => r.id !== id));
+      toast("生成耗时过长，请刷新后重试", "warn");
+    }, 60000);
+
     let pct = 0;
+    let ticks = 0;
     fontTimer.current = window.setInterval(() => {
       pct += 12 + (pct % 7);
+      ticks += 1;
       if (pct >= 100) pct = 100;
       const v = pct;
-      setFontRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: v } : r)));
+      const phase = ticks < 25 ? 0 : ticks < 50 ? 1 : ticks < 75 ? 2 : 3;
+      setFontRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: v, loadingPhase: phase } : r)));
       if (v >= 100) {
         if (fontTimer.current) window.clearInterval(fontTimer.current);
         fontTimer.current = null;
+        if (fontTimeout.current) { window.clearTimeout(fontTimeout.current); fontTimeout.current = null; }
         setFontBusy(false);
         toast("字体生成完成，已存入「我的作品」");
         addWork({
@@ -469,9 +499,23 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       setIpRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct } : r)));
     }, 500);
 
+    // 120s 超时兜底（4 张串行生成，单张最慢约 30s，超出则强制结束）
+    if (ipTimeout.current) window.clearTimeout(ipTimeout.current);
+    ipTimeout.current = window.setTimeout(() => {
+      if (ipTimer.current) window.clearInterval(ipTimer.current);
+      ipTimer.current = null;
+      ipTimeout.current = null;
+      setIpRuns((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, pct: 100, error: "生成超时，请稍后重试" } : r))
+      );
+      setIpBusy(false);
+      toast("IP 形象生成超时，请稍后重试", "warn");
+    }, 120_000);
+
     function finishTimer() {
       if (ipTimer.current) window.clearInterval(ipTimer.current);
       ipTimer.current = null;
+      if (ipTimeout.current) { window.clearTimeout(ipTimeout.current); ipTimeout.current = null; }
     }
 
     // 单张请求：失败自动重试（anyfast 并发会触发限流，重试可救回；最多 3 次、退避递增）
@@ -642,6 +686,21 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       toast("请输入画面描述！", "warn");
       return;
     }
+    // 自定义尺寸校验
+    if (eventForm.ratio === "自定义") {
+      const w = Number(eventForm.customW);
+      const h = Number(eventForm.customH);
+      if (!w || !h || w < 64 || h < 64) {
+        toast("请填写有效的自定义宽高（最小 64px）！", "warn");
+        return;
+      }
+    }
+    // 敏感词拦截（本地前置，服务端仍有完整审核）
+    const evtBlocked = ["色情", "裸露", "暴力", "毒品", "赌博", "色图", "porn", "nude", "fuck", "shit"];
+    if (evtBlocked.some((w) => prompt.toLowerCase().includes(w))) {
+      toast("包含不允许的词语，请修改后重试", "warn");
+      return;
+    }
 
     setEventBusy(true);
     setEventTab("history"); // 切到生成历史看进度
@@ -720,23 +779,59 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       pct = Math.min(90, pct + 7 + (pct % 5));
       setEventRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct } : r)));
     }, 500);
+
+    // 90s 超时兜底
+    if (eventTimeout.current) window.clearTimeout(eventTimeout.current);
+    eventTimeout.current = window.setTimeout(() => {
+      if (eventTimer.current) window.clearInterval(eventTimer.current);
+      eventTimer.current = null;
+      eventTimeout.current = null;
+      setEventRuns((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, pct: 100, error: "生成超时，请稍后重试" } : r))
+      );
+      setEventBusy(false);
+      toast("活动图生成超时，请稍后重试", "warn");
+    }, 90_000);
+
     const finishTimer = () => {
       if (eventTimer.current) window.clearInterval(eventTimer.current);
       eventTimer.current = null;
+      if (eventTimeout.current) { window.clearTimeout(eventTimeout.current); eventTimeout.current = null; }
     };
 
-    // 单张请求：失败自动重试（最多 3 次、退避递增）
+    // fail_reason → 中文错误映射
+    function mapEventError(msg: string): string {
+      const m = msg.toLowerCase();
+      if (m.includes("timeout")) return "生成超时，请稍后重试";
+      if (m.includes("content") || m.includes("safety") || m.includes("policy")) return "内容未通过审核，请修改描述";
+      if (m.includes("quota") || m.includes("limit")) return "今日生成次数已达上限";
+      if (m.includes("model") || m.includes("unavailable")) return "模型暂时不可用，请稍后重试";
+      if (m.includes("network") || m.includes("connect")) return "网络连接失败，请稍后重试";
+      return "生成失败，请稍后重试";
+    }
+    const ERR_SAFETY = "ERR:SAFETY";
+    const ERR_QUOTA = "ERR:QUOTA";
+
+    // 单张请求：失败自动重试（最多 3 次、退避递增）；内容安全/配额错误不重试
     async function genOne(attempt = 0): Promise<string> {
       try {
         const r = await fetch("/api/image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          // 图生图：带参考图（data URL）让模型据其改图；文生图不带 image
           body: JSON.stringify({ prompt: genPrompt, size, ...(refDataUrl ? { image: refDataUrl } : {}) }),
         });
-        const j = await r.json();
-        const url = (j?.images?.[0] as string) || "";
-        if (url) return url;
+        if (r.status === 429) return ERR_QUOTA;
+        const j = await r.json().catch(() => ({})) as { images?: string[]; fail_reason?: string; error?: string; message?: string };
+        if (r.status === 400) {
+          const msg = String(j?.error ?? j?.message ?? "").toLowerCase();
+          if (msg.includes("content") || msg.includes("safety") || msg.includes("policy")) return ERR_SAFETY;
+        } else {
+          const failReason = String(j?.fail_reason ?? "").toLowerCase();
+          if (failReason.includes("content") || failReason.includes("safety") || failReason.includes("policy")) return ERR_SAFETY;
+          if (failReason.includes("quota") || failReason.includes("limit")) return ERR_QUOTA;
+          const url = j?.images?.[0] || "";
+          if (url) return url;
+        }
       } catch {
         /* 网络错误，落到重试 */
       }
@@ -750,14 +845,31 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     try {
       const imgs: string[] = new Array(n).fill("");
       for (let i = 0; i < n; i++) {
-        imgs[i] = await genOne();
+        const result = await genOne();
+        if (result === ERR_SAFETY) {
+          finishTimer();
+          setEventRuns((prev) =>
+            prev.map((r) => (r.id === id ? { ...r, pct: 100, error: "描述内容未通过安全审核，请调整后重试" } : r))
+          );
+          return;
+        }
+        if (result === ERR_QUOTA) {
+          finishTimer();
+          setEventRuns((prev) =>
+            prev.map((r) => (r.id === id ? { ...r, pct: 100, error: "今日生成次数已达上限" } : r))
+          );
+          setQuotaOpen(true);
+          return;
+        }
+        imgs[i] = result;
         setEventRuns((prev) => prev.map((r) => (r.id === id ? { ...r, imgs: [...imgs] } : r)));
       }
       finishTimer();
       const ok = imgs.filter(Boolean);
       if (ok.length === 0) {
-        setEventRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: 100, error: "生成失败" } : r)));
-        toast("文生图失败，请稍后重试或检查图像 API 配置。", "warn");
+        setEventRuns((prev) =>
+          prev.map((r) => (r.id === id ? { ...r, pct: 100, error: "未能生成合适的结果，请尝试修改描述或参考图" } : r))
+        );
         return;
       }
       setEventRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: 100, imgs } : r)));
@@ -766,20 +878,26 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
           ? `已生成 ${ok.length}/${n} 张（部分超时），已存入「我的作品」`
           : `已生成 ${ok.length} 张活动图，已存入「我的作品」`,
       );
-      addWork({
-        emoji: "🎨",
-        grad: "thumb-grad-1",
-        kind: "图片",
-        name: `${prompt.slice(0, 12) || "活动图"} · 活动`,
-        sub: "品牌设计 · 活动",
-        img: ok[0],
-        time: nowStamp(),
-        edit: { sub: "event", input: prompt },
-      });
+      try {
+        addWork({
+          emoji: "🎨",
+          grad: "thumb-grad-1",
+          kind: "图片",
+          name: `${prompt.slice(0, 12) || "活动图"} · 活动`,
+          sub: "品牌设计 · 活动",
+          img: ok[0],
+          time: nowStamp(),
+          edit: { sub: "event", input: prompt },
+        });
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "QuotaExceededError") {
+          toast("本地存储空间不足，历史记录可能无法保存", "warn");
+        }
+      }
     } catch {
       finishTimer();
-      setEventRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: 100, error: "生成失败" } : r)));
-      toast("网络错误，文生图失败。", "warn");
+      setEventRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: 100, error: "网络连接失败，请稍后重试" } : r)));
+      toast("网络错误，活动图生成失败。", "warn");
     } finally {
       setEventBusy(false);
     }
