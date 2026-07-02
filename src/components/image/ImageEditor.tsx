@@ -272,22 +272,54 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     addWork(work);
   }
 
+  // logo 敏感词前置检查（与 IP 设计共用相同词库逻辑）
+  const LOGO_BLOCKED = ["色情", "裸露", "暴力", "毒品", "赌博", "色图", "porn", "nude", "fuck", "shit"];
+  function logoHasBlocked(text: string) {
+    const lower = text.toLowerCase();
+    return LOGO_BLOCKED.some((w) => lower.includes(w));
+  }
+
   // logo：内联进度生成（0% → 100%）
   function runLogoGenerate() {
     if (logoBusy) return;
-    if (!logoForm.brand.trim()) {
+    const brand = logoForm.brand.trim();
+    if (!brand) {
       toast("请输入品牌名称！", "warn");
+      return;
+    }
+    if (logoHasBlocked(brand)) {
+      toast("品牌名称包含不允许的词语，请修改后重试", "warn");
+      return;
+    }
+    if (logoForm.input.trim() && logoHasBlocked(logoForm.input)) {
+      toast("创意描述包含不允许的词语，请修改后重试", "warn");
       return;
     }
     setLogoBusy(true);
     setLogoTab("history");
-    const id = "run-" + logoRuns.length + "-" + logoForm.brand.length;
+    const id = "run-" + logoRuns.length + "-" + brand.length;
     const grads = ["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-grad-4"] as const;
-    const brand = logoForm.brand.trim() || "未命名品牌";
     const style = logoForm.style || "智能匹配";
 
-    // 按品牌名 + 风格动态生成 4 张带品牌名的 logo（4 套配色），让结果与品牌相关
-    const picked = grads.map((_, i) => logoSvgDataUrl(brand, style, i));
+    let picked: string[];
+    try {
+      picked = grads.map((_, i) => logoSvgDataUrl(brand, style, i));
+    } catch {
+      setLogoBusy(false);
+      toast("Logo 生成失败，请检查品牌名称是否含有特殊字符", "warn");
+      const errRow: LogoRunRow = {
+        id,
+        prompt: brand,
+        style,
+        desc: logoForm.input.trim(),
+        time: nowStamp(),
+        pct: 100,
+        results: grads.map((g) => ({ grad: g, emoji: "🎨", fav: false })),
+        error: "Logo 生成失败，请检查品牌名称是否含有特殊字符",
+      };
+      setLogoRuns((prev) => [errRow, ...prev]);
+      return;
+    }
 
     const row: LogoRunRow = {
       id,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { logoCats, logoCases, logoHistory } from "@/data/image";
@@ -53,7 +53,15 @@ export interface LogoRunRow {
   time: string; // 生成时间（年月日时分）
   pct: number; // <100 加载中；100 完成
   results: LogoResult[];
+  error?: string; // 生成失败时的原因
 }
+
+const LOGO_LOAD_PHASES = [
+  "正在理解品牌创意…",
+  "AI 正在设计 Logo 草稿…",
+  "优化细节与配色中…",
+  "即将完成，请稍等…",
+];
 
 /* logo 右侧画廊：生成历史（含内联加载进度）+ 参考灵感 */
 export function LogoGallery({
@@ -272,10 +280,16 @@ function LogoRunRowView({
   onToggleFav: (key: string) => void;
 }) {
   const loading = row.pct < 100;
+  const [phaseIdx, setPhaseIdx] = useState(0);
+  useEffect(() => {
+    if (!loading) return;
+    const t = window.setInterval(() => setPhaseIdx((p) => (p + 1) % LOGO_LOAD_PHASES.length), 8_000);
+    return () => window.clearInterval(t);
+  }, [loading]);
   const cells = row.results.map((r, i) => ({ r, i, key: `r-${row.id}-${i}` }));
-  const shown = !loading && onlyFav ? cells.filter(({ key }) => isFav(key)) : cells;
+  const shown = !loading && !row.error && onlyFav ? cells.filter(({ key }) => isFav(key)) : cells;
   // 「只看收藏」下，已完成且无收藏结果的行整行隐藏
-  if (!loading && onlyFav && shown.length === 0) return null;
+  if (!loading && !row.error && onlyFav && shown.length === 0) return null;
   return (
     <div className="lh-row">
       <div className="lh-meta">
@@ -304,8 +318,12 @@ function LogoRunRowView({
               <span className="lh-progress">{row.pct}%完成</span>
               <span className="lh-think">
                 <Icon name="sparkle" size={22} />
-                <em>正在构思…</em>
+                <em>{LOGO_LOAD_PHASES[phaseIdx]}</em>
               </span>
+            </div>
+          ) : row.error ? (
+            <div className={`lh-img ${r.grad}`} key={i} style={{ display: "grid", placeItems: "center", padding: 12, textAlign: "center" }}>
+              <span className="lh-fail">{row.error}</span>
             </div>
           ) : (
             <LogoResultCard
@@ -338,6 +356,9 @@ function LogoResultCard({
 }) {
   const [showDownload, setShowDownload] = useState(false);
   const [zoom, setZoom] = useState(false); // 点击卡片（非按钮处）放大查看原图
+  const [imgError, setImgError] = useState(false); // 缩略图加载失败
+  const [zoomError, setZoomError] = useState(false); // 放大预览加载失败
+  const firstLetter = (name[0] ?? "L").toUpperCase();
 
   const asset = (kind: string): AssetCard => ({
     emoji: result.emoji,
@@ -351,9 +372,11 @@ function LogoResultCard({
 
   return (
     <div className={`lh-img ${result.grad}`} style={{ cursor: "zoom-in" }} onClick={() => setZoom(true)}>
-      {result.img ? (
+      {result.img && !imgError ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img className="lh-result-img" src={assetUrl(result.img!)} alt={name} loading="lazy" />
+        <img className="lh-result-img" src={assetUrl(result.img!)} alt={name} loading="lazy" onError={() => setImgError(true)} />
+      ) : imgError ? (
+        <span className="logo-letter-placeholder">{firstLetter}</span>
       ) : (
         <span className="lh-emoji">{result.emoji}</span>
       )}
@@ -378,9 +401,14 @@ function LogoResultCard({
           <button className="img-zoom-close" aria-label="关闭" onClick={(e) => { e.stopPropagation(); setZoom(false); }}>
             <Icon name="close" size={22} />
           </button>
-          {result.img ? (
+          {result.img && !zoomError ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img className="img-zoom-img" src={assetUrl(result.img!)} alt={name} onClick={(e) => e.stopPropagation()} />
+            <img className="img-zoom-img" src={assetUrl(result.img!)} alt={name} onClick={(e) => e.stopPropagation()} onError={() => setZoomError(true)} />
+          ) : zoomError ? (
+            <div className="img-zoom-card" onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, color: "#fff" }}>
+              <span style={{ fontSize: 14, opacity: .8 }}>预览加载失败</span>
+              <button className="btn btn-ghost" onClick={(e) => { e.stopPropagation(); setShowDownload(true); }}>下载</button>
+            </div>
           ) : (
             <div className={`img-zoom-card ${result.grad}`} onClick={(e) => e.stopPropagation()}>
               <span className="izc-emoji">{result.emoji}</span>

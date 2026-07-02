@@ -3735,4 +3735,11 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 .vm-card.on .vm-tag { background: #dbeafe; color: #2563eb; }
 @media (max-width: 720px) { .vm-grid { grid-template-columns: 1fr; } }
 
+/* —— Logo 首字母占位（缩略图 img onError 降级）—— */
+.logo-letter-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; min-height: 80px; font-size: 36px; font-weight: 800; color: var(--c-white); letter-spacing: -1px; user-select: none; pointer-events: none; }
+
+/* —— 字符计数器（品牌名称 / 描述输入框右侧）—— */
+.ws-char-count { font-size: 11.5px; color: var(--c-muted); line-height: 1; }
+.ws-char-count.warn { color: #e57733; font-weight: 600; }
+
 
