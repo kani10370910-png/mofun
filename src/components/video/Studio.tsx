@@ -5,7 +5,16 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { EditorRail, type RailItem } from "@/components/ui/EditorRail";
 import { useToast } from "@/components/ui/Toast";
-import { studioSteps, studioCameras, studioShotSizes } from "@/data/video";
+import {
+  studioSteps,
+  studioCameras,
+  studioShotSizes,
+  videoRatios,
+  videoStyles,
+  videoQualities,
+  videoVoices,
+  videoBgms,
+} from "@/data/video";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import type { IconName } from "@/data/icons";
@@ -58,13 +67,14 @@ const ASSET_EMOJIS = ["🏞️", "👩‍🌾", "🍵", "🌾", "🏮", "🎐", 
 const DEFAULT_SCRIPT =
   "安吉明前白茶产品介绍：海拔800米高山茶园产地。氨基酸高、鲜爽回甘的口感特点。手工采摘明前嫩芽。古法工艺匠心制作。限量预订，产地直发到家。";
 
+// 视频设定：对齐「一句话成片」的设定项（共享 data/video 常量，保持一致）
 const SETTING_FIELDS: { label: string; opts: string[]; hint?: string }[] = [
-  { label: "画幅", opts: ["横屏 16:9", "竖屏 9:16", "方形 1:1"] },
-  { label: "整体风格", opts: ["国风清新", "真实纪实", "活泼种草", "电影感", "航拍大片"] },
-  { label: "配音", opts: ["温柔女声", "沉稳男声", "不配音"] },
-  { label: "配乐", opts: ["舒缓", "轻快", "大气", "国风", "无"] },
+  { label: "视频比例", opts: [...videoRatios] },
+  { label: "视频风格", opts: videoStyles.map((s) => s.name) },
+  { label: "视频质量", opts: [...videoQualities], hint: "1080P 消耗 2 倍额度" },
+  { label: "配音", opts: [...videoVoices] },
+  { label: "配乐", opts: [...videoBgms] },
   { label: "字幕", opts: ["显示", "隐藏"] },
-  { label: "画质", opts: ["720P 清晰", "1080P 高清"], hint: "1080P 消耗 2 倍额度" },
 ];
 
 // 剧本 → 结构化分镜数据
@@ -136,13 +146,12 @@ export function Studio({
   const [script, setScript] = useState(DEFAULT_SCRIPT);
   const [aiBusy, setAiBusy] = useState(false);
   const [settings, setSettings] = useState<Record<string, string>>({
-    画幅: "横屏 16:9",
-    整体风格: "国风清新",
-    总时长: "30s",
+    视频比例: "16:9",
+    视频风格: videoStyles[0].name, // 智能匹配
+    视频质量: "720P",
     配音: "温柔女声",
     配乐: "舒缓",
     字幕: "显示",
-    画质: "720P 清晰",
   });
   // 用户自定义：目标镜头数 + 总时长（秒），驱动拆分镜。用 ref 保存最新值，
   // 避免两个 stepper 互读对方的陈旧闭包值导致覆盖。
@@ -159,7 +168,7 @@ export function Studio({
   const [exporting, setExporting] = useState(false);
   const [exportPct, setExportPct] = useState(0);
 
-  const ratio = settings.画幅; // 含 "16:9" 子串，videoFx 会解析
+  const ratio = settings.视频比例; // "智能"/"16:9" 等，videoFx 会解析
   const totalDur = shots.reduce((a, s) => a + s.dur, 0);
   const doneShots = shots.filter((s) => s.status === "done");
 
@@ -345,7 +354,7 @@ export function Studio({
       toast("全部分镜已生成完成");
       return;
     }
-    const mult = settings.画质?.includes("1080") ? 2 : 1;
+    const mult = settings.视频质量?.includes("1080") ? 2 : 1;
     const cost = pending.length * mult;
     const ok = window.confirm(
       `本次将生成 ${pending.length} 个分镜，预计消耗 ${cost} 次生成额度${mult === 2 ? "（1080P 高清 ×2）" : ""}。是否继续？`
@@ -639,7 +648,7 @@ function StudioStepView(props: {
               <button onClick={() => props.setTotal(props.totalSec + 5)} disabled={props.totalSec >= props.targetShots * 15} aria-label="增加时长" title="每镜最长 15 秒">＋</button>
             </div>
           </div>
-          <span className="sp-setnote">每镜约 {Math.max(2, Math.round(props.totalSec / props.targetShots))}s · {props.settings.画质}</span>
+          <span className="sp-setnote">每镜约 {Math.max(2, Math.round(props.totalSec / props.targetShots))}s · {props.settings.视频质量}</span>
         </div>
         <div className="sp-actions">
           <button className="btn btn-soft btn-sm" disabled={props.aiBusy} onClick={props.aiScript}>
@@ -658,7 +667,7 @@ function StudioStepView(props: {
     return (
       <div className="stage-panel">
         <div className="sp-title">② 视频设定</div>
-        <div className="sp-sub">画幅、风格、配音、配乐、字幕、画质会贯穿到分镜生成、预览与导出（镜头数与总时长在「剧本编辑」设定）。</div>
+        <div className="sp-sub">视频比例、风格、质量、配音、配乐、字幕会贯穿到分镜生成、预览与导出（与「一句话成片」设定一致；镜头数与总时长在「剧本编辑」设定）。</div>
         <div className="sp-grid">
           {SETTING_FIELDS.map((g) => (
             <SettingField
