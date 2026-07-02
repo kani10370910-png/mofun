@@ -89,6 +89,7 @@ export function VideoEditor({
         iconOf={iconOf}
         onPickType={switchType}
         showBack={initialFrom === "history" || initialFrom === "home"}
+        immersive={initialFrom === "history"}
       />
     );
   }

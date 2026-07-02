@@ -198,13 +198,15 @@ export function Studio({
   iconOf,
   onPickType,
   showBack = false,
+  immersive = false,
 }: {
   initialStep?: string;
   initialName?: string; // 从首页「新建大片」命名 / 打开项目时带入
   railItems: RailItem[];
   iconOf: (k: string) => IconName;
   onPickType: (k: string) => void;
-  showBack?: boolean; // 仅从生成历史进入时显示返回按钮；直接进入（一级功能）不显示
+  showBack?: boolean; // 显示返回按钮（从生成历史 / 从首页进入）
+  immersive?: boolean; // 全屏沉浸（隐藏全局顶栏）——仅从生成历史进入；从首页进入保留全局顶栏
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -242,10 +244,9 @@ export function Studio({
   const totalDur = shots.reduce((a, s) => a + s.dur, 0);
   const doneShots = shots.filter((s) => s.status === "done");
 
-  // 仅「从生成历史进入」时启用全屏沉浸模式（隐藏顶栏，配合返回按钮）；
-  // 直接进入是一级功能，保留顶栏作为导航，避免无顶栏又无返回而出不去。
+  // 仅「从生成历史进入」时启用全屏沉浸模式（隐藏全局顶栏，配合返回按钮）；
+  // 从首页 / 直接进入时保留全局顶栏作为导航，顶部一直固定可见。
   useEffect(() => {
-    const immersive = showBack;
     if (immersive) document.body.classList.add("studio-mode");
     const t = timers.current;
     return () => {
@@ -255,7 +256,7 @@ export function Studio({
         window.clearInterval(id);
       });
     };
-  }, [showBack]);
+  }, [immersive]);
 
   const activeIdx = studioSteps.findIndex((s) => s.key === stepKey);
   const active = studioSteps[activeIdx] ?? studioSteps[0];
