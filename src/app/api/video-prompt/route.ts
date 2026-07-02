@@ -9,7 +9,12 @@ export const dynamic = "force-dynamic";
    返回：{ text: string | null } */
 
 export async function POST(req: NextRequest) {
-  const { input, style, targetChars } = (await req.json()) as { input?: string; style?: string; targetChars?: number };
+  const { input, style, targetChars, prevContext } = (await req.json()) as {
+    input?: string;
+    style?: string;
+    targetChars?: number;
+    prevContext?: string; // 上一镜头画面内容，用于镜头间叙事衔接
+  };
   if (!input?.trim()) return Response.json({ text: null }, { status: 400 });
   const userContent = style ? `${input.trim()}，风格：${style}` : input.trim();
 
@@ -23,6 +28,13 @@ export async function POST(req: NextRequest) {
   const messages: Array<{ role: string; content: string }> = [{ role: "system", content: SYSTEM_VIDEO_PROMPT_OPTIMIZE }];
   if (targetChars && targetChars > 0) {
     messages.push({ role: "system", content: `本次请将输出长度控制在约 ${targetChars} 字左右，覆盖前述长度规则。` });
+  }
+  // 可选：上一镜头内容，用于镜头间叙事衔接
+  if (prevContext && prevContext.trim()) {
+    messages.push({
+      role: "system",
+      content: `上一个镜头的画面内容为：「${prevContext.trim()}」。本镜头需与上一镜头在场景、主体或镜头运动上自然承接、连贯过渡，形成流畅的叙事衔接，避免与上一镜头割裂或跳跃。`,
+    });
   }
   messages.push({ role: "user", content: userContent });
   const maxTokens = targetChars && targetChars > 0 ? Math.min(1200, Math.round(targetChars * 2.2)) : 400;

@@ -65,11 +65,12 @@ const CAMERAS = [...studioCameras];
 const SHOT_SIZES = [...studioShotSizes];
 
 // 本地兜底扩写：真实模型不可用时，给用户描述补上专业镜头/光影/质感细节（约 300 字）
-function localExpand(base: string, style?: string): string {
+function localExpand(base: string, style?: string, prevContext?: string): string {
   const clean = base.replace(/[。.！!？?\s]+$/, "");
   const styleHint = style && style !== "智能匹配" ? `整体呈现${style}风格，` : "";
+  const trans = prevContext ? `承接上一镜头画面，镜头自然过渡衔接。` : "";
   return (
-    `${clean}。画面以此为核心主体，环境层次分明、细节丰富真实。` +
+    `${trans}${clean}。画面以此为核心主体，环境层次分明、细节丰富真实。` +
     `镜头以低机位缓缓推近开场，随后转为环绕跟拍与横移平移，运镜舒缓流畅、富有节奏。` +
     `${styleHint}黄金时段暖色调侧逆光穿透，光影柔和细腻，明暗过渡自然。` +
     `浅景深虚化前后景，突出主体质感与纹理，构图讲究、主次分明。` +
@@ -79,13 +80,13 @@ function localExpand(base: string, style?: string): string {
 }
 
 // AI 扩写：把用户写的画面内容优化为更专业的描述（补镜头运动/光影氛围/画面质感，约 300 字），
-// 复用一句话成片的 /api/video-prompt 路由。失败返回 null。
-async function optimizeShotPrompt(input: string, style?: string): Promise<string | null> {
+// 传入上一镜内容做叙事衔接。复用一句话成片的 /api/video-prompt 路由，失败返回 null。
+async function optimizeShotPrompt(input: string, style?: string, prevContext?: string): Promise<string | null> {
   try {
     const r = await fetch("/api/video-prompt", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input, style, targetChars: 300 }),
+      body: JSON.stringify({ input, style, targetChars: 300, prevContext }),
       signal: AbortSignal.timeout(25_000),
     });
     if (!r.ok) return null;
@@ -286,18 +287,20 @@ export function Studio({
   // —— 行为 ——
   // AI 扩写（逐镜）：把该镜头画面描述调 /api/video-prompt 优化为更专业的描述（真实 AI，失败本地兜底）。
   async function aiExpandShot(id: string) {
-    const shot = shots.find((s) => s.id === id);
-    const base = shot?.shotDesc.trim();
+    const idx = shots.findIndex((s) => s.id === id);
+    const base = shots[idx]?.shotDesc.trim();
     if (!base) {
       toast("请先填写画面内容，再点 AI 扩写", "warn");
       return;
     }
+    // 上一镜内容作为叙事衔接上下文（首镜无）
+    const prevContext = idx > 0 ? shots[idx - 1].shotDesc.trim() : "";
     setAiBusyId(id);
     const style = settings.视频风格 === "智能匹配" ? undefined : settings.视频风格;
-    const text = (await optimizeShotPrompt(base, style)) ?? localExpand(base, style);
+    const text = (await optimizeShotPrompt(base, style, prevContext)) ?? localExpand(base, style, prevContext);
     setShots((prev) => prev.map((s) => (s.id === id ? { ...s, shotDesc: text } : s)));
     setAiBusyId(null);
-    toast("已 AI 扩写画面描述");
+    toast(idx > 0 ? "已 AI 扩写并衔接上一镜" : "已 AI 扩写画面描述");
   }
 
   // 非破坏式重拆：锁定的镜头保留，其余按「目标镜头数 + 总时长」重新拆分
