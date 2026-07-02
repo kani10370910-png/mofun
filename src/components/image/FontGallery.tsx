@@ -25,21 +25,29 @@ export interface FontRunRow {
   desc?: string; // 当时用户填的文字效果描述
   time: string; // 生成时间（年月日时分）
   pct: number; // <100 加载中；100 完成
+  loadingPhase?: number; // 加载阶段（0-3），用于切换加载文案
   results: { grad: Grad }[];
 }
+
+const FONT_LOAD_PHASES = [
+  "正在生成字体…",
+  "AI 正在调配笔触…",
+  "细化字形中…",
+  "即将完成，请稍等…",
+];
 
 // 按生成时间算分组标题：今天 / 昨天 / 更早（月-日 时:分）
 function groupLabel(time: string): string {
   const m = time.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
   if (!m) return "今天";
-  const [, y, mo, d, h, mi] = m;
+  const [, y, mo, d] = m;
   const that = new Date(Number(y), Number(mo) - 1, Number(d));
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const diffDays = Math.round((today.getTime() - that.getTime()) / 864e5);
   if (diffDays <= 0) return "今天";
   if (diffDays === 1) return "昨天";
-  return `${mo}-${d} ${h}:${mi}`; // 更早：月-日 时:分
+  return `${y}-${mo}-${d}`;
 }
 
 // 把本次会话生成行按分组标题归组（保持原有先后顺序）
@@ -87,6 +95,7 @@ export function FontGallery({
   const [onlyFav, setOnlyFav] = useState(false);
   // 字体故事详情弹窗：当前查看的字体（null = 关闭）
   const [storyView, setStoryView] = useState<FontStory | null>(null);
+  const [storyImgError, setStoryImgError] = useState(false);
   const cats = ["全部", "书法体", "现代体", "艺术体"];
   // 预置演示历史：默认加载 fontHistory，保证进入即有完整生成历史可点击各功能
   const [history, setHistory] = useState<FontHistoryGroup[]>(fontHistory);
@@ -272,7 +281,7 @@ export function FontGallery({
               >
                 {s.cover ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img className="font-story-img" src={assetUrl(s.cover!)} alt={s.name} loading="lazy" />
+                  <img className="font-story-img" src={assetUrl(s.cover!)} alt={s.name} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} />
                 ) : (
                   <span className="font-story-title">{s.title}</span>
                 )}
@@ -303,19 +312,28 @@ export function FontGallery({
 
       {/* 字体故事详情弹窗：introduce 图本身即完整版面，自适应图片尺寸干净展示 */}
       {storyView && (
-        <div className="fe-modal-mask" onClick={() => setStoryView(null)}>
+        <div className="fe-modal-mask" onClick={() => { setStoryView(null); setStoryImgError(false); }}>
           <div className="fs-detail" onClick={(e) => e.stopPropagation()}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              className="fs-detail-img"
-              src={assetUrl(storyView.introduce!)}
-              alt={storyView.name}
-              title="点击立即使用该字体"
-              onClick={() => {
-                onUseStory(storyView);
-                setStoryView(null);
-              }}
-            />
+            {storyImgError ? (
+              <div className="fs-detail-err">
+                <p>字体故事图片暂时无法加载</p>
+                <button className="btn btn-ghost btn-sm" onClick={() => { setStoryView(null); setStoryImgError(false); }}>关闭</button>
+              </div>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                className="fs-detail-img"
+                src={assetUrl(storyView.introduce!)}
+                alt={storyView.name}
+                title="点击立即使用该字体"
+                onError={() => setStoryImgError(true)}
+                onClick={() => {
+                  onUseStory(storyView);
+                  setStoryView(null);
+                  setStoryImgError(false);
+                }}
+              />
+            )}
           </div>
         </div>
       )}
@@ -382,7 +400,7 @@ function FontRunRowView({
               <span className="lh-progress">{row.pct}%完成</span>
               <span className="lh-think">
                 <span className="font-spinner" />
-                <em>{i === 0 ? "调配色彩…" : "正在构思…"}</em>
+                <em>{FONT_LOAD_PHASES[row.loadingPhase ?? 0]}</em>
               </span>
             </div>
           ) : (

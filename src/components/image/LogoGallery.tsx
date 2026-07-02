@@ -20,14 +20,14 @@ type DeleteTarget = { kind: "run"; id: string } | { kind: "hist"; gi: number; ii
 function groupLabel(time: string): string {
   const m = time.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
   if (!m) return "今天";
-  const [, y, mo, d, h, mi] = m;
+  const [, y, mo, d] = m;
   const that = new Date(Number(y), Number(mo) - 1, Number(d));
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const diffDays = Math.round((today.getTime() - that.getTime()) / 864e5);
   if (diffDays <= 0) return "今天";
   if (diffDays === 1) return "昨天";
-  return `${mo}-${d} ${h}:${mi}`; // 更早：月-日 时:分
+  return `${y}-${mo}-${d}`;
 }
 
 // 把本次会话生成行按分组标题归组（保持原有先后顺序）

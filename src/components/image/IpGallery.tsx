@@ -67,14 +67,14 @@ export interface IpRunRow {
 function groupLabel(time: string): string {
   const m = time.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
   if (!m) return "今天";
-  const [, y, mo, d, h, mi] = m;
+  const [, y, mo, d] = m;
   const that = new Date(Number(y), Number(mo) - 1, Number(d));
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const diffDays = Math.round((today.getTime() - that.getTime()) / 864e5);
   if (diffDays <= 0) return "今天";
   if (diffDays === 1) return "昨天";
-  return `${mo}-${d} ${h}:${mi}`;
+  return `${y}-${mo}-${d}`;
 }
 
 function groupRuns(rows: IpRunRow[]): [string, IpRunRow[]][] {
