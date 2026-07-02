@@ -68,7 +68,7 @@ const SHOT_SIZES = [...studioShotSizes];
 function localExpand(base: string, style?: string, prevContext?: string): string {
   const clean = base.replace(/[。.！!？?\s]+$/, "");
   const styleHint = style && style !== "智能匹配" ? `整体呈现${style}风格，` : "";
-  const trans = prevContext ? `承接上一镜头画面，镜头自然过渡衔接。` : "";
+  const trans = prevContext ? `承接前面镜头画面，延续整段叙事、镜头自然过渡衔接。` : "";
   return (
     `${trans}${clean}。画面以此为核心主体，环境层次分明、细节丰富真实。` +
     `镜头以低机位缓缓推近开场，随后转为环绕跟拍与横移平移，运镜舒缓流畅、富有节奏。` +
@@ -293,14 +293,19 @@ export function Studio({
       toast("请先填写画面内容，再点 AI 扩写", "warn");
       return;
     }
-    // 上一镜内容作为叙事衔接上下文（首镜无）
-    const prevContext = idx > 0 ? shots[idx - 1].shotDesc.trim() : "";
+    // 前面所有镜头内容作为叙事衔接上下文（首镜无），保证与整段前文连贯
+    const prevContext = shots
+      .slice(0, idx)
+      .map((s, i) => ({ i, t: s.shotDesc.trim() }))
+      .filter((x) => x.t)
+      .map((x) => `镜头${x.i + 1}：${x.t}`)
+      .join("\n");
     setAiBusyId(id);
     const style = settings.视频风格 === "智能匹配" ? undefined : settings.视频风格;
     const text = (await optimizeShotPrompt(base, style, prevContext)) ?? localExpand(base, style, prevContext);
     setShots((prev) => prev.map((s) => (s.id === id ? { ...s, shotDesc: text } : s)));
     setAiBusyId(null);
-    toast(idx > 0 ? "已 AI 扩写并衔接上一镜" : "已 AI 扩写画面描述");
+    toast(prevContext ? "已 AI 扩写并衔接前面镜头" : "已 AI 扩写画面描述");
   }
 
   // 非破坏式重拆：锁定的镜头保留，其余按「目标镜头数 + 总时长」重新拆分

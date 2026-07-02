@@ -29,11 +29,11 @@ export async function POST(req: NextRequest) {
   if (targetChars && targetChars > 0) {
     messages.push({ role: "system", content: `本次请将输出长度控制在约 ${targetChars} 字左右，覆盖前述长度规则。` });
   }
-  // 可选：上一镜头内容，用于镜头间叙事衔接
+  // 可选：前面所有镜头内容，用于全片叙事衔接
   if (prevContext && prevContext.trim()) {
     messages.push({
       role: "system",
-      content: `上一个镜头的画面内容为：「${prevContext.trim()}」。本镜头需与上一镜头在场景、主体或镜头运动上自然承接、连贯过渡，形成流畅的叙事衔接，避免与上一镜头割裂或跳跃。`,
+      content: `前面各镜头的画面内容依次如下：\n${prevContext.trim()}\n本镜头需在上述整段叙事脉络基础上自然承接、连贯过渡，与前面所有镜头在场景、主体、风格与镜头运动上保持一致连贯，形成流畅递进的故事线，避免割裂或跳跃。`,
     });
   }
   messages.push({ role: "user", content: userContent });
