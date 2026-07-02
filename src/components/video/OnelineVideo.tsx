@@ -1334,20 +1334,22 @@ export function OnelineVideo() {
               </div>
             ) : (
               <div className="ov-runs">
-                {shownRuns.map((r) => (
-                  <VideoRunCard
-                    key={r.id}
-                    row={r}
-                    onDelete={() => deleteRun(r.id)}
-                    onPlay={() => setPlayingId(r.id)}
-                    onRegenerate={() => regenerate(r)}
-                    onCopy={() => copyToForm(r)}
-                    onDownload={() => downloadVideo(r)}
-                    onStudio={() => router.push("/video?sub=studio&from=history")}
-                    fav={isFavorite(videoAsset(r))}
-                    onFav={() => toggleFav(r)}
-                  />
-                ))}
+                <div className="ov-runs-masonry">
+                  {shownRuns.map((r) => (
+                    <VideoRunCard
+                      key={r.id}
+                      row={r}
+                      onDelete={() => deleteRun(r.id)}
+                      onPlay={() => setPlayingId(r.id)}
+                      onRegenerate={() => regenerate(r)}
+                      onCopy={() => copyToForm(r)}
+                      onDownload={() => downloadVideo(r)}
+                      onStudio={() => router.push("/video?sub=studio&from=history")}
+                      fav={isFavorite(videoAsset(r))}
+                      onFav={() => toggleFav(r)}
+                    />
+                  ))}
+                </div>
               </div>
             )
           ) : (
