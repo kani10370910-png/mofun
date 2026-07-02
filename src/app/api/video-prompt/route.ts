@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
    返回：{ text: string | null } */
 
 export async function POST(req: NextRequest) {
-  const { input, style } = (await req.json()) as { input?: string; style?: string };
+  const { input, style, targetChars } = (await req.json()) as { input?: string; style?: string; targetChars?: number };
   if (!input?.trim()) return Response.json({ text: null }, { status: 400 });
   const userContent = style ? `${input.trim()}，风格：${style}` : input.trim();
 
@@ -19,16 +19,21 @@ export async function POST(req: NextRequest) {
 
   if (!apiKey || !baseURL) return Response.json({ text: null }, { status: 503 });
 
+  // 可选：调用方指定目标字数（覆盖系统提示词内的 180–220 字长度规则）
+  const messages: Array<{ role: string; content: string }> = [{ role: "system", content: SYSTEM_VIDEO_PROMPT_OPTIMIZE }];
+  if (targetChars && targetChars > 0) {
+    messages.push({ role: "system", content: `本次请将输出长度控制在约 ${targetChars} 字左右，覆盖前述长度规则。` });
+  }
+  messages.push({ role: "user", content: userContent });
+  const maxTokens = targetChars && targetChars > 0 ? Math.min(1200, Math.round(targetChars * 2.2)) : 400;
+
   const r = await fetch(`${baseURL}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model,
-      messages: [
-        { role: "system", content: SYSTEM_VIDEO_PROMPT_OPTIMIZE },
-        { role: "user", content: userContent },
-      ],
-      max_tokens: 400,
+      messages,
+      max_tokens: maxTokens,
       stream: false,
       enable_thinking: false,
     }),

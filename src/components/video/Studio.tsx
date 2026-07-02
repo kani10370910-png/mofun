@@ -64,21 +64,28 @@ const ASSET_KINDS: Asset["kind"][] = ["场景", "角色", "道具"];
 const CAMERAS = [...studioCameras];
 const SHOT_SIZES = [...studioShotSizes];
 
-// 本地兜底扩写：真实模型不可用时，给用户描述补上专业镜头/光影/质感细节
+// 本地兜底扩写：真实模型不可用时，给用户描述补上专业镜头/光影/质感细节（约 300 字）
 function localExpand(base: string, style?: string): string {
   const clean = base.replace(/[。.！!？?\s]+$/, "");
-  const styleHint = style && style !== "智能匹配" ? `${style}风格，` : "";
-  return `${clean}。${styleHint}镜头运动舒缓流畅，黄金时段暖色调、浅景深虚化背景，主体质感细腻、层次分明，画面富有电影感，情绪自然生动。`;
+  const styleHint = style && style !== "智能匹配" ? `整体呈现${style}风格，` : "";
+  return (
+    `${clean}。画面以此为核心主体，环境层次分明、细节丰富真实。` +
+    `镜头以低机位缓缓推近开场，随后转为环绕跟拍与横移平移，运镜舒缓流畅、富有节奏。` +
+    `${styleHint}黄金时段暖色调侧逆光穿透，光影柔和细腻，明暗过渡自然。` +
+    `浅景深虚化前后景，突出主体质感与纹理，构图讲究、主次分明。` +
+    `4K 超高清画质配合慢速升格，画面兼具写实质感与电影氛围，色彩饱满通透。` +
+    `情绪基调自然生动、真挚温暖，整体节奏张弛有度，传递出鲜活而富有感染力的现场氛围。`
+  );
 }
 
-// AI 扩写：把用户写的画面内容优化为更专业的描述（补镜头运动/光影氛围/画面质感），
+// AI 扩写：把用户写的画面内容优化为更专业的描述（补镜头运动/光影氛围/画面质感，约 300 字），
 // 复用一句话成片的 /api/video-prompt 路由。失败返回 null。
 async function optimizeShotPrompt(input: string, style?: string): Promise<string | null> {
   try {
     const r = await fetch("/api/video-prompt", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input, style }),
+      body: JSON.stringify({ input, style, targetChars: 300 }),
       signal: AbortSignal.timeout(25_000),
     });
     if (!r.ok) return null;
