@@ -33,6 +33,27 @@ const GRADS: Grad[] = ["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-gr
 // 敏感词演示：命中则安全预检拦截
 const BLOCK_WORDS = ["反动", "暴恐", "色情", "血腥"];
 
+// 参考图上传白名单与体积上限（首/尾帧共用）
+const FRAME_EXT_WHITELIST = ["jpg", "jpeg", "png", "webp"];
+const FRAME_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+
+// 后端配额耗尽判定（HTTP 429 / quota_exceeded）
+function isQuotaError(msg: string): boolean {
+  return /429|quota|limit|次数/i.test(msg);
+}
+// 视频生成失败：将后端错误码 / HTTP 状态映射为用户可读中文（不暴露原始堆栈）
+const VIDEO_ERROR_MAP: [RegExp, string][] = [
+  [/timeout|504|超时/i, "生成超时（视频耗时过长），请稍后重试"],
+  [/content|safety|policy|审核/i, "内容未通过审核，请修改描述"],
+  [/model|unavailable|unavail/i, "模型暂时不可用，请稍后重试"],
+];
+function mapVideoError(msg: string): string {
+  for (const [re, text] of VIDEO_ERROR_MAP) {
+    if (re.test(msg)) return text;
+  }
+  return "生成失败，请重试";
+}
+
 
 
 // 预置「已完成」生成历史（演示）：保证每次进入都有现成记录，可直接点下载/重生成/存库/提交审核
@@ -442,6 +463,18 @@ export function OnelineVideo() {
   const playing = playingId ? (runs.find((r) => r.id === playingId) ?? null) : playingExtra; // 衍生：历史记录取 runs 最新状态，否则用外部记录
   const [busy, setBusy] = useState(false);
   const [safe, setSafe] = useState<null | "checking" | "blocked">(null); // 安全预检状态
+  const [quotaOpen, setQuotaOpen] = useState(false); // 每日生成次数耗尽弹层
+
+  // 写入「我的作品」：捕获 localStorage 配额溢出，存储失败不中断生成/收藏流程
+  function safeAddWork(a: AssetCard) {
+    try {
+      addWork(a);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "QuotaExceededError") {
+        toast("本地存储空间不足，历史记录可能无法保存", "warn");
+      }
+    }
+  }
   const timers = useRef<number[]>([]);
   const seq = useRef(0); // 自增序号，保证新生成记录 id 唯一
   const dlRef = useRef(false); // 视频录制中标志，防止并发下载
@@ -523,6 +556,16 @@ export function OnelineVideo() {
 
   function pickFile(which: "first" | "last", file?: File) {
     if (!file) return;
+    // 拖拽/选择统一二次校验：格式白名单 + 10MB 体积上限
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!FRAME_EXT_WHITELIST.includes(ext)) {
+      toast("仅支持 JPG、PNG、WEBP 格式图片", "warn");
+      return;
+    }
+    if (file.size > FRAME_MAX_BYTES) {
+      toast("图片大小不能超过 10 MB，请压缩后重试", "warn");
+      return;
+    }
     const url = URL.createObjectURL(file);
     if (which === "first") setFirstFrame(url);
     else setLastFrame(url);
@@ -684,17 +727,17 @@ export function OnelineVideo() {
         tailImgUrl = await toSendable(p.tailPoster);
       }
       let videoUrl: string | null = null;
-      let failReason = "生成失败，请重试";
+      let rawReason = "生成失败，请重试";
       try {
         videoUrl = await genRealVideo(p.text, p.ratio, p.dur, vm, p.withAudio !== false, imgUrl, tailImgUrl);
       } catch (e) {
-        failReason = e instanceof Error ? e.message : "生成失败，请重试";
+        rawReason = e instanceof Error ? e.message : "生成失败，请重试";
       }
       window.clearInterval(iv);
       if (videoUrl) {
         const poster = await captureFirstFrame(videoUrl).catch(() => null);
         upd({ status: "done", pct: 100, videoUrl, ...(poster ? { poster } : {}) });
-        addWork({
+        safeAddWork({
           emoji: "🎬",
           grad,
           kind: "视频",
@@ -705,7 +748,12 @@ export function OnelineVideo() {
           edit: { sub: "oneline", input: p.text, model },
         });
         toast("🎬 视频已生成，已存入「我的作品」");
+      } else if (isQuotaError(rawReason)) {
+        // 每日次数耗尽：失败态标注额度已退还 + 弹配额提示层
+        upd({ status: "failed", pct: 0, failReason: "今日免费生成次数已用完" });
+        setQuotaOpen(true);
       } else {
+        const failReason = mapVideoError(rawReason);
         upd({ status: "failed", pct: 0, failReason });
         toast(failReason, "warn");
       }
@@ -776,7 +824,7 @@ export function OnelineVideo() {
   function toggleFav(row: VideoRunRow) {
     const a = videoAsset(row);
     const was = isFavorite(a);
-    addWork(a);
+    safeAddWork(a);
     toggleFavorite(a);
     toast(was ? "已取消收藏" : "已收藏，可在「仓库 · 我的作品」用「只看收藏」筛选");
   }
@@ -1236,7 +1284,7 @@ export function OnelineVideo() {
             </div>
 
             <div className="ws-foot">
-              <button className="btn btn-primary btn-block gen-btn" disabled={busy || safe === "checking"} onClick={run}>
+              <button className="btn btn-primary btn-block gen-btn" disabled={busy || safe === "checking" || quotaOpen} onClick={run}>
                 {safe === "checking" ? (
                   <><Icon name="shield" size={16} /> 内容安全检测中…</>
                 ) : (
@@ -1329,6 +1377,19 @@ export function OnelineVideo() {
           onStudio={() => router.push("/video?sub=studio&from=history")}
         />
       )}
+      {quotaOpen && (
+        <div className="img-zoom-mask" onClick={() => setQuotaOpen(false)}>
+          <div className="quota-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="quota-modal-ico">⚡</div>
+            <div className="quota-modal-title">今日免费生成次数已用完</div>
+            <div className="quota-modal-desc">每日生成次数已达上限，明日零点自动刷新</div>
+            <div className="quota-modal-btns">
+              <button className="btn btn-ghost" onClick={() => setQuotaOpen(false)}>明日再来</button>
+              <button className="btn btn-primary" onClick={() => setQuotaOpen(false)}>联系客服解锁次数</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -1380,6 +1441,7 @@ function FrameUploadBox({
               src={url}
               alt={label || "参考图"}
               style={{ width: "100%", height: 160, objectFit: "contain", display: "block", background: "#f3f4f6" }}
+              onError={onClear} // 预览图加载失败 → 回退默认占位，可重新上传
             />
             {label && <span className="ov-frame-tag">{label}</span>}
             <button
@@ -1622,6 +1684,7 @@ function VideoPlayerModal({
   const total = durSeconds(row.dur);
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(false);
+  const [videoError, setVideoError] = useState(false); // 真实视频加载失败 → 降级静态封面
   const [t, setT] = useState(0); // 当前播放秒（浮点）
   const raf = useRef(0);
   const last = useRef(0);
@@ -1738,7 +1801,7 @@ function VideoPlayerModal({
         </div>
 
         <div className="vp-stage">
-          {row.videoUrl ? (
+          {row.videoUrl && !videoError ? (
             /* 真实视频：原生 <video>，内置音画同步音轨 */
             // eslint-disable-next-line jsx-a11y/media-has-caption
             <video
@@ -1753,14 +1816,16 @@ function VideoPlayerModal({
               // 隐藏原生控件溢出菜单的下载 / 播放速度 / 画中画
               controlsList="nodownload noplaybackrate"
               disablePictureInPicture
+              onError={() => setVideoError(true)}
             />
           ) : (
             <>
-              {/* 无真实视频时展示静态封面（演示记录） */}
+              {/* 无真实视频 / 视频加载失败时展示静态封面（演示记录、降级兜底） */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img className="vp-frame" src={posterFor(row)} alt={row.prompt} />
               <div className="vp-vignette" />
               <div className="vp-caption">{row.prompt}</div>
+              {videoError && <div className="vp-load-fail">视频加载失败，可尝试重新生成</div>}
             </>
           )}
         </div>
