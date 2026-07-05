@@ -428,7 +428,13 @@ export function Studio({
     }, 1600);
     timers.current.push(iv);
 
-    const prompt = [settings.视频风格 !== "智能匹配" ? settings.视频风格 : "", cur.shotDesc].filter(Boolean).join("，");
+    // 注入本镜绑定的出镜元素（场景/角色/道具），让生成的视频体现选中内容
+    const bound = assets.filter((a) => cur.assetRefs.includes(a.id));
+    const elemText = bound.length
+      ? `。画面中需出现：${bound.map((a) => `${a.kind}「${a.name}」`).join("、")}，与设定保持一致`
+      : "";
+    const stylePrefix = settings.视频风格 !== "智能匹配" ? settings.视频风格 : "";
+    const prompt = [stylePrefix, `${cur.shotDesc}${elemText}`].filter(Boolean).join("，");
     const generateAudio = settings.配音 !== "不配音";
     fetch("/api/video", {
       method: "POST",
