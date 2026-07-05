@@ -423,7 +423,8 @@ export function Studio({
 
   // 逐镜生成：真调 /api/video 生成真实视频片段（状态机：idle/failed → gen → done(带 videoUrl) / failed）
   function genShot(id: string) {
-    const cur = shots.find((s) => s.id === id);
+    const idx = shots.findIndex((s) => s.id === id);
+    const cur = shots[idx];
     if (!cur || cur.status === "gen") return;
     setShots((prev) => prev.map((s) => (s.id === id ? { ...s, status: "gen", pct: 5, failReason: undefined } : s)));
     // 真实生成约 200s+，进度条缓慢爬升封顶 90%，拿到结果再跳 100%
@@ -451,8 +452,10 @@ export function Studio({
         dur: `${cur.dur}秒`,
         model: STUDIO_VIDEO_MODEL,
         generateAudio,
-        // 首尾帧模式：把该镜的首帧/尾帧图传给模型（尾帧走 firstTailGenerate）
-        ...(genMode === "keyframe" && cur.firstFrame ? { imageUrl: cur.firstFrame } : {}),
+        // 首尾帧模式：首帧=本镜首帧（第2镜起继承上一镜尾帧），尾帧走 firstTailGenerate
+        ...(genMode === "keyframe" && (idx === 0 ? cur.firstFrame : shots[idx - 1]?.lastFrame)
+          ? { imageUrl: idx === 0 ? cur.firstFrame : shots[idx - 1]?.lastFrame }
+          : {}),
         ...(genMode === "keyframe" && cur.lastFrame ? { tailImageUrl: cur.lastFrame } : {}),
       }),
       signal: AbortSignal.timeout(450_000),
@@ -850,6 +853,8 @@ function StudioStepView(props: {
                 {props.genMode === "keyframe" && (
                   <ShotFrames
                     shot={s}
+                    isFirst={i === 0}
+                    prevLastFrame={i > 0 ? props.shots[i - 1].lastFrame : undefined}
                     toast={props.toast}
                     onSet={(which, url) => props.editShot(s.id, which === "first" ? { firstFrame: url } : { lastFrame: url })}
                   />
@@ -1418,13 +1423,18 @@ function AssetCardEdit({
   );
 }
 
-// 首尾帧模式：单镜的首帧 / 尾帧图片选择（点击上传，校验格式/体积；可移除）
+// 首尾帧模式：单镜的首帧 / 尾帧图片选择（点击上传，校验格式/体积；可移除）。
+// 链式衔接：第 2 镜起首帧只读、自动继承上一镜尾帧（prevLastFrame），画面无缝承接。
 function ShotFrames({
   shot,
+  isFirst,
+  prevLastFrame,
   toast,
   onSet,
 }: {
   shot: Shot;
+  isFirst: boolean;
+  prevLastFrame?: string;
   toast: (s: string, k?: "warn") => void;
   onSet: (which: "first" | "last", url: string) => void;
 }) {
@@ -1447,7 +1457,7 @@ function ShotFrames({
     reader.onload = () => onSet(which, String(reader.result));
     reader.readAsDataURL(f);
   }
-  const slot = (which: "first" | "last", img: string | undefined, ref: RefObject<HTMLInputElement | null>, label: string) => (
+  const editableSlot = (which: "first" | "last", img: string | undefined, ref: RefObject<HTMLInputElement | null>, label: string) => (
     <div className="sf-slot">
       <button className="sf-box" type="button" onClick={() => ref.current?.click()} title={`上传${label}`}>
         {img ? (
@@ -1468,11 +1478,24 @@ function ShotFrames({
       <input ref={ref} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => pick(which, e)} />
     </div>
   );
+  // 第 2 镜起：首帧只读，继承上一镜尾帧
+  const inheritedFirst = (
+    <div className="sf-slot" title="承接上一镜尾帧，自动衔接">
+      <div className="sf-box sf-box-linked">
+        {prevLastFrame ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={prevLastFrame} alt="首帧（承接上一镜）" />
+        ) : (
+          <span className="sf-ph sf-ph-linked">承接上一镜尾帧</span>
+        )}
+      </div>
+    </div>
+  );
   return (
     <div className="sf-row">
-      {slot("first", shot.firstFrame, firstRef, "首帧")}
+      {isFirst ? editableSlot("first", shot.firstFrame, firstRef, "首帧") : inheritedFirst}
       <span className="sf-arrow">→</span>
-      {slot("last", shot.lastFrame, lastRef, "尾帧")}
+      {editableSlot("last", shot.lastFrame, lastRef, "尾帧")}
     </div>
   );
 }

@@ -2350,6 +2350,9 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 .sf-x { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border: none; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; display: grid; place-items: center; cursor: pointer; }
 .sf-x:hover { background: #d9534f; }
 .sf-arrow { color: var(--d-muted); font-size: 13px; }
+/* 继承上一镜尾帧的首帧（只读、链式衔接） */
+.sf-box-linked { cursor: default; border-style: solid; border-color: var(--d-accent); background: rgba(47,191,143,.06); }
+.sf-ph-linked { font-size: 10px; text-align: center; line-height: 1.3; padding: 0 4px; color: var(--d-accent); }
 /* AI 扩写：固定在文本框左下角 */
 .sp-shot-ai { position: absolute; left: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; border: 1px solid var(--d-line); border-radius: 7px; background: var(--c-white); color: var(--d-accent); font-size: 12px; cursor: pointer; }
 .sp-shot-ai:hover:not(:disabled) { border-color: var(--d-accent); background: rgba(47,191,143,.08); }
