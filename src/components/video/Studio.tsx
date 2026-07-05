@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
@@ -50,7 +50,12 @@ interface Shot {
   pct: number;
   failReason?: string; // 失败原因（已映射为中文）
   videoUrl?: string; // 真实生成的视频片段 URL（/api/video 返回）
+  firstFrame?: string; // 首尾帧模式：首帧图（base64/URL）
+  lastFrame?: string; // 首尾帧模式：尾帧图
 }
+
+// 生成模式：智能多帧（文生）/ 首尾帧（需上传首、尾帧图）
+type GenMode = "smart" | "keyframe";
 
 interface Asset {
   id: string;
@@ -257,6 +262,7 @@ export function Studio({
   const [exporting, setExporting] = useState(false);
   const [exportPct, setExportPct] = useState(0);
   const [playingClip, setPlayingClip] = useState<Shot | null>(null); // 分镜视频大播放器
+  const [genMode, setGenMode] = useState<GenMode>("smart"); // 生成模式：智能多帧 / 首尾帧
 
   const ratio = settings.视频比例; // "智能"/"16:9" 等，videoFx 会解析
   const totalDur = shots.reduce((a, s) => a + s.dur, 0);
@@ -445,6 +451,9 @@ export function Studio({
         dur: `${cur.dur}秒`,
         model: STUDIO_VIDEO_MODEL,
         generateAudio,
+        // 首尾帧模式：把该镜的首帧/尾帧图传给模型（尾帧走 firstTailGenerate）
+        ...(genMode === "keyframe" && cur.firstFrame ? { imageUrl: cur.firstFrame } : {}),
+        ...(genMode === "keyframe" && cur.lastFrame ? { tailImageUrl: cur.lastFrame } : {}),
       }),
       signal: AbortSignal.timeout(450_000),
     })
@@ -675,6 +684,8 @@ export function Studio({
                   targetShots={targetShots}
                   setShotCount={setShotCount}
                   setTotal={setTotal}
+                  genMode={genMode}
+                  setGenMode={setGenMode}
                   settings={settings}
                   setSettings={setSettings}
                   assets={assets}
@@ -756,6 +767,8 @@ function StudioStepView(props: {
   targetShots: number;
   setShotCount: (n: number) => void;
   setTotal: (sec: number) => void;
+  genMode: GenMode;
+  setGenMode: (m: GenMode) => void;
   settings: Record<string, string>;
   setSettings: (f: (s: Record<string, string>) => Record<string, string>) => void;
   assets: Asset[];
@@ -804,6 +817,13 @@ function StudioStepView(props: {
           </div>
           <span className="sp-setnote">每镜约 {Math.max(2, Math.round(props.totalSec / props.targetShots))}s · {props.settings.视频质量}</span>
         </div>
+        {/* 生成模式：智能多帧（文生）/ 首尾帧（每镜上传首、尾帧图） */}
+        <div className="sp-genmode">
+          <span className="sp-setlbl">生成模式</span>
+          <span className={props.genMode === "smart" ? "sel-chip on" : "sel-chip"} onClick={() => props.setGenMode("smart")}>智能多帧</span>
+          <span className={props.genMode === "keyframe" ? "sel-chip on" : "sel-chip"} onClick={() => props.setGenMode("keyframe")}>首尾帧</span>
+          {props.genMode === "keyframe" && <span className="sp-setnote">为每个镜头选择首帧 / 尾帧图，模型据首尾帧生成过渡画面</span>}
+        </div>
         {/* 按镜头数逐镜填写画面内容 */}
         <div className="sp-shot-inputs">
           {props.shots.map((s, i) => {
@@ -827,6 +847,13 @@ function StudioStepView(props: {
                     {busy ? "扩写中…" : "AI 扩写"}
                   </button>
                 </div>
+                {props.genMode === "keyframe" && (
+                  <ShotFrames
+                    shot={s}
+                    toast={props.toast}
+                    onSet={(which, url) => props.editShot(s.id, which === "first" ? { firstFrame: url } : { lastFrame: url })}
+                  />
+                )}
               </div>
             );
           })}
@@ -1387,6 +1414,65 @@ function AssetCardEdit({
           </span>
         ))}
       </div>
+    </div>
+  );
+}
+
+// 首尾帧模式：单镜的首帧 / 尾帧图片选择（点击上传，校验格式/体积；可移除）
+function ShotFrames({
+  shot,
+  toast,
+  onSet,
+}: {
+  shot: Shot;
+  toast: (s: string, k?: "warn") => void;
+  onSet: (which: "first" | "last", url: string) => void;
+}) {
+  const firstRef = useRef<HTMLInputElement>(null);
+  const lastRef = useRef<HTMLInputElement>(null);
+  function pick(which: "first" | "last", e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!["jpg", "jpeg", "png", "webp"].includes(ext)) {
+      toast("仅支持 JPG、PNG、WEBP 格式图片", "warn");
+      return;
+    }
+    if (f.size > 10 * 1024 * 1024) {
+      toast("图片大小不能超过 10 MB，请压缩后重试", "warn");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => onSet(which, String(reader.result));
+    reader.readAsDataURL(f);
+  }
+  const slot = (which: "first" | "last", img: string | undefined, ref: RefObject<HTMLInputElement | null>, label: string) => (
+    <div className="sf-slot">
+      <button className="sf-box" type="button" onClick={() => ref.current?.click()} title={`上传${label}`}>
+        {img ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={img} alt={label} />
+        ) : (
+          <span className="sf-ph">
+            <Icon name="plus" size={16} />
+            {label}
+          </span>
+        )}
+      </button>
+      {img && (
+        <button className="sf-x" type="button" onClick={() => onSet(which, "")} aria-label="移除">
+          <Icon name="close" size={11} />
+        </button>
+      )}
+      <input ref={ref} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => pick(which, e)} />
+    </div>
+  );
+  return (
+    <div className="sf-row">
+      {slot("first", shot.firstFrame, firstRef, "首帧")}
+      <span className="sf-arrow">→</span>
+      {slot("last", shot.lastFrame, lastRef, "尾帧")}
     </div>
   );
 }

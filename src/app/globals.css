@@ -2337,6 +2337,19 @@ body.studio-mode .editor-layout { height: calc(100vh - 22px - 56px); }
 .sp-shot-box { position: relative; }
 .sp-shot-ta { width: 100%; box-sizing: border-box; background: var(--c-white); border: 1px solid var(--d-line); border-radius: 8px; color: var(--d-text); font-size: 14px; padding: 8px 10px 38px; font-family: inherit; resize: vertical; min-height: 76px; }
 .sp-shot-ta:focus { border-color: var(--d-accent); outline: none; }
+
+/* 生成模式选择 */
+.sp-genmode { margin-top: 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+/* 首尾帧：单镜首/尾帧图选择 */
+.sf-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.sf-slot { position: relative; }
+.sf-box { width: 68px; height: 50px; border: 1px dashed var(--d-line); border-radius: 8px; background: var(--c-bg); cursor: pointer; overflow: hidden; padding: 0; display: grid; place-items: center; }
+.sf-box:hover { border-color: var(--d-accent); }
+.sf-box img { width: 100%; height: 100%; object-fit: cover; }
+.sf-ph { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; color: var(--d-muted); font-size: 11px; }
+.sf-x { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border: none; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; display: grid; place-items: center; cursor: pointer; }
+.sf-x:hover { background: #d9534f; }
+.sf-arrow { color: var(--d-muted); font-size: 13px; }
 /* AI 扩写：固定在文本框左下角 */
 .sp-shot-ai { position: absolute; left: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; border: 1px solid var(--d-line); border-radius: 7px; background: var(--c-white); color: var(--d-accent); font-size: 12px; cursor: pointer; }
 .sp-shot-ai:hover:not(:disabled) { border-color: var(--d-accent); background: rgba(47,191,143,.08); }
