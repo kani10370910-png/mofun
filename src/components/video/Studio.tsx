@@ -54,8 +54,8 @@ interface Shot {
   lastFrame?: string; // 首尾帧模式：尾帧图
 }
 
-// 生成模式：智能多帧（文生）/ 首尾帧（需上传首、尾帧图）
-type GenMode = "smart" | "keyframe";
+// 生成模式：文本生成（纯文生，无图）/ 智能多帧（每镜一张图）/ 首尾帧（首、尾帧链式）
+type GenMode = "text" | "smart" | "keyframe";
 
 interface Asset {
   id: string;
@@ -262,7 +262,7 @@ export function Studio({
   const [exporting, setExporting] = useState(false);
   const [exportPct, setExportPct] = useState(0);
   const [playingClip, setPlayingClip] = useState<Shot | null>(null); // 分镜视频大播放器
-  const [genMode, setGenMode] = useState<GenMode>("smart"); // 生成模式：智能多帧 / 首尾帧
+  const [genMode, setGenMode] = useState<GenMode>("text"); // 生成模式：文本生成 / 智能多帧 / 首尾帧
 
   const ratio = settings.视频比例; // "智能"/"16:9" 等，videoFx 会解析
   const totalDur = shots.reduce((a, s) => a + s.dur, 0);
@@ -452,7 +452,8 @@ export function Studio({
         dur: `${cur.dur}秒`,
         model: STUDIO_VIDEO_MODEL,
         generateAudio,
-        // 首尾帧模式：首帧=本镜首帧（第2镜起继承上一镜尾帧），尾帧走 firstTailGenerate
+        // 智能多帧：每镜一张图作首帧；首尾帧：首帧（第2镜起继承上一镜尾帧）+ 尾帧（firstTailGenerate）
+        ...(genMode === "smart" && cur.firstFrame ? { imageUrl: cur.firstFrame } : {}),
         ...(genMode === "keyframe" && (idx === 0 ? cur.firstFrame : shots[idx - 1]?.lastFrame)
           ? { imageUrl: idx === 0 ? cur.firstFrame : shots[idx - 1]?.lastFrame }
           : {}),
@@ -820,12 +821,14 @@ function StudioStepView(props: {
           </div>
           <span className="sp-setnote">每镜约 {Math.max(2, Math.round(props.totalSec / props.targetShots))}s · {props.settings.视频质量}</span>
         </div>
-        {/* 生成模式：智能多帧（文生）/ 首尾帧（每镜上传首、尾帧图） */}
+        {/* 生成模式：文本生成（无图）/ 智能多帧（每镜一张图）/ 首尾帧（首尾帧链式） */}
         <div className="sp-genmode">
           <span className="sp-setlbl">生成模式</span>
+          <span className={props.genMode === "text" ? "sel-chip on" : "sel-chip"} onClick={() => props.setGenMode("text")}>文本生成</span>
           <span className={props.genMode === "smart" ? "sel-chip on" : "sel-chip"} onClick={() => props.setGenMode("smart")}>智能多帧</span>
           <span className={props.genMode === "keyframe" ? "sel-chip on" : "sel-chip"} onClick={() => props.setGenMode("keyframe")}>首尾帧</span>
-          {props.genMode === "keyframe" && <span className="sp-setnote">为每个镜头选择首帧 / 尾帧图，模型据首尾帧生成过渡画面</span>}
+          {props.genMode === "smart" && <span className="sp-setnote">为每个镜头选择一张参考图，据图生成该镜画面</span>}
+          {props.genMode === "keyframe" && <span className="sp-setnote">每镜首帧 / 尾帧链式衔接，模型据首尾帧生成过渡画面</span>}
         </div>
         {/* 按镜头数逐镜填写画面内容 */}
         <div className="sp-shot-inputs">
@@ -850,9 +853,10 @@ function StudioStepView(props: {
                     {busy ? "扩写中…" : "AI 扩写"}
                   </button>
                 </div>
-                {props.genMode === "keyframe" && (
+                {props.genMode !== "text" && (
                   <ShotFrames
                     shot={s}
+                    mode={props.genMode}
                     isFirst={i === 0}
                     prevLastFrame={i > 0 ? props.shots[i - 1].lastFrame : undefined}
                     toast={props.toast}
@@ -1427,12 +1431,14 @@ function AssetCardEdit({
 // 链式衔接：第 2 镜起首帧只读、自动继承上一镜尾帧（prevLastFrame），画面无缝承接。
 function ShotFrames({
   shot,
+  mode,
   isFirst,
   prevLastFrame,
   toast,
   onSet,
 }: {
   shot: Shot;
+  mode: "smart" | "keyframe";
   isFirst: boolean;
   prevLastFrame?: string;
   toast: (s: string, k?: "warn") => void;
@@ -1491,6 +1497,11 @@ function ShotFrames({
       </div>
     </div>
   );
+  // 智能多帧：每镜一张参考图（用 firstFrame 存）
+  if (mode === "smart") {
+    return <div className="sf-row">{editableSlot("first", shot.firstFrame, firstRef, "镜头图")}</div>;
+  }
+  // 首尾帧：首帧（第 2 镜起继承上一镜尾帧）→ 尾帧
   return (
     <div className="sf-row">
       {isFirst ? editableSlot("first", shot.firstFrame, firstRef, "首帧") : inheritedFirst}
