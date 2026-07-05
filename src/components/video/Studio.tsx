@@ -151,7 +151,7 @@ function makeShots(script: string, total: number, targetShots?: number): Shot[] 
   const base = Math.floor(total / n);
   const rem = total - base * n;
   return Array.from({ length: n }, (_, i) => {
-    const dur = Math.max(2, Math.min(15, base + (i < rem ? 1 : 0)));
+    const dur = Math.max(4, Math.min(15, base + (i < rem ? 1 : 0)));
     // 只按脚本实际内容填充画面描述：
     // 句子 ≥ 镜头 → 按比例合并；镜头 > 句子 → 一句一镜，多出的镜头画面描述留空（不杜撰内容）
     const text =
@@ -210,7 +210,7 @@ function redistribute(list: Shot[], total: number): Shot[] {
   const n = list.length || 1;
   const base = Math.floor(total / n);
   const rem = total - base * n;
-  return list.map((s, i) => ({ ...s, dur: Math.max(2, Math.min(15, base + (i < rem ? 1 : 0))) }));
+  return list.map((s, i) => ({ ...s, dur: Math.max(4, Math.min(15, base + (i < rem ? 1 : 0))) }));
 }
 
 export function Studio({
@@ -332,7 +332,7 @@ export function Studio({
   }
 
   // 调整镜头数：增加则在末尾追加空白镜头、减少则从末尾裁剪，保留已填内容；再按总时长重新分配各镜时长。
-  // 约束：每镜不超过 15 秒 → 总时长上限 = 镜头数 × 15。
+  // 约束：每镜 4–15 秒（模型要求）→ 总时长 = 镜头数 ×[4,15]。
   function setShotCount(n: number) {
     const v = Math.max(1, Math.min(12, Math.round(n)));
     targetShotsRef.current = v;
@@ -343,6 +343,11 @@ export function Studio({
       totalSecRef.current = t;
       setTotalSec(t);
       toast("每镜最长 15 秒，已同步调整总时长");
+    } else if (t < v * 4) {
+      t = v * 4;
+      totalSecRef.current = t;
+      setTotalSec(t);
+      toast("每镜最短 4 秒，已同步调整总时长");
     }
     setShots((prev) => {
       const next = prev.slice(0, v);
@@ -351,10 +356,12 @@ export function Studio({
     });
   }
   function setTotal(sec: number) {
-    const cap = targetShotsRef.current * 15; // 每镜 ≤ 15s
+    const minT = targetShotsRef.current * 4; // 每镜 ≥ 4s（模型要求）
+    const maxT = targetShotsRef.current * 15; // 每镜 ≤ 15s
     const want = Math.round(sec);
-    const v = Math.max(5, Math.min(cap, want));
-    if (want > cap) toast("每镜最长 15 秒，请增加镜头数以延长总时长", "warn");
+    const v = Math.max(minT, Math.min(maxT, want));
+    if (want > maxT) toast("每镜最长 15 秒，请增加镜头数以延长总时长", "warn");
+    else if (want < minT) toast("每镜最短 4 秒，请减少镜头数以缩短总时长", "warn");
     totalSecRef.current = v;
     setTotalSec(v);
     setShots((prev) => redistribute(prev, v));
@@ -814,12 +821,12 @@ function StudioStepView(props: {
           <div className="sp-setctl">
             <span className="sp-setlbl">总时长</span>
             <div className="sp-stepper">
-              <button onClick={() => props.setTotal(props.totalSec - 5)} disabled={props.totalSec <= 5} aria-label="减少时长">−</button>
+              <button onClick={() => props.setTotal(props.totalSec - 5)} disabled={props.totalSec <= props.targetShots * 4} aria-label="减少时长" title="每镜最短 4 秒">−</button>
               <span>{props.totalSec}s</span>
               <button onClick={() => props.setTotal(props.totalSec + 5)} disabled={props.totalSec >= props.targetShots * 15} aria-label="增加时长" title="每镜最长 15 秒">＋</button>
             </div>
           </div>
-          <span className="sp-setnote">每镜约 {Math.max(2, Math.round(props.totalSec / props.targetShots))}s · {props.settings.视频质量}</span>
+          <span className="sp-setnote">每镜约 {Math.max(4, Math.round(props.totalSec / props.targetShots))}s · {props.settings.视频质量}</span>
         </div>
         {/* 生成模式：文本生成（无图）/ 智能多帧（每镜一张图）/ 首尾帧（首尾帧链式） */}
         <div className="sp-genmode">
