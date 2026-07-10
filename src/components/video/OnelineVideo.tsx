@@ -6,6 +6,7 @@ import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
+import { getProject, upsertProject, uniqueProjectName } from "@/lib/studioProjects";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 import { PlayerAudio, buildExportAudio, type ExportAudio } from "@/lib/playerAudio";
 import { asset as assetUrl } from "@/lib/asset";
@@ -831,6 +832,53 @@ export function OnelineVideo() {
 
   // 下载视频：用 canvas 实时重放封面的 Ken Burns 运镜（与播放器一致），
   // 经 MediaRecorder 按视频时长录制为真实视频文件（mp4/webm）落盘到本地。
+  // 「去制作大片」：为这条一句话视频创建（或复用）一个制作大片项目，塞入 1 个已生成镜头，
+  // 直接跳到 ④ 分镜视频。若同一条已建过项目则不覆盖（避免抹掉用户后续在大片里的编辑），直接打开。
+  function openInStudio(row: VideoRunRow) {
+    if (!row.videoUrl) {
+      toast("这条还没有可用的视频，无法制作大片");
+      return;
+    }
+    const pid = `p-oneline-${row.id}`;
+    const existing = getProject(pid);
+    const name = existing?.name ?? uniqueProjectName(row.prompt.slice(0, 12).trim() || "一句话成片");
+    if (!existing) {
+      const dur = Math.max(2, Math.min(15, durSeconds(row.dur) || 5));
+      const ratio = /\d+\s*[:：]\s*\d+/.test(row.ratio) ? row.ratio : "16:9";
+      // 单镜（默认一个镜头）：直接用这条一句话视频，标记为已生成
+      const shot = {
+        id: `shot-oneline-${row.id}`,
+        shotDesc: row.prompt,
+        caption: "",
+        camera: "",
+        shotSize: "",
+        assetRefs: [] as string[],
+        locked: false,
+        dur,
+        poster: row.poster || "",
+        status: "done",
+        pct: 100,
+        videoUrl: row.videoUrl,
+      };
+      // 完整会话状态：脚本填入提示词、1 镜、落在「分镜视频」步骤
+      const state = {
+        projectName: name,
+        stepKey: "clips",
+        script: row.prompt,
+        studioIdea: row.prompt,
+        settings: { 模型: "Seedance 2.0 Fast", 视频比例: ratio, 视频风格: "智能匹配", 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示" },
+        totalSec: dur,
+        targetShots: 1,
+        assets: [],
+        shots: [shot],
+        genMode: "text",
+        subtitles: [],
+      };
+      upsertProject({ id: pid, name, updated: nowStamp(), ts: Date.now(), count: 1, cover: row.videoUrl, state });
+    }
+    router.push(`/video?sub=studio:clips&from=home&pid=${encodeURIComponent(pid)}&name=${encodeURIComponent(name)}`);
+  }
+
   async function downloadVideo(row: VideoRunRow) {
     if (dlRef.current) {
       toast("视频正在生成中，请稍候…");
@@ -1343,7 +1391,7 @@ export function OnelineVideo() {
                     onRegenerate={() => regenerate(r)}
                     onCopy={() => copyToForm(r)}
                     onDownload={() => downloadVideo(r)}
-                    onStudio={() => router.push("/video?sub=studio&from=history")}
+                    onStudio={() => openInStudio(r)}
                     fav={isFavorite(videoAsset(r))}
                     onFav={() => toggleFav(r)}
                   />
@@ -1374,7 +1422,7 @@ export function OnelineVideo() {
           row={playing}
           onClose={() => { setPlayingId(null); setPlayingExtra(null); }}
           onDownload={() => downloadVideo(playing)}
-          onStudio={() => router.push("/video?sub=studio&from=history")}
+          onStudio={() => openInStudio(playing)}
         />
       )}
       {quotaOpen && (

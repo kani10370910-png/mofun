@@ -93,6 +93,8 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
 
   const addMaterial = useCallback((item: AssetCard) => {
     setMaterials((prev) => {
+      // 视频素材按真实地址去重，避免同一片段重复入库；图片素材不去重
+      if (item.videoUrl && prev.some((m) => m.videoUrl === item.videoUrl)) return prev;
       const next = [item, ...prev];
       save(MATERIALS_KEY, next);
       return next;

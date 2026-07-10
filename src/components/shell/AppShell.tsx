@@ -1,6 +1,7 @@
 "use client";
 
 import { TopBar } from "./TopBar";
+import { ConfirmHost } from "@/components/ui/Confirm";
 
 /* 应用外壳：渲染顶栏 + 主区域。
    「制作大片」全屏模式（隐藏顶栏 + body.studio-mode）由 Studio 组件自行用
@@ -12,6 +13,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className="main" id="main">
         {children}
       </main>
+      {/* 全局居中确认/输入弹窗（appConfirm / appPrompt）挂载点 */}
+      <ConfirmHost />
     </>
   );
 }

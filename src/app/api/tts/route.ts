@@ -42,7 +42,9 @@ export async function POST(req: NextRequest) {
       { status: 503 },
     );
   }
-  const baseURL = (process.env.TTS_BASE_URL || process.env.IMAGE_BASE_URL || "https://www.anyfast.ai/v1").replace(/\/$/, "");
+  // 归一化到 `<root>/v1`：无论配的是网关根（…com.cn）还是已带 /v1，都拼成 …/v1/audio/speech
+  const rawBase = (process.env.TTS_BASE_URL || process.env.IMAGE_BASE_URL || "https://www.anyfast.com.cn").replace(/\/+$/, "");
+  const baseURL = /\/v\d+$/.test(rawBase) ? rawBase : `${rawBase}/v1`;
   const model = body.model || process.env.TTS_MODEL || "tts-1";
   const voice = mapVoice(body.voice);
   const timeoutMs = Number(process.env.TTS_TIMEOUT_MS || 60000);

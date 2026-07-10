@@ -347,6 +347,7 @@ export interface AssetCard {
   grad: Grad;
   time?: string; // 生成时间「YYYY-MM-DD HH:mm」（自动保存的作品带）
   img?: string; // 真实图片路径，有则优先于 emoji
+  videoUrl?: string; // 真实视频地址（视频类作品/素材），供制作大片「从仓库调取视频」复用
   edit?: Record<string, string>; // 二次编辑回填数据（如 { brand, style } / { text, effect } / { input }）
 }
 
@@ -382,8 +383,9 @@ export type GenStages = Record<"content" | "image" | "video", string[]>;
 
 /* ---------- 文案生成 API ---------- */
 export interface GenerateRequest {
-  scene: ContentSceneKey | "ip" | "ip-propose" | "ip-story-desc" | "ip-story" | "t2i-associate" | "t2i-event";
+  scene: ContentSceneKey | "ip" | "ip-propose" | "ip-story-desc" | "ip-story" | "t2i-associate" | "t2i-event" | "studio-script" | "studio-assets" | "studio-asset-desc" | "studio-idea" | "studio-summary" | "studio-shots" | "studio-safe-rewrite";
   mode?: "outline" | "full";
+  styleHint?: string; // 制作大片：项目「视频风格」描述词，注入文本扩写使全片文字基调与画面风格一致（智能匹配为空）
   /* t2i-event（活动·文生图扩写）专用 */
   eventSub?: string; // 成图类型：海报/长图/菜单/易拉宝/宣传单/…
   imageRatio?: string; // 图片比例（如 3:4）

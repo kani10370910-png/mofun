@@ -87,9 +87,13 @@ export function FontPanel({
     <>
       <div className="ws-scroll">
       <div className="field">
-        <div className="ws-label">文字内容 <span className="req">*</span></div>
+        <div className="ws-label">
+          文字内容 <span className="req">*</span>
+          <span className={`ws-char-count${state.text.length >= 18 ? " warn" : ""}`}>{state.text.length} / 20</span>
+        </div>
         <input
           type="text"
+          maxLength={20}
           value={state.text}
           onChange={(e) => set("text", e.target.value)}
           placeholder="输入文字内容"
@@ -192,7 +196,7 @@ export function FontPanel({
             aria-hidden
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className="fe-hover-img" src={asset(hover.f.img!)} alt={hover.f.name} />
+            <img className="fe-hover-img" src={asset(hover.f.img!)} alt={hover.f.name} onError={() => setHover(null)} />
           </div>,
           document.body
         )}

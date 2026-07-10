@@ -66,7 +66,50 @@ export function drawWrappedText(
     shown[maxLines - 1] = last + "…";
   }
   const startY = yBottom - (shown.length - 1) * lineH;
-  shown.forEach((l, i) => ctx.fillText(l, x, startY + i * lineH));
+  // 居中绘制：x 是左边界、maxW 是可用宽度，中心 = x + maxW/2（与预览的居中字幕一致）
+  const cx = x + maxW / 2;
+  const prevAlign = ctx.textAlign;
+  ctx.textAlign = "center";
+  shown.forEach((l, i) => ctx.fillText(l, cx, startY + i * lineH));
+  ctx.textAlign = prevAlign;
+}
+
+// 绘制真实视频当前帧到 canvas（object-fit: cover 居中裁切）+ 底部暗角 + 可选字幕。
+// 用于导出：逐镜播放真实分镜视频、每帧绘制并录制，字幕按时间轴烧录。
+export function drawVideoFrame(
+  ctx: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  cw: number,
+  ch: number,
+  caption?: string
+) {
+  const vr = (video.videoWidth || 16) / (video.videoHeight || 9);
+  const cr = cw / ch;
+  let dw: number, dh: number;
+  if (vr > cr) { dh = ch; dw = ch * vr; } else { dw = cw; dh = cw / vr; }
+  const dx = (cw - dw) / 2;
+  const dy = (ch - dh) / 2;
+  ctx.clearRect(0, 0, cw, ch);
+  try { ctx.drawImage(video, dx, dy, dw, dh); } catch { /* 帧未就绪时跳过 */ }
+  // 底部暗角（与 Ken Burns 一致）
+  const g = ctx.createLinearGradient(0, 0, 0, ch);
+  g.addColorStop(0, "rgba(0,0,0,0.18)");
+  g.addColorStop(0.3, "rgba(0,0,0,0)");
+  g.addColorStop(0.62, "rgba(0,0,0,0)");
+  g.addColorStop(1, "rgba(0,0,0,0.6)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, cw, ch);
+  if (caption) {
+    const pad = Math.round(cw * 0.045);
+    const fs = Math.round(ch * 0.04);
+    ctx.fillStyle = "#fff";
+    ctx.font = `600 ${fs}px system-ui, -apple-system, sans-serif`;
+    ctx.textBaseline = "bottom";
+    ctx.shadowColor = "rgba(0,0,0,0.7)";
+    ctx.shadowBlur = 10;
+    drawWrappedText(ctx, caption, pad, ch - pad, cw - 2 * pad, fs * 1.35, 2);
+    ctx.shadowBlur = 0;
+  }
 }
 
 // 绘制单帧 Ken Burns 运镜（进度 p：0→1 缓慢放大+左上平移），可选底部字幕

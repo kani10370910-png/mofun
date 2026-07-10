@@ -71,10 +71,13 @@ export async function POST(req: NextRequest) {
 
   const text = await upstream.text();
   if (!upstream.ok) {
-    return Response.json(
-      { error: `文生图服务返回错误（${upstream.status}）。${text.slice(0, 300)}` },
-      { status: 502 },
-    );
+    const low = text.toLowerCase();
+    // 内容审核拦截 → 友好中文提示；其它错误保留原文（截断）
+    const sensitive = low.includes("sensitive") || low.includes("敏感") || low.includes("policy") || low.includes("content_detected");
+    const friendly = sensitive
+      ? "生成内容可能含敏感信息，已被模型内容审核拦截。请修改描述或元素名称后重试（避免政治、国旗、领导人、暴力等敏感内容）。"
+      : `文生图服务返回错误（${upstream.status}）。${text.slice(0, 200)}`;
+    return Response.json({ error: friendly }, { status: 502 });
   }
 
   let json: unknown;

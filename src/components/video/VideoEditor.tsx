@@ -27,11 +27,13 @@ export function VideoEditor({
   initialInput,
   initialFrom,
   initialName,
+  initialPid,
 }: {
   initialSub?: string;
   initialInput?: string;
   initialFrom?: string;
   initialName?: string;
+  initialPid?: string;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -73,9 +75,9 @@ export function VideoEditor({
           railItems={railItems}
           iconOf={iconOf}
           onPickType={switchType}
-          onOpen={(name) =>
+          onOpen={(pid, name) =>
             router.push(
-              `/video?sub=studio:script&from=home${name ? `&name=${encodeURIComponent(name)}` : ""}`
+              `/video?sub=studio:script&from=home&pid=${encodeURIComponent(pid)}${name ? `&name=${encodeURIComponent(name)}` : ""}`
             )
           }
         />
@@ -85,6 +87,7 @@ export function VideoEditor({
       <Studio
         initialStep={(initialSub ?? "").split(":")[1] || "script"}
         initialName={initialName}
+        initialPid={initialPid}
         railItems={railItems}
         iconOf={iconOf}
         onPickType={switchType}

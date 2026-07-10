@@ -18,7 +18,7 @@ export interface VideoModel {
   badge?: "NEW" | "会员专享"; // 角标
 }
 export const videoModels: VideoModel[] = [
-  { name: "Seedance 2.0",      modelId: "seedance-2.0",      desc: "旗舰版，文生 / 图生，15s 音画同步", tags: ["音画同步", "15s"], badge: "NEW" },
+  { name: "Seedance 2.0",      modelId: "seedance-2.0",      desc: "旗舰版，文生 / 图生，15s 音画同步", tags: ["音画同步", "15s"] },
   { name: "Seedance 2.0 Fast", modelId: "seedance-2.0-fast", desc: "快速版，出图更快，15s 音画同步",    tags: ["音画同步", "15s"]              },
   { name: "Seedance 2.0 Mini", modelId: "seedance-2.0-mini", desc: "轻量版，适合快速预览",              tags: ["15s"]                          },
 ];
@@ -40,12 +40,11 @@ export const studioShotSizes = ["远景", "全景", "中景", "近景", "特写"
 
 /* ---------- 视频「制作大片」6 步流程（参考 360 漫剧） ---------- */
 export const studioSteps: StudioStep[] = [
-  { key: "script", no: 1, name: "剧本编辑", desc: "填写或 AI 生成视频剧本 / 文案" },
-  { key: "setting", no: 2, name: "视频设定", desc: "画幅、风格、时长、配音、字幕等" },
-  { key: "assets", no: 3, name: "场景角色道具", desc: "设定出镜场景、角色与关键道具" },
-  { key: "storyboard", no: 4, name: "分镜脚本", desc: "拆分镜头：画面 + 旁白 + 时长" },
-  { key: "clips", no: 5, name: "分镜视频", desc: "逐镜生成视频片段" },
-  { key: "preview", no: 6, name: "视频预览", desc: "合成预览、配乐字幕、导出成片" },
+  { key: "script", no: 1, name: "脚本编辑", desc: "填写或 AI 生成视频脚本 / 文案" },
+  { key: "assets", no: 2, name: "场景角色道具", desc: "设定出镜场景、角色与关键道具" },
+  { key: "storyboard", no: 3, name: "分镜脚本", desc: "拆分镜头：画面 + 旁白 + 时长" },
+  { key: "clips", no: 4, name: "分镜视频", desc: "逐镜生成视频片段" },
+  { key: "preview", no: 5, name: "视频预览", desc: "合成预览、配乐字幕、导出成片" },
 ];
 
 /* ---------- 视频生成：两种入口 + 四类成片流程 ---------- */
@@ -102,9 +101,29 @@ export const videoStyles: VideoStyle[] = [
 /* 视频比例 / 时长 / 画质（F10-05） */
 export const videoRatios = ["智能", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"] as const;
 export const videoDurations = ["5秒", "10秒", "15秒"] as const; // 保留供历史记录使用
-export const videoQualities = ["480P", "720P", "1080P"] as const;
+export const videoQualities = ["480P", "720P", "1080P", "2K", "4K"] as const;
 export const videoDurationRange = { min: 2, max: 15 } as const;
 
 /* 音频：配音音色 + 背景音乐（F10 音频部分） */
 export const videoVoices = ["不配音", "温柔女声", "沉稳男声", "活力男声"] as const;
 export const videoBgms = ["无", "舒缓", "轻快", "大气", "国风"] as const;
+
+/* 「制作大片」视频设定字段：模型 / 比例 / 风格 / 质量 / 字幕。
+   「新建大片」对话框与「视频设定」步骤共享，保证选项一致。 */
+export const SETTING_FIELDS: { label: string; opts: string[]; hint?: string; notes?: Record<string, string> }[] = [
+  {
+    label: "模型",
+    opts: videoModels.map((m) => m.name),
+    hint: "逐镜真实生成使用的视频模型，不同模型出图速度与画质不同",
+    notes: Object.fromEntries(videoModels.filter((m) => m.badge).map((m) => [m.name, m.badge as string])),
+  },
+  { label: "视频比例", opts: [...videoRatios] },
+  { label: "视频风格", opts: videoStyles.map((s) => s.name) },
+  {
+    label: "视频质量",
+    opts: [...videoQualities],
+    hint: "1080P 及以上 ×2 额度；2K/4K 受模型限制，实际以 1080P 生成",
+    notes: { "2K": "模型上限", "4K": "模型上限" },
+  },
+  { label: "字幕", opts: ["显示", "隐藏"] },
+];

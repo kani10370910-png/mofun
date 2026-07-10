@@ -22,7 +22,10 @@ export async function POST(req: NextRequest) {
     model?: string;
     imageUrl?: string;
     tailImageUrl?: string; // 首尾帧模式的尾帧图（Seedance firstTailGenerate）
+    referenceImageUrl?: string; // 参考图（role: reference_image）：锁角色/风格，但不作首帧、不定义输出画面（单张，向后兼容）
+    referenceImageUrls?: string[]; // 多张参考图：整片各镜锁场景/角色/道具与风格一致（不作首帧）
     generateAudio?: boolean; // 让视频模型自带音频（Seedance 原生能力）
+    resolution?: string; // 分辨率：480p/720p/1080p/2k/4k（由前端视频质量档位映射）
   };
 
   const apiKey  = process.env.VIDEO_API_KEY  || process.env.IMAGE_API_KEY  || "";
@@ -51,7 +54,7 @@ async function handleSeedance(p: {
   baseURL: string;
   headers: Record<string, string>;
   model: string;
-  body: { prompt: string; ratio: string; imageUrl?: string; tailImageUrl?: string };
+  body: { prompt: string; ratio: string; imageUrl?: string; tailImageUrl?: string; referenceImageUrl?: string; referenceImageUrls?: string[]; resolution?: string };
   duration: number;
   generateAudio: boolean;
 }): Promise<Response> {
@@ -74,13 +77,27 @@ async function handleSeedance(p: {
       role: "last_frame",
     });
   }
+  // 参考图：锁场景/角色/道具与风格（主体参考），role=reference_image，不作首帧、不定义输出画面。
+  // 与 first_frame 独立——首帧仍由脚本文生或承接帧决定，故视频不会从参考立绘画面起头。
+  // 支持多张：整片各镜都注入本镜相关元素的参考图，保证跨镜一致。
+  const referenceImages = p.body.referenceImageUrls?.length
+    ? p.body.referenceImageUrls
+    : p.body.referenceImageUrl
+      ? [p.body.referenceImageUrl]
+      : [];
+  for (const url of referenceImages) {
+    content.push({ type: "image_url", image_url: { url }, role: "reference_image" });
+  }
 
+  // 图生模式（i2v / 首尾帧 flf2v）的输出尺寸由输入帧决定，seedance 不接受显式 resolution，
+  // 传了会报 "resolution not valid for … in flf2v/i2v"。故仅纯文生视频（t2v）才带 resolution。
+  const isImageMode = Boolean(p.body.imageUrl || p.body.tailImageUrl);
   const submitBody: Record<string, unknown> = {
     model: p.model,
     content,
     ratio,
     duration: p.duration,
-    resolution: "720p",
+    ...(isImageMode ? {} : { resolution: p.body.resolution || "720p" }),
     generate_audio: p.generateAudio,
     watermark: false,
   };
@@ -106,6 +123,35 @@ async function handleSeedance(p: {
     if (attempt < 3) await new Promise((r) => setTimeout(r, 1_500));
   }
 
+  // 渐进式降级：提交被拒/被判敏感时（常见于参考图或首帧里的人物被内容审核拦），
+  // 依次「去参考图 → 去全部输入图片（纯文生）」再试，直到能提交为止——保证能出片，
+  // 代价是可能失去参考锁定 / 与上一镜的画面衔接。degraded 标记回传给前端提示用户。
+  let degraded = false;
+  if (submitRes && !submitRes.ok) {
+    const attempts: Array<{ label: string; content: Array<Record<string, unknown>> }> = [
+      { label: "去掉参考图", content: content.filter((c) => c.role !== "reference_image") },
+      { label: "去掉全部输入图片（纯文生）", content: content.filter((c) => c.type !== "image_url") },
+    ];
+    for (const a of attempts) {
+      if (submitRes.ok) break;
+      if (a.content.length === content.length) continue; // 该步没有可去的图，跳过
+      console.warn(`[video/seedance] 提交被拒，降级「${a.label}」再试 →`, submitRes.status);
+      const body2: Record<string, unknown> = { ...submitBody, content: a.content };
+      // 退化为纯文生时补上分辨率（图生模式原本不带 resolution）
+      if (!a.content.some((c) => c.type === "image_url")) body2.resolution = p.body.resolution || "720p";
+      const retry = await fetch(`${p.baseURL}/v1/video/generations`, {
+        method: "POST",
+        headers: p.headers,
+        body: JSON.stringify(body2),
+        signal: AbortSignal.timeout(90_000),
+      }).catch(() => null);
+      if (retry) {
+        submitRes = retry;
+        if (retry.ok) degraded = true;
+      }
+    }
+  }
+
   if (!submitRes?.ok) {
     // 三次都抛异常（submitRes 为 null）：区分超时 / 连接失败，回传可读原因
     if (!submitRes) {
@@ -126,7 +172,7 @@ async function handleSeedance(p: {
   console.log("[video/seedance] submit ok →", JSON.stringify(data).slice(0, 200));
 
   // 同步直接返回
-  if (data?.video_url) return Response.json({ videoUrl: data.video_url });
+  if (data?.video_url) return Response.json({ videoUrl: data.video_url, degraded });
 
   const taskId = data?.id ?? data?.task_id;
   if (!taskId) return Response.json({ error: "no task_id", raw: data }, { status: 502 });
@@ -167,7 +213,7 @@ async function handleSeedance(p: {
     const isDone = status.includes("succ") || status.includes("complet"); // succeeded/success/completed
     const isFail = status.includes("fail") || status.includes("error");
     if (videoUrl && (isDone || !rawStatus)) {
-      return Response.json({ videoUrl });
+      return Response.json({ videoUrl, degraded });
     }
     if (isFail) {
       const reason = pd?.data?.fail_reason || "generation failed";
