@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { EditorRail, type RailItem } from "@/components/ui/EditorRail";
 import { posterFor } from "@/lib/videoFx";
-import { listProjects, deleteProject, renameProject, reserveProject, uniqueProjectName, type StudioProjectMeta } from "@/lib/studioProjects";
+import { listProjects, deleteProject, renameProject, reserveProject, uniqueProjectName, cloneProject, type StudioProjectMeta } from "@/lib/studioProjects";
 import { appConfirm, appPrompt } from "@/components/ui/Confirm";
 import { SETTING_FIELDS, videoStyles } from "@/data/video";
 import type { IconName } from "@/data/icons";
@@ -16,6 +16,7 @@ const DEFAULT_NEW_SETTINGS: Record<string, string> = {
   视频风格: videoStyles[0].name,
   视频质量: "480P",
   字幕: "显示",
+  知识库: "使用",
 };
 // 新建时把用户选择的视频设定暂存于此，Studio 初始化新项目时读取并清除
 export const NEW_SETTINGS_KEY = "mofun.studio.newSettings";
@@ -31,12 +32,11 @@ const DEMO_FILMS = [
   { id: "民宿种草短片", name: "民宿种草短片", updated: "2026-06-25 09:10", count: 3, seed: "sh-folder-minsu" },
 ];
 
-const TEMPLATES = [
-  { id: "t1", name: "农产品带货", tag: "带货", shots: 8, seed: "sh-tpl-nongchan" },
-  { id: "t2", name: "景区宣传", tag: "文旅", shots: 6, seed: "sh-tpl-jingqu" },
-  { id: "t3", name: "民宿种草", tag: "民宿", shots: 6, seed: "sh-tpl-minsu" },
-  { id: "t4", name: "门店开业", tag: "门店", shots: 5, seed: "sh-tpl-mendian" },
-];
+// 视频模板：暂时清空（删除假示例），待接入真实模板后再填充
+const TEMPLATES: { id: string; name: string; tag: string; shots: number; seed: string }[] = [];
+
+// 案例：把「西湖文旅宣传视频」项目作为可套用的案例——点「使用」即克隆其完整状态（视频设定 + 五步全部内容）为新项目
+const CASE_NAME = "西湖文旅宣传视频";
 
 export function StudioHome({
   railItems,
@@ -74,6 +74,16 @@ export function StudioHome({
     } catch {
       /* 隐私模式等禁用 storage 时忽略，Studio 会用默认设定 */
     }
+    onOpen(pid, name);
+  }
+
+  // 套用案例：克隆源项目（西湖文旅宣传视频）的完整 state 到一个新项目并打开，内容与源项目一模一样
+  const caseProj = projects.find((p) => p.name === CASE_NAME);
+  function useCase() {
+    if (!caseProj) return;
+    const pid = `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const name = uniqueProjectName(CASE_NAME);
+    if (!cloneProject(caseProj.id, pid, name)) return;
     onOpen(pid, name);
   }
 
@@ -172,25 +182,51 @@ export function StudioHome({
             </div>
           </section>
 
-          {/* 视频模板 */}
+          {/* 参考灵感 / 案例 */}
           <section className="sh-section">
             <div className="sh-head">
-              <h3>视频模板</h3>
-              <span className="sh-sub">套用模板快速起稿</span>
+              <h3>参考灵感</h3>
+              <span className="sh-sub">套用案例快速起稿</span>
             </div>
-            <div className="sh-templates">
-              {TEMPLATES.map((t) => (
-                <button className="sh-tpl" key={t.id} onClick={() => onOpen(t.name)}>
-                  <div className="sh-tpl-cover" style={{ backgroundImage: `url(${posterFor(t.seed)})` }}>
-                    <span className="sh-tpl-play">▶</span>
+            {caseProj || TEMPLATES.length > 0 ? (
+              <div className="sh-templates">
+                {/* 案例：西湖文旅宣传视频（克隆源项目完整内容） */}
+                {caseProj && (
+                  <div className="sh-tpl sh-tpl-case">
+                    <div className="sh-tpl-cover">
+                      {caseProj.cover ? (
+                        // eslint-disable-next-line jsx-a11y/media-has-caption
+                        <video className="sh-folder-vid" src={`${caseProj.cover}#t=0.1`} muted playsInline preload="metadata" />
+                      ) : (
+                        <span className="sh-folder-empty"><Icon name="film" size={28} /></span>
+                      )}
+                      <span className="sh-tpl-badge">案例</span>
+                      {/* 鼠标移入 → 封面上浮现「套用灵感」按钮，点它克隆整份项目 */}
+                      <div className="sh-tpl-hover">
+                        <button className="sh-tpl-hover-btn" onClick={useCase}>套用灵感</button>
+                      </div>
+                    </div>
+                    <div className="sh-tpl-meta">
+                      <span className="sh-tpl-name">{caseProj.name}</span>
+                      <span className="sh-tpl-shots">{caseProj.count} 镜</span>
+                    </div>
                   </div>
-                  <div className="sh-tpl-meta">
-                    <span className="sh-tpl-name">{t.name}</span>
-                    <span className="sh-tpl-shots">{t.shots} 镜</span>
-                  </div>
-                </button>
-              ))}
-            </div>
+                )}
+                {TEMPLATES.map((t) => (
+                  <button className="sh-tpl" key={t.id} onClick={() => onOpen(t.name)}>
+                    <div className="sh-tpl-cover" style={{ backgroundImage: `url(${posterFor(t.seed)})` }}>
+                      <span className="sh-tpl-play">▶</span>
+                    </div>
+                    <div className="sh-tpl-meta">
+                      <span className="sh-tpl-name">{t.name}</span>
+                      <span className="sh-tpl-shots">{t.shots} 镜</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="sh-tpl-empty">模板正在准备中，敬请期待～</div>
+            )}
           </section>
         </div>
       </div>

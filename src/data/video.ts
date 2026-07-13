@@ -126,4 +126,5 @@ export const SETTING_FIELDS: { label: string; opts: string[]; hint?: string; not
     notes: { "2K": "模型上限", "4K": "模型上限" },
   },
   { label: "字幕", opts: ["显示", "隐藏"] },
+  { label: "知识库", opts: ["使用", "不使用"], hint: "使用「魔方智绘知识库」，结合账号所在县域的特色产品/景点/文化生成脚本" },
 ];

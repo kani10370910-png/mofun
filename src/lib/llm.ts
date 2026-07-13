@@ -206,6 +206,15 @@ function styleRule(styleHint?: string): string {
     : "";
 }
 
+/* 制作大片·知识库：使用「魔方智绘知识库」时，让 LLM 结合账号所在县域的特色信息（产品/景点/文化/品牌）来创作，
+   使脚本更贴合真实地方特色。useKB 为 false（不使用）时返回空串、不追加。
+   （演示阶段：以规则形式提示模型结合县域知识；后续接入真实知识库检索后可在此拼入检索到的资料。）*/
+function kbRule(useKB?: boolean): string {
+  return useKB
+    ? "\n【结合魔方智绘知识库】请结合本账号所在县域的真实特色信息来构思：当地代表性的农产品、景区景点、民俗文化、节庆与品牌资料，让内容贴合地方实际、可直接落地宣传；涉及具体地名/产品名时优先采用该县域的真实特色。"
+    : "";
+}
+
 const STUDIO_SAFE_RULE =
   "\n【内容安全·必须遵守】你写的画面与台词会直接送入 AI 视频模型生成，必须通过其内容审核，否则无法生成视频：" +
   "不得出现真实政治人物 / 国家领导人、国旗国徽党旗军旗、军警制服与武器弹药、宗教与民族敏感符号、" +
@@ -263,6 +272,20 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
     ];
   }
 
+  // 制作大片·智能匹配风格：读脚本，从 6 种具体风格里选出最贴合的一种（用于「视频风格=智能匹配」→ 锁定为具体风格）
+  if (req.scene === "studio-style-match") {
+    return [
+      {
+        role: "system",
+        content:
+          "你是短视频视觉风格顾问。根据用户给的脚本内容，从以下 6 种风格里选出最贴合这条片子的 1 种：\n" +
+          "写实、纪录片、航拍大片、温暖治愈、电影感、国风水墨。\n" +
+          "只输出风格名本身（四个字以内，必须是上面 6 个之一），不要任何解释、标点或多余文字。",
+      },
+      { role: "user", content: `脚本：\n${req.input?.trim() || "（空）"}\n\n请只输出一个最贴合的风格名。` },
+    ];
+  }
+
   // 制作大片·剧本编辑（三阶段之一）① 原始创意：把用户一句话需求 → 世界观/主角/故事梗概
   if (req.scene === "studio-idea") {
     return [
@@ -271,9 +294,11 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
         content:
           "你是资深短视频 / 短剧编剧。根据用户的简短需求，构思这条片子的「原始创意」：\n" +
           "包含 世界观 / 背景设定、核心人物（主角及关键角色的设定）、故事梗概（起承转合）。\n" +
-          "用中文，条理清晰（可用小标题或分段），简洁不注水。只输出创意内容，不要额外说明。" +
+          "用中文，条理清晰（用自然分段，小标题直接用文字加冒号），简洁不注水。只输出创意内容，不要额外说明。" +
+          "【纯文本】不要使用任何 markdown 标记：不要 **加粗**、不要 # 或 ## 标题符号、不要 - 或 * 列表符号、不要反引号，直接用中文和标点自然表达。" +
           STUDIO_SAFE_RULE +
-          styleRule(req.styleHint),
+          styleRule(req.styleHint) +
+          kbRule(req.useKB),
       },
       { role: "user", content: req.input?.trim() || "请构思一条短视频的原始创意。" },
     ];
@@ -288,8 +313,10 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
           "你是短视频分镜师。根据给定的「原始创意」，写一份「镜头摘要」：\n" +
           "先一句话交代整体基调 / 风格，然后按拍摄顺序列出每个镜头的一句话要点（镜头1、镜头2…），\n" +
           "每个镜头要点交代 谁 / 在哪 / 做什么。用中文，简洁。只输出摘要，不要额外说明。" +
+          "【纯文本】不要使用任何 markdown 标记（不要 **、#、##、- 、* 、反引号），直接用中文和标点自然表达。" +
           STUDIO_SAFE_RULE +
-          styleRule(req.styleHint),
+          styleRule(req.styleHint) +
+          kbRule(req.useKB),
       },
       { role: "user", content: `原始创意：\n${req.input?.trim() || "（空）"}\n\n请据此写镜头摘要。` },
     ];
@@ -304,10 +331,12 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
           "你是短视频编剧。根据给定的「镜头摘要」，把每个镜头扩写成完整内容：\n" +
           "每个镜头以「镜头N：」开头（N 为镜头序号，从 1 开始依次递增，如 镜头1：、镜头2：…），" +
           "序号后紧接该镜正文——交代 场景 / 人物动作 / 必要台词（台词用「」标注），画面感强；\n" +
+          "【篇幅要求】每个镜头正文都要充实具体，不少于 300 字：细写场景环境、光线氛围、人物动作神态与镜头运动等细节，把画面写满、写细，绝不能一两句话带过。\n" +
           "镜头与镜头之间用空行分隔，便于逐镜拆分。用中文。\n" +
           "除每段开头的「镜头N：」序号外，不要其它标题、不要 markdown 标记。" +
           STUDIO_SAFE_RULE +
-          styleRule(req.styleHint),
+          styleRule(req.styleHint) +
+          kbRule(req.useKB),
       },
       { role: "user", content: `镜头摘要：\n${req.input?.trim() || "（空）"}\n\n请把每个镜头扩写成完整内容。` },
     ];
@@ -325,7 +354,8 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
           "3. 贴合用户给的类型（短剧 / 品牌广告 / 文旅宣传 / 个人 IP 等）和时长感，不注水、不跑题；\n" +
           "4. 只输出剧本正文，不要标题、不要旁注、不要 markdown 标记、不要「镜头1：」这类前缀。" +
           STUDIO_SAFE_RULE +
-          styleRule(req.styleHint),
+          styleRule(req.styleHint) +
+          kbRule(req.useKB),
       },
       { role: "user", content: req.input?.trim() || "请创作一段适合短视频拍摄的分镜级剧本。" },
     ];

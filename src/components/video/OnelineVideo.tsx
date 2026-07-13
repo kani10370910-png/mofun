@@ -866,7 +866,7 @@ export function OnelineVideo() {
         stepKey: "clips",
         script: row.prompt,
         studioIdea: row.prompt,
-        settings: { 模型: "Seedance 2.0 Fast", 视频比例: ratio, 视频风格: "智能匹配", 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示" },
+        settings: { 模型: "Seedance 2.0 Fast", 视频比例: ratio, 视频风格: "智能匹配", 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示", 知识库: "使用" },
         totalSec: dur,
         targetShots: 1,
         assets: [],

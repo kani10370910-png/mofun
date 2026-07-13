@@ -58,6 +58,8 @@ interface Shot {
   pct: number;
   failReason?: string; // 失败原因（已映射为中文）
   videoUrl?: string; // 真实生成的视频片段 URL（/api/video 返回）
+  degraded?: boolean; // 本镜因输入图被审核拦而降级生成（可能失去参考锁定；首帧仍保留、衔接不受影响）
+  degradeReason?: string; // 降级的具体原因（审核敏感 / 参考图地址读取失败等），显示在角标 tooltip
   firstFrame?: string; // 首尾帧模式：首帧图（base64/URL）
   lastFrame?: string; // 首尾帧模式：尾帧图
   transition?: TransType; // 进入本镜的转场（与上一镜之间），默认「无」不破坏无缝衔接。首镜忽略
@@ -66,7 +68,6 @@ interface Shot {
 // 镜头间转场类型（默认无 = 保持尾帧无缝衔接）。black=黑场淡入淡出，white=白闪
 type TransType = "none" | "black" | "white";
 const TRANS_DUR = 0.45; // 转场时长（秒）
-const TRANS_LABEL: Record<TransType, string> = { none: "无", black: "黑场", white: "白闪" };
 const transColor = (t?: TransType): string | null => (t === "black" ? "#000" : t === "white" ? "#fff" : null);
 
 // 时间轴字幕：全片级独立对象，一句话一段，可在时间轴上自由拖动位置、拖两端边缘调时长。
@@ -472,7 +473,7 @@ export function Studio({
       stepKey: studioSteps.find((s) => s.key === initialStep)?.key ?? "script",
       script: "", // 新建项目从空开始 → 剧本编辑默认落在第一步「原始创意」，走三步向导
 
-      settings: { 模型: "Seedance 2.0 Fast", 视频比例: "16:9", 视频风格: videoStyles[0].name, 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示", ...readNewSettingsDraft() },
+      settings: { 模型: "Seedance 2.0 Fast", 视频比例: "16:9", 视频风格: videoStyles[0].name, 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示", 知识库: "使用", ...readNewSettingsDraft() },
       totalSec: 15, // 新建默认单镜拉满 15s（模型上限）
       targetShots: 1,
       assets: [] as Asset[], // 新建项目默认无元素 → 展示空态引导，由用户手动添加 / 自动生成
@@ -510,6 +511,12 @@ export function Studio({
   const subtitles = subtitlesRaw ?? [];
   const [assetGenRaw, setAssetGenSettings] = useSessionField<Record<string, AssetGenSetting>>("assetGenSettings"); // 场景/角色/道具的生图清晰度 + 一键生成模型
   const assetGenSettings = assetGenRaw ?? {};
+  // 「一键生成全部图片」后台运行态：放会话级 → 切换步骤/离开页面后仍在后台继续，回来还能看到进度
+  const [genImgBusyRaw, setGenImgBusy] = useSessionField<boolean>("genImgBusy");
+  const genImgBusy = genImgBusyRaw ?? false;
+  const [genImgProgRaw, setGenImgProg] = useSessionField<{ done: number; total: number }>("genImgProg");
+  const genImgProg = genImgProgRaw ?? { done: 0, total: 0 };
+  const genImgRunning = useRef(false); // 即时防重入（本实例内）
   const [studioInputRaw, setStudioInput] = useSessionField<string>("studioInput"); // ① 用户需求输入（生成原始创意用，需持久化）
   const [studioIdeaRaw, setStudioIdea] = useSessionField<string>("studioIdea"); // ① 原始创意
   const [studioSummaryRaw, setStudioSummary] = useSessionField<string>("studioSummary"); // ① 镜头摘要
@@ -625,9 +632,53 @@ export function Studio({
     toast(prevContext ? "已 AI 扩写并衔接前面镜头" : "已 AI 扩写画面描述");
   }
 
+  // 智能匹配：当「视频风格 = 智能匹配」时，读脚本让 LLM 从 6 种具体风格里挑一种最贴合的，
+  // 写回 settings.视频风格 → 全片固定按该风格生成（文本扩写 / 生图 / 视频都会带上该风格）。
+  // 挑中后风格就变成具体值、不再是「智能匹配」，即「固定」；用户如需重挑可在「编辑项目」重新选回智能匹配。
+  async function resolveAutoStyle() {
+    const snap = getStudioSnapshot() as { script?: string; studioIdea?: string; settings?: Record<string, string> };
+    if ((snap.settings?.视频风格 ?? settings.视频风格) !== "智能匹配") return; // 已是具体风格 → 不动
+    const src = (snap.script || script || snap.studioIdea || "").trim();
+    if (!src) return; // 没脚本无从判断，保持智能匹配（模型自由）
+    try {
+      const resp = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scene: "studio-style-match", input: src }),
+      });
+      if (!resp.ok || !resp.body) return;
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      let acc = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const events = buf.split("\n\n");
+        buf = events.pop() ?? "";
+        for (const evt of events) {
+          const line = evt.split("\n").find((l) => l.startsWith("data:"));
+          if (!line) continue;
+          try { const j = JSON.parse(line.slice(5).trim()) as { text?: string }; if (j.text) acc += j.text; } catch { /* 跳过 */ }
+        }
+      }
+      // 从返回文本里匹配出一个具体风格名（防止模型多输出别的字）
+      const names = videoStyles.filter((v) => v.name !== "智能匹配").map((v) => v.name);
+      const matched = names.find((n) => acc.includes(n));
+      if (matched && getStudioSnapshot() && (getStudioSnapshot() as { settings?: Record<string, string> }).settings?.视频风格 === "智能匹配") {
+        setSettings((s) => ({ ...s, 视频风格: matched }));
+        toast(`已根据脚本智能匹配为「${matched}」风格，全片将按此风格生成`);
+      }
+    } catch {
+      /* 失败则保持「智能匹配」，不影响生成 */
+    }
+  }
+
   // 非破坏式重拆：锁定的镜头保留，其余按剧本重新拆分。
   // 段落式剧本（每段=一镜）镜头数由内容决定，拆完同步镜头数/总时长，与实际 shots 对齐。
   function rebuildShots() {
+    void resolveAutoStyle(); // 脚本就绪 → 若为智能匹配，后台挑一个具体风格并锁定（不阻塞拆分镜）
     const locked = shots.filter((s) => s.locked);
     const fresh = makeShots(script, totalSec, targetShots);
     const mergedRaw = locked.length ? [...locked, ...fresh] : fresh;
@@ -691,14 +742,8 @@ export function Studio({
             next.caption = extractDialogue(patch.shotDesc);
           }
         }
-        // 改了「画面描述」或「出镜元素」（影响生成的内容）→ 该镜旧的生成结果作废，回到未生成，
-        // 使成片按新剧本重新生成，避免残留旧内容的视频。字幕/旁白/运镜等不影响画面的字段不作废。
-        const contentChanged =
-          (patch.shotDesc !== undefined && patch.shotDesc !== s.shotDesc) ||
-          (patch.assetRefs !== undefined && patch.assetRefs !== s.assetRefs);
-        if (contentChanged && (s.status === "done" || s.status === "failed")) {
-          return { ...next, status: "idle", pct: 0, videoUrl: undefined, failReason: undefined };
-        }
+        // 改画面描述 / 出镜元素 / 字幕 / 运镜等，都「不」作废已生成的视频——保留原视频不变。
+        // 只有用户主动点「重新生成」（genShot）时才按最新内容重生成并覆盖。这样回去改内容不会丢原片。
         return next;
       });
       // 用户调节某一镜时长 → 总时长跟着变（顶部「总时长」= 各镜时长之和）。
@@ -731,6 +776,16 @@ export function Studio({
       state: snap as Record<string, unknown>,
     });
   }
+
+  // 字幕改动（拖动位置 / 拖边缘改时长 / 编辑文字 / 增删）默认自动保存到项目文件。
+  // 防抖 600ms：拖动过程中不频繁写盘，松手（最后一次变更）后自动持久化。persistProject 读模块快照，无闭包陈旧问题。
+  const firstSubsPersist = useRef(true);
+  useEffect(() => {
+    if (firstSubsPersist.current) { firstSubsPersist.current = false; return; } // 跳过初次挂载
+    const t = window.setTimeout(() => persistProject(), 600);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subtitlesRaw]);
 
   async function removeShot(id: string) {
     const idx = shots.findIndex((x) => x.id === id);
@@ -912,17 +967,34 @@ export function Studio({
   // 把某个生成视频自动缓存到本地（IndexedDB）并映射为可播放的 blobURL。
   // 已缓存 / 已映射直接复用；外链未缓存则经 /api/media 代理下载后存库。非 http 外链（blob:/data:）跳过。
   const cacheInFlightRef = useRef<Set<string>>(new Set());
+  // 后台缓存并发信号量：一次最多下 2 个视频，避免进入④页时十来个视频同时下载抢带宽、拖慢正在观看的那条。
+  const cacheSlotsRef = useRef(2);
+  const cacheWaitRef = useRef<Array<() => void>>([]);
+  const acquireCacheSlot = useCallback(async () => {
+    if (cacheSlotsRef.current > 0) { cacheSlotsRef.current--; return; }
+    await new Promise<void>((res) => cacheWaitRef.current.push(res));
+  }, []);
+  const releaseCacheSlot = useCallback(() => {
+    const next = cacheWaitRef.current.shift();
+    if (next) next(); // 让排队的下一个下载占用这个名额
+    else cacheSlotsRef.current++;
+  }, []);
   const ensureVideoCached = useCallback(async (url?: string) => {
     if (!url || !/^https?:\/\//i.test(url)) return;
     if (cachedVideosRef.current[url] || cacheInFlightRef.current.has(url)) return; // 已映射 / 正在处理
     cacheInFlightRef.current.add(url);
     try {
-      let blob = await getCachedVideo(url);
+      let blob = await getCachedVideo(url); // 本地已入库 → 直接读，不占下载名额
       if (!blob) {
-        blob = await fetch(`/api/media?url=${encodeURIComponent(url)}`)
-          .then((r) => (r.ok ? r.blob() : null))
-          .catch(() => null);
-        if (blob && blob.size) await putCachedVideo(url, blob); // 等落库完成，保证随后抽尾帧能读到本地缓存
+        await acquireCacheSlot(); // 限并发：拿到名额才真正发起下载
+        try {
+          blob = await fetch(`/api/media?url=${encodeURIComponent(url)}`)
+            .then((r) => (r.ok ? r.blob() : null))
+            .catch(() => null);
+          if (blob && blob.size) await putCachedVideo(url, blob); // 等落库完成，保证随后抽尾帧能读到本地缓存
+        } finally {
+          releaseCacheSlot();
+        }
       }
       if (blob && blob.size && !cachedVideosRef.current[url]) {
         const objUrl = URL.createObjectURL(blob);
@@ -934,7 +1006,7 @@ export function Studio({
     } finally {
       cacheInFlightRef.current.delete(url);
     }
-  }, []);
+  }, [acquireCacheSlot, releaseCacheSlot]);
 
   // 打开项目 / 生成完成后：把所有已生成分镜视频恢复为本地缓存（首次访问会下载入库，之后秒开）
   useEffect(() => {
@@ -954,8 +1026,11 @@ export function Studio({
   // 出镜元素自动绑定：元素就绪后，对「还没绑定过」的镜头，把名字出现在其画面描述里的元素默认勾选。
   // 每个镜头只自动处理一次（autoBoundRef 记录），用户之后手动增删都不会被再次自动改写。
   const autoBoundRef = useRef<Set<string>>(new Set());
+  // 描述里出现这些人物指代（但没点名具体角色）时，默认认为主角出镜 → 自动补上主角，避免人物不一致。
+  const PERSON_HINT = /她|他|姑娘|小姑娘|女子|女孩|少女|妇人|背影|身影|主角|人物/;
   useEffect(() => {
     if (!assets.length || !shots.length) return;
+    const mainChar = assets.find((a) => a.kind === "角色"); // 主角 = 第一个角色
     let changed = false;
     const next = shots.map((s) => {
       if (autoBoundRef.current.has(s.id)) return s; // 已处理过，尊重用户后续手动选择
@@ -963,6 +1038,9 @@ export function Studio({
       if (s.assetRefs.length) return s; // 已有绑定（用户已选）→ 不动
       const desc = s.shotDesc || "";
       const matched = assets.filter((a) => a.name && desc.includes(a.name)).map((a) => a.id);
+      // 没点名任何角色，但描述暗示有人物出镜（她/姑娘…）→ 补上主角，锁人物一致
+      const hasChar = matched.some((id) => assets.find((a) => a.id === id)?.kind === "角色");
+      if (!hasChar && mainChar && PERSON_HINT.test(desc)) matched.push(mainChar.id);
       if (!matched.length) return s;
       changed = true;
       return { ...s, assetRefs: matched };
@@ -982,7 +1060,7 @@ export function Studio({
     if (!cur) return Promise.resolve(undefined);
     if (genInFlight.current.has(id)) return Promise.resolve(undefined); // 该镜已在生成中 → 不重复启动（避免进度条互相打架）
     genInFlight.current.add(id);
-    setShots((prev) => prev.map((s) => (s.id === id ? { ...s, status: "gen", pct: 5, failReason: undefined } : s)));
+    setShots((prev) => prev.map((s) => (s.id === id ? { ...s, status: "gen", pct: 5, failReason: undefined, degraded: false, degradeReason: undefined } : s)));
     // 真实生成约 200s+，进度条缓慢爬升封顶 90%，拿到结果再跳 100%
     let pct = 5;
     const iv = window.setInterval(() => {
@@ -991,34 +1069,42 @@ export function Studio({
     }, 1600);
     timers.current.push(iv);
 
-    // 注入出镜元素（场景/角色/道具）。原则：场景/道具「按镜绑定」，角色「全局锁一致」。
-    // - 本镜在「分镜脚本」勾选了元素 → 精确用勾选的；
-    // - 未勾选 → 只锁「角色」类（保持主角外观一致），绝不默认塞入全部元素——否则每镜都会带上
-    //   「颁奖台 / 斗茶大会现场」等无关场景，导致每个视频重复同一画面、跑偏。场景交给画面描述决定。
-    const bound = cur.assetRefs.length
-      ? assets.filter((a) => cur.assetRefs.includes(a.id))
-      : assets.filter((a) => a.kind === "角色");
+    // 注入出镜元素（场景/角色/道具）。原则：只锁「本镜在③分镜脚本勾选的出镜元素」，绝不无差别塞入其它角色。
+    // 为什么不再全局注入所有角色：多角色项目里，把 6 个角色全塞进一镜、再取前 4 张，会把本镜该出的角色（如小渔）
+    // 挤掉、并注入无关角色（老人/游客…），导致模型把人物画成别人。一致性靠「为每镜勾选正确角色 + 首帧衔接」保证。
+    // 读最新 assets 快照：参考图可能是刚在②后台生成完成的，runShot 闭包里的 assets 可能还没带上 refImg。
+    const liveAssets = (getStudioSnapshot() as { assets?: Asset[] }).assets ?? assets;
+    let bound = cur.assetRefs.length ? liveAssets.filter((a) => cur.assetRefs.includes(a.id)) : [];
+    // 安全网：本镜画面里有人物（描述命中人物关键词），却没绑到任何「有参考图的角色」——
+    // 常见于③忘了勾角色、或勾了但参考图是事后才补生成的。此时自动补入主角色参考图，
+    // 否则模型没有人物锚点会自由发挥、把人画成别人（镜头间人物不一致的根因）。
+    const hasBoundCharRef = bound.some((a) => a.kind === "角色" && a.refImg);
+    if (!hasBoundCharRef && PERSON_HINT.test(cur.shotDesc)) {
+      const mainChar = liveAssets.find((a) => a.kind === "角色" && a.refImg);
+      if (mainChar && !bound.some((a) => a.id === mainChar.id)) bound = [...bound, mainChar];
+    }
     const elemText = bound.length
       ? `。画面中需出现：${bound.map((a) => `${a.kind}「${a.name}」`).join("、")}，与设定参考图保持一致`
       : "";
     const stylePrefix = settings.视频风格 !== "智能匹配" ? settings.视频风格 : "";
     // 带入「分镜脚本」里为本镜填写的运镜、景别，让生成画面贴合脚本设定
     const shotMeta = [cur.shotSize && `景别${cur.shotSize}`, cur.camera && `镜头运动${cur.camera}`].filter(Boolean).join("，");
-    // 跨全片一致性策略（锁「场景/角色/道具」在所有视频里外观统一）：
-    //   角色 → 每一镜都注入「所有角色」参考图做全局锁（主角长相/服饰在所有镜头完全一致）；
-    //   场景/道具 → 注入本镜绑定的（按镜相关，避免每镜塞无关场景导致画面重复）。
-    // 合并去重、优先角色 > 场景 > 道具，供参考图与文字约束共用。
+    // 锁定元素 = 本镜出镜元素，按「角色 > 场景 > 道具」排序（角色最优先，保证不被 4 张参考图上限挤掉）。
     const refOrder: Record<Asset["kind"], number> = { 角色: 0, 场景: 1, 道具: 2 };
-    const globalChars = assets.filter((a) => a.kind === "角色"); // 全局角色锁：每一镜都带
-    const boundSceneProps = bound.filter((a) => a.kind !== "角色"); // 本镜绑定的场景/道具
-    const lockElems = [...globalChars, ...boundSceneProps].sort((a, b) => refOrder[a.kind] - refOrder[b.kind]);
+    const lockElems = [...bound].sort((a, b) => refOrder[a.kind] - refOrder[b.kind]);
     // 全片一致性硬约束：每一镜都要求与参考图 / 前面各镜保持完全相同的画面风格（插画↔写实不许跳变），
     // 并逐一点名要锁死外观的元素。即使是特写、空镜也不能换风格——这是「所有镜头都一致」的关键。
     const hasRefs = lockElems.some((a) => a.refImg);
     const lockNames = lockElems.map((a) => `${a.kind}「${a.name}」`);
+    // 有定妆参考图的角色：单独点名，把「脸/五官/是同一个人」说到最死——这是压住跨镜换脸的关键约束。
+    const charRefs = lockElems.filter((a) => a.kind === "角色" && a.refImg);
+    const faceLock = charRefs.length
+      ? `画面里的人物${charRefs.map((a) => `「${a.name}」`).join("、")}必须严格以参考图中的人物为准：五官、脸型、眉眼、发型、发色、服饰颜色与款式完全一致，是同一个人，绝不允许换脸、换成其他长相或年龄的人；`
+      : "";
     const consistencyNote =
       `整片风格严格统一：与${hasRefs ? "设定参考图和" : ""}前面各镜保持完全一致的画面风格（相同的插画/写实取向、渲染方式、色调、笔触与质感），` +
       `严禁在写实与动漫/插画之间跳变；` +
+      faceLock +
       (lockNames.length ? `${lockNames.join("、")}的外观（长相、发型、服饰、造型、颜色、材质、比例）在所有镜头中必须与设定参考图完全一致、不得改变；` : "") +
       `场景、角色、道具的外观也与全片保持一致`;
     // 编辑视频：强约束「只改指定部分」——人物、场景、画面风格与原视频保持一致，避免整体风格相对前一镜/原片跳变
@@ -1032,12 +1118,12 @@ export function Studio({
     //   首尾帧(keyframe)=首帧图（镜头1 自设首帧 / 第 2 镜起上一镜尾帧图）；文本/智能多帧=上一镜真实视频尾帧。
     // 都没有则纯文生（首镜常见）。参考图「不」作首帧。
     const imageUrl = imageOverride ?? cur.firstFrame;
-    // 参考图（reference_image）：注入 lockElems（全局角色 + 本镜场景/道具）的参考图锁跨镜一致性；
-    // 不占首帧（首帧仍由脚本文生 / 承接上一镜尾帧决定）。已按角色 > 场景 > 道具排序，
-    // 最多 4 张（避免过多参考图被网关拒绝、稀释锁定效果）——角色排在前，保证主角锁不会被挤掉。
+    // 参考图（reference_image）：只注入 lockElems（本镜勾选的出镜元素）的参考图，锁本镜人物/场景/道具外观；
+    // 不占首帧（首帧仍由脚本文生 / 承接上一镜尾帧决定）。已按角色 > 场景 > 道具排序。
+    // 本镜绑了几个有参考图的元素就注入几张、不再截断（因只锁本镜出镜元素，数量本就不多）。
     const referenceImageUrls = Array.from(
       new Set(lockElems.filter((a) => a.refImg).map((a) => a.refImg as string)),
-    ).slice(0, 4);
+    );
     const tailImageUrl = opts?.tailOverride ?? (genMode === "keyframe" ? cur.lastFrame : undefined);
 
     return fetch("/api/video", {
@@ -1059,15 +1145,16 @@ export function Studio({
       .then(async (r) => {
         window.clearInterval(iv);
         genInFlight.current.delete(id);
-        const j = (await r.json().catch(() => ({}))) as { videoUrl?: string; error?: unknown; degraded?: boolean };
+        const j = (await r.json().catch(() => ({}))) as { videoUrl?: string; error?: unknown; degraded?: boolean; degradeReason?: string };
         if (!r.ok || !j.videoUrl) {
           const reason = mapVideoErr(j.error, r.status);
           setShots((prev) => prev.map((s) => (s.id === id ? { ...s, status: "failed", pct: 0, failReason: reason } : s)));
           return undefined;
         }
         // 字幕/声音「脚本有就做，没有不做」：不再自动杜撰字幕，仅用脚本填写的字幕字段
-        setShots((prev) => prev.map((s) => (s.id === id ? { ...s, status: "done", pct: 100, videoUrl: j.videoUrl, failReason: undefined } : s)));
-        if (j.degraded) toast("本镜因输入图片被判敏感，已自动去掉部分图片生成——可能失去与上一镜的衔接/参考一致", "warn");
+        setShots((prev) => prev.map((s) => (s.id === id ? { ...s, status: "done", pct: 100, videoUrl: j.videoUrl, failReason: undefined, degraded: Boolean(j.degraded), degradeReason: j.degraded ? j.degradeReason : undefined } : s)));
+        // 降级（参考图被网关拒收）不再向用户提示；仅内部保留 degraded 状态，控制台仍有日志便于排查。
+        if (j.degraded) console.warn("[studio] 本镜降级生成：", j.degradeReason || "参考图被网关拒绝");
         persistProject(); // 生成完成 → 默认存为项目文件（后台完成时也生效）
         // 本镜生成成功 → 立即把这段分镜视频存入「我的素材」仓库（按真实地址去重；重生成的新片段也会入库）
         addMaterial({
@@ -1126,7 +1213,17 @@ export function Studio({
         return;
       }
     }
-    await runShot(id, chainFrame);
+    // 两头无缝：若「后一镜」已有视频（多见于重新生成中间镜头），抽它的真实首帧作本镜尾帧，
+    // 保证 本镜尾帧 == 后一镜首帧，与前一镜首帧衔接一起形成前后都无缝。
+    // 正常顺序生成时后一镜尚未生成，此分支不触发；抽帧失败也不阻断，只是尾端尽力贴合。
+    const nextShot = liveShots[idx + 1];
+    let tailOverride: string | undefined;
+    if (nextShot && nextShot.status === "done" && nextShot.videoUrl) {
+      setShots((p) => p.map((s) => (s.id === id ? { ...s, status: "gen", pct: 2, failReason: undefined } : s)));
+      const nres = await extractLastFrame(nextShot.videoUrl, "first");
+      if (nres.frame) tailOverride = nres.frame;
+    }
+    await runShot(id, chainFrame, tailOverride ? { tailOverride } : undefined);
   }
 
   // 编辑视频（视频生视频）：保持这一镜的首帧和尾帧不变，仅按用户编辑要求修改中间画面内容。
@@ -1207,6 +1304,14 @@ export function Studio({
       toast("全部分镜已生成完成");
       return;
     }
+    // 一致性预检：有「角色」元素但缺参考图 → 各镜人物会长得不一样，先提醒去②生成角色参考图。
+    const charsNoRef = assets.filter((a) => a.kind === "角色" && !a.refImg);
+    if (charsNoRef.length) {
+      const go = await appConfirm(
+        `有 ${charsNoRef.length} 个角色还没有参考图（${charsNoRef.map((a) => a.name).slice(0, 4).join("、")}${charsNoRef.length > 4 ? "…" : ""}）。缺角色参考图时，人物在各镜之间会长得不一样。建议先到「② 场景角色道具」用「一键生成全部图片」给角色出参考图，再来生成视频。仍要现在生成吗？`
+      );
+      if (!go) return;
+    }
     const mult = qualityMult(settings.视频质量 ?? "");
     const cost = pending.length * mult;
     const ok = await appConfirm(
@@ -1253,6 +1358,85 @@ export function Studio({
     } finally {
       genAllRunning.current = false;
     }
+  }
+
+  // 一键生成全部元素参考图（并行 + 后台）：提升到 Studio → 用户切到其它步骤/页面后仍在后台继续，回来还能看进度。
+  // 首次提示「去生成设置」的拦截在 AssetsStep 里做（那是本地弹窗），此处只负责确认 + 并行生成。
+  async function genAllImages() {
+    if (genImgRunning.current || genImgBusy) return;
+    const liveAssets = (getStudioSnapshot() as { assets?: Asset[] }).assets ?? assets;
+    const targets = liveAssets.filter((a) => !a.refImg);
+    if (!targets.length) return toast("所有元素都已有参考图（如需重做，点各卡片的「AI 生成」）", "warn");
+    if (!(await appConfirm(`将为 ${targets.length} 个元素并行「优化描述 + AI 生成参考图」，可切换到其它步骤，后台会继续生成。是否继续？`))) return;
+    genImgRunning.current = true;
+    setGenImgBusy(true);
+    setGenImgProg({ done: 0, total: targets.length });
+    const stylePrompt = videoStyles.find((v) => v.name === settings.视频风格)?.stylePrompt ?? "";
+    const styleSuffix = stylePrompt.trim() ? `，整体画面风格：${stylePrompt.trim()}` : "";
+    const genModelName = assetGenSettings[ASSET_GEN_MODEL_KEY]?.model ?? STUDIO_IMAGE_MODELS[0].name;
+    const genModelId = STUDIO_IMAGE_MODELS.find((m) => m.name === genModelName)?.modelId || "";
+    let ok = 0;
+    let done = 0;
+    // 单个元素：优化描述 → 生图 → 回填参考图（setAssets 会话级持久化，卸载后仍能保存）
+    const genOne = async (a: Asset) => {
+      try {
+        let desc = a.name;
+        const expandInput = `【剧本背景】\n${script?.trim() || "（无）"}\n\n【${a.kind}】${a.name}\n\n请据剧本背景，${assetExpandInstr(a.kind)}，输出一段话，风格与剧本统一。`;
+        const er = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scene: "studio-asset-desc", input: expandInput, styleHint: stylePrompt }),
+        });
+        if (er.ok && er.body) {
+          const reader = er.body.getReader();
+          const dec = new TextDecoder();
+          let buf = "";
+          let acc = "";
+          for (;;) {
+            const { done: rdDone, value } = await reader.read();
+            if (rdDone) break;
+            buf += dec.decode(value, { stream: true });
+            const events = buf.split("\n\n");
+            buf = events.pop() ?? "";
+            for (const evt of events) {
+              const line = evt.split("\n").find((l) => l.startsWith("data:"));
+              if (!line) continue;
+              try { const j = JSON.parse(line.slice(5).trim()) as { text?: string }; if (j.text) acc += j.text; } catch { /* 跳过 */ }
+            }
+          }
+          if (acc.trim()) desc = acc.trim();
+        }
+        const size = ASSET_SIZE_MAP[assetGenSettings[a.kind]?.size ?? "2K"] || "2048x2048";
+        const ir = await fetch("/api/image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: `${desc}，${assetKindPrompt(a.kind)}${styleSuffix}`, n: 1, size, ...(genModelId ? { model: genModelId } : {}) }),
+        });
+        const j = (await ir.json().catch(() => ({}))) as { images?: string[]; error?: string };
+        if (ir.ok && j.images?.length) {
+          setAssets((list) => list.map((x) => (x.id === a.id ? { ...x, refImg: j.images![0] } : x)));
+          ok++;
+        }
+      } catch {
+        /* 单个失败跳过 */
+      }
+      done++;
+      setGenImgProg({ done, total: targets.length });
+    };
+    // 并行生成，带并发上限（并发过高会瞬时打满聚合网关的上游通道导致「无可用通道」，降到 3 更稳）
+    const CONCURRENCY = 3;
+    const queue = [...targets];
+    try {
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+          for (let a = queue.shift(); a; a = queue.shift()) await genOne(a);
+        }),
+      );
+    } finally {
+      genImgRunning.current = false;
+      setGenImgBusy(false);
+    }
+    toast(ok ? `已为 ${ok}/${targets.length} 个元素生成参考图` : "生成失败，请重试（检查图片模型配置）", ok ? undefined : "warn");
   }
 
   // 导出：把分镜逐镜画面用 Ken Burns 录制并拼接为一段真实长视频
@@ -1692,6 +1876,9 @@ export function Studio({
                   setSettings={setSettings}
                   assets={assets}
                   setAssets={setAssets}
+                  genAllImages={genAllImages}
+                  genImgBusy={genImgBusy}
+                  genImgProg={genImgProg}
                   shots={shots}
                   ratio={ratio}
                   cache={cachedVideos}
@@ -1743,7 +1930,6 @@ export function Studio({
                   onEditSub={editSubtitle}
                   onRemoveSub={removeSubtitle}
                   onAddSub={addSubtitleAt}
-                  onSetTransition={(id, t) => editShot(id, { transition: t })}
                   onPlayClip={setPlayingClip}
                 />
               )}
@@ -1754,7 +1940,6 @@ export function Studio({
       {playingClip && (
         <ClipPlayerModal
           shot={playingClip}
-          ratio={ratio}
           caption={settings.字幕 !== "隐藏" ? playingClip.caption : ""}
           cache={cachedVideos}
           onClose={() => setPlayingClip(null)}
@@ -1783,6 +1968,7 @@ export function Studio({
           onSave={(next) => {
             setSettings((s) => ({ ...s, ...next }));
             setEditProjOpen(false);
+            void resolveAutoStyle(); // 若改成了「智能匹配」，据脚本挑一个具体风格并锁定
           }}
           onClose={() => setEditProjOpen(false)}
         />
@@ -1895,10 +2081,8 @@ function EditVideoModal({ shot, onClose, onSubmit }: { shot: Shot; onClose: () =
   );
 }
 
-function ClipPlayerModal({ shot, ratio, caption, cache, onClose }: { shot: Shot; ratio: string; caption?: string; cache?: Record<string, string>; onClose: () => void }) {
+function ClipPlayerModal({ shot, caption, cache, onClose }: { shot: Shot; caption?: string; cache?: Record<string, string>; onClose: () => void }) {
   const [mounted, setMounted] = useState(false);
-  // 舞台宽高比：先用项目设定比例占位，视频元数据就绪后改用真实视频比例，避免黑边留白
-  const [stageRatio, setStageRatio] = useState(ratioToCss(ratio));
   useEffect(() => setMounted(true), []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -1906,6 +2090,9 @@ function ClipPlayerModal({ shot, ratio, caption, cache, onClose }: { shot: Shot;
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
   if (!mounted || !shot.videoUrl) return null;
+  // 补 #t=0.1 跳过开头黑帧（否则暂停时停在黑色第 0 帧，看着像没画面）；muted 自动播放规避浏览器拦截。
+  const base = playableVideoSrc(shot.videoUrl, cache);
+  const src = base ? `${base}#t=0.1` : undefined;
   return createPortal(
     <div className="clipm-mask" onClick={onClose}>
       <div className="clipm-panel" onClick={(e) => e.stopPropagation()}>
@@ -1915,19 +2102,9 @@ function ClipPlayerModal({ shot, ratio, caption, cache, onClose }: { shot: Shot;
             <Icon name="close" size={20} />
           </button>
         </div>
-        <div className="clipm-stage" style={{ aspectRatio: stageRatio }}>
+        <div className="clipm-stage">
           {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-          <video
-            className="clipm-video"
-            src={playableVideoSrc(shot.videoUrl, cache)}
-            controls
-            autoPlay
-            playsInline
-            onLoadedMetadata={(e) => {
-              const v = e.target as HTMLVideoElement;
-              if (v.videoWidth && v.videoHeight) setStageRatio(`${v.videoWidth} / ${v.videoHeight}`);
-            }}
-          />
+          <video className="clipm-video" src={src} controls autoPlay muted playsInline preload="auto" />
           {caption && <span className="clipm-caption">{caption}</span>}
         </div>
       </div>
@@ -1938,11 +2115,15 @@ function ClipPlayerModal({ shot, ratio, caption, cache, onClose }: { shot: Shot;
 
 // ① 剧本编辑：左「AI 帮写剧本」对话 + 右剧本文本编辑区。生成 / 编辑的剧本存入 script，
 // 「下一步」按剧本自动拆分镜（rebuildShots）。镜头数 / 总时长 / 生成模式移到「③ 分镜脚本」设定。
-const SCRIPT_STAGES: { k: "idea" | "summary" | "shots"; n: string }[] = [
-  { k: "idea", n: "原始创意" },
-  { k: "summary", n: "镜头摘要" },
-  { k: "shots", n: "完整镜头" },
-];
+// 去掉 LLM 偶尔输出的 markdown 标记（**加粗**、## 标题、- 列表、` 反引号）——脚本编辑是纯文本框、不渲染 markdown，
+// 直接显示符号会很乱。清理为自然纯文本。
+function stripStudioMd(s: string): string {
+  return s
+    .replace(/\*\*/g, "") // 去粗体标记 **
+    .replace(/(^|\n)(\s{0,3})#{1,6}\s+/g, "$1$2") // 去标题 ## / ###
+    .replace(/(^|\n)(\s{0,3})[-*+]\s+/g, "$1$2· ") // 列表 - / * → ·
+    .replace(/`+/g, ""); // 去反引号
+}
 
 // ① 剧本编辑（三阶段向导）：需求 →「原始创意」→ 确认 →「镜头摘要」→ 确认 →「完整镜头」。
 // 每阶段产物可编辑；完成后「下一步」按完整镜头拆分镜。
@@ -1956,6 +2137,7 @@ function ScriptStep({
   summary,
   setSummary,
   styleHint,
+  useKB,
   rebuildShots,
   setSettings,
   toast,
@@ -1970,53 +2152,60 @@ function ScriptStep({
   summary: string;
   setSummary: (s: string) => void;
   styleHint: string; // 项目视频风格描述词，注入剧本三阶段生成保持全片文字风格一致
+  useKB: boolean; // 是否使用「魔方智绘知识库」生成脚本
   rebuildShots: () => void;
   setSettings: (f: (s: Record<string, string>) => Record<string, string>) => void;
   toast: (s: string, k?: "warn") => void;
   goStep: (k: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [stage, setStage] = useState<"idea" | "summary" | "shots">(script.trim() || summary.trim() ? "shots" : idea.trim() ? "summary" : "idea");
+  // 底层：调 /api/generate 流式生成，返回清理后的完整文本；onChunk 可选（实时回填编辑框）。不管理 busy。
+  async function runGen(scene: string, inputText: string, onChunk?: (s: string) => void): Promise<string> {
+    const resp = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scene, input: inputText, styleHint, useKB }),
+    });
+    if (!resp.ok || !resp.body) {
+      const j = (await resp.json().catch(() => ({}))) as { error?: string };
+      toast(j.error || "生成失败，请重试", "warn");
+      return "";
+    }
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    let acc = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const events = buf.split("\n\n");
+      buf = events.pop() ?? "";
+      for (const evt of events) {
+        const line = evt.split("\n").find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        try {
+          const j = JSON.parse(line.slice(5).trim()) as { text?: string; error?: string };
+          if (j.text) { acc += j.text; onChunk?.(acc); }
+          if (j.error) toast(j.error, "warn");
+        } catch {
+          /* 跳过 */
+        }
+      }
+    }
+    const cleaned = stripStudioMd(acc); // 清一遍 markdown 符号（文本框不渲染 markdown）
+    onChunk?.(cleaned);
+    return cleaned;
+  }
 
-  // 通用：调 /api/generate 流式生成，逐块写入目标（setTarget）
+  // 单步生成（带 busy + 清空目标）：用于「生成原始创意」
   async function streamGen(scene: string, inputText: string, setTarget: (s: string) => void) {
     if (busy) return;
     if (!inputText.trim()) return toast("内容为空，无法生成", "warn");
     setBusy(true);
     setTarget("");
-    let acc = "";
     try {
-      const resp = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scene, input: inputText, styleHint }),
-      });
-      if (!resp.ok || !resp.body) {
-        const j = (await resp.json().catch(() => ({}))) as { error?: string };
-        toast(j.error || "生成失败，请重试", "warn");
-        return;
-      }
-      const reader = resp.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const events = buf.split("\n\n");
-        buf = events.pop() ?? "";
-        for (const evt of events) {
-          const line = evt.split("\n").find((l) => l.startsWith("data:"));
-          if (!line) continue;
-          try {
-            const j = JSON.parse(line.slice(5).trim()) as { text?: string; error?: string };
-            if (j.text) { acc += j.text; setTarget(acc); }
-            if (j.error) toast(j.error, "warn");
-          } catch {
-            /* 跳过 */
-          }
-        }
-      }
+      await runGen(scene, inputText, setTarget);
     } catch {
       toast("生成中断，请重试", "warn");
     } finally {
@@ -2024,13 +2213,25 @@ function ScriptStep({
     }
   }
 
-  function goNextStage() {
-    if (stage === "idea") {
-      if (!idea.trim()) return toast("请先生成或填写原始创意", "warn");
-      setStage("summary");
-    } else if (stage === "summary") {
-      if (!summary.trim()) return toast("请先生成或填写镜头摘要", "warn");
-      setStage("shots");
+  // 生成完整镜头：镜头摘要不展示给用户 → 后台先据原始创意生成摘要，再据摘要生成完整镜头。
+  async function genFullShots() {
+    if (busy) return;
+    if (!idea.trim()) return toast("请先生成或填写原始创意", "warn");
+    setBusy(true);
+    setScript("");
+    try {
+      // 1) 后台生成镜头摘要（不展示，存入 summary 供内部使用）
+      toast("正在整理镜头摘要…");
+      const sum = await runGen("studio-summary", idea);
+      if (!sum.trim()) return toast("镜头摘要生成失败，请重试", "warn");
+      setSummary(sum);
+      // 2) 据摘要生成完整镜头（实时回填到编辑框）
+      toast("正在生成完整镜头…");
+      await runGen("studio-shots", sum, setScript);
+    } catch {
+      toast("生成中断，请重试", "warn");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -2046,11 +2247,7 @@ function ScriptStep({
     goStep("assets");
   }
 
-  const curVal = stage === "idea" ? idea : stage === "summary" ? summary : script;
-  const setCur = stage === "idea" ? setIdea : stage === "summary" ? setSummary : setScript;
-  const curTitle = stage === "idea" ? "原始创意" : stage === "summary" ? "镜头摘要" : "完整镜头";
-
-  // 上传剧本：解析 txt/docx（pdf/doc 会给出转换提示）→ 填入当前阶段编辑框
+  // 上传剧本：解析 txt/docx（pdf/doc 会给出转换提示）→ 填入「完整镜头」（第三步的正文）
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [parsing, setParsing] = useState(false);
   async function onUploadScript(e: ChangeEvent<HTMLInputElement>) {
@@ -2058,12 +2255,12 @@ function ScriptStep({
     e.target.value = ""; // 允许重复选同一文件
     if (!f) return;
     if (f.size > 10 * 1024 * 1024) return toast("文件不能超过 10MB", "warn");
-    if (curVal.trim() && !(await appConfirm(`用上传内容覆盖当前${curTitle}？`))) return;
+    if (script.trim() && !(await appConfirm("用上传内容覆盖当前完整镜头？"))) return;
     setParsing(true);
     try {
       const { text, note } = await parseScriptFile(f);
       if (!text.trim()) return toast("未从文件中解析到文字内容", "warn");
-      setCur(text);
+      setScript(text);
       toast(note ? `已导入「${f.name}」（${note}）` : `已导入「${f.name}」`);
     } catch (err) {
       toast(err instanceof Error ? err.message : "解析失败，请重试", "warn");
@@ -2072,89 +2269,100 @@ function ScriptStep({
     }
   }
 
+  // 每个步骤编辑框右上角的「复制 / 清空」
+  const editorTools = (val: string, setVal: (s: string) => void, title: string) => (
+    <div className="script-editor-tools">
+      <button className="btn btn-ghost btn-sm" title="复制" onClick={() => { navigator.clipboard?.writeText(val); toast("已复制"); }}>复制</button>
+      <button className="btn btn-ghost btn-sm" title="清空" onClick={async () => { if (val && !(await appConfirm(`清空当前${title}？`))) return; setVal(""); }}>清空</button>
+    </div>
+  );
+
   return (
     <div className="stage-panel">
       <div className="sp-title">① 脚本编辑</div>
-      <div className="sp-sub">三步生成：由需求生成「原始创意」→ 确认后生成「镜头摘要」→ 再确认后生成「完整镜头」。每一步都可编辑，完成后「下一步」按镜头拆分。</div>
-      <div className="script-steps">
-        {SCRIPT_STAGES.map((s, i) => (
-          <button key={s.k} type="button" className={`script-step ${stage === s.k ? "on" : ""}`} onClick={() => setStage(s.k)}>
-            <span className="script-step-no">{i + 1}</span> {s.n}
-          </button>
-        ))}
-      </div>
-      <div className="script-layout">
-        <div className="script-chat">
-          {stage === "idea" && (
-            <>
-              <div className="script-chat-hd"><Icon name="sparkle" size={15} /> 第一步 · 原始创意</div>
-              <div className="script-chat-tip">告诉我：类型 + 故事，AI 先给出世界观 / 主角 / 故事梗概</div>
-              <textarea className="script-ask" value={input} placeholder="例如：做一条安吉白茶的温馨文旅短片，突出高山云雾茶园和采茶姑娘…" onChange={(e) => setInput(e.target.value)} />
-              <button className="btn btn-primary btn-sm script-gen" disabled={busy} onClick={() => streamGen("studio-idea", input, setIdea)}>
-                <Icon name={busy ? "refresh" : "sparkle"} size={14} className={busy ? "ico-spin" : undefined} /> {busy ? "生成中…" : "生成原始创意"}
-              </button>
-            </>
-          )}
-          {stage === "summary" && (
-            <>
-              <div className="script-chat-hd"><Icon name="sparkle" size={15} /> 第二步 · 镜头摘要</div>
-              <div className="script-chat-tip">基于原始创意，生成逐镜头一句话要点</div>
-              <div className="script-ref">{idea || "（还没有原始创意，请回第一步生成）"}</div>
-              <button className="btn btn-primary btn-sm script-gen" disabled={busy || !idea.trim()} onClick={() => streamGen("studio-summary", idea, setSummary)}>
-                <Icon name={busy ? "refresh" : "sparkle"} size={14} className={busy ? "ico-spin" : undefined} /> {busy ? "生成中…" : "生成镜头摘要"}
-              </button>
-            </>
-          )}
-          {stage === "shots" && (
-            <>
-              <div className="script-chat-hd"><Icon name="sparkle" size={15} /> 第三步 · 完整镜头</div>
-              <div className="script-chat-tip">基于镜头摘要，把每个镜头扩写成完整内容</div>
-              <div className="script-ref">{summary || "（还没有镜头摘要，请回第二步生成）"}</div>
-              <button className="btn btn-primary btn-sm script-gen" disabled={busy || !summary.trim()} onClick={() => streamGen("studio-shots", summary, setScript)}>
-                <Icon name={busy ? "refresh" : "sparkle"} size={14} className={busy ? "ico-spin" : undefined} /> {busy ? "生成中…" : "生成完整镜头"}
-              </button>
-            </>
-          )}
-        </div>
-        <div className="script-editor">
-          <div className="script-editor-hd">
-            <span>{curTitle}</span>
-            <div className="script-editor-tools">
-              {stage !== "idea" && <button className="btn btn-ghost btn-sm" onClick={() => setStage(stage === "shots" ? "summary" : "idea")}>← 上一步</button>}
-              <button
-                className="btn btn-ghost btn-sm"
-                title="上传剧本导入（支持 txt / docx；pdf、doc 请先转成 txt 或 docx）"
-                disabled={parsing}
-                onClick={() => fileRef.current?.click()}
-              >
-                <Icon name={parsing ? "refresh" : "upload"} size={13} className={parsing ? "ico-spin" : undefined} /> {parsing ? "解析中…" : "上传剧本"}
-              </button>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".txt,.md,.csv,.docx,.doc,.pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                hidden
-                onChange={onUploadScript}
-              />
-              <button className="btn btn-ghost btn-sm" title="复制" onClick={() => { navigator.clipboard?.writeText(curVal); toast("已复制"); }}>复制</button>
-              <button className="btn btn-ghost btn-sm" title="清空" onClick={async () => { if (curVal && !(await appConfirm(`清空当前${curTitle}？`))) return; setCur(""); }}>清空</button>
-            </div>
+      <div className="sp-sub">两步竖排，逐步向下：填需求 →「原始创意」→「完整镜头」，每步都可编辑（镜头摘要由 AI 后台自动整理，无需手动）。完成后「下一步」按镜头拆分。</div>
+
+      <div className="script-vlist">
+        {/* 第一步 · 原始创意 */}
+        <section className="script-vstep">
+          <div className="script-vstep-hd"><span className="script-vstep-no">1</span> 原始创意</div>
+          <div className="script-chat-tip">告诉我：类型 + 故事，AI 先给出世界观 / 主角 / 故事梗概</div>
+          <textarea className="script-ask" value={input} placeholder="例如：做一条安吉白茶的温馨文旅短片，突出高山云雾茶园和采茶姑娘…" onChange={(e) => setInput(e.target.value)} />
+          <div className="script-vstep-row">
+            <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => streamGen("studio-idea", input, setIdea)}>
+              <Icon name={busy ? "refresh" : "sparkle"} size={14} className={busy ? "ico-spin" : undefined} /> {busy ? "生成中…" : "生成原始创意"}
+            </button>
           </div>
-          <textarea
-            className="script-body"
-            value={curVal}
-            placeholder={`${curTitle}会显示在这里，可直接编辑`}
-            onChange={(e) => setCur(e.target.value)}
-          />
-        </div>
+          <div className="script-editor">
+            <div className="script-editor-hd"><span>原始创意</span>{editorTools(idea, setIdea, "原始创意")}</div>
+            <textarea className="script-body" value={idea} placeholder="原始创意会显示在这里，可直接编辑" onChange={(e) => setIdea(e.target.value)} />
+          </div>
+        </section>
+
+        {/* 第二步 · 完整镜头（镜头摘要不展示，点生成时后台先出摘要再据摘要生成完整镜头） */}
+        <section className="script-vstep">
+          <div className="script-vstep-hd"><span className="script-vstep-no">2</span> 完整镜头</div>
+          <div className="script-chat-tip">基于上面的原始创意，一键生成完整镜头（自动在后台先整理镜头摘要，再逐镜扩写）</div>
+          <div className="script-vstep-row">
+            <button className="btn btn-primary btn-sm" disabled={busy || !idea.trim()} onClick={genFullShots}>
+              <Icon name={busy ? "refresh" : "sparkle"} size={14} className={busy ? "ico-spin" : undefined} /> {busy ? "生成中…" : "生成完整镜头"}
+            </button>
+            <button className="btn btn-ghost btn-sm" title="上传脚本导入（支持 txt / docx；pdf、doc 请先转成 txt 或 docx）" disabled={parsing} onClick={() => fileRef.current?.click()}>
+              <Icon name={parsing ? "refresh" : "upload"} size={13} className={parsing ? "ico-spin" : undefined} /> {parsing ? "解析中…" : "上传脚本"}
+            </button>
+            <input ref={fileRef} type="file" accept=".txt,.md,.csv,.docx,.doc,.pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden onChange={onUploadScript} />
+          </div>
+          <div className="script-editor">
+            <div className="script-editor-hd"><span>完整镜头</span>{editorTools(script, setScript, "完整镜头")}</div>
+            <textarea className="script-body" value={script} placeholder="完整镜头会显示在这里，可直接编辑" onChange={(e) => setScript(e.target.value)} />
+          </div>
+        </section>
       </div>
+
       <div className="sp-actions">
-        {stage === "shots" ? (
-          <button className="btn btn-primary btn-sm" onClick={finish}>下一步 · 场景角色道具 →</button>
-        ) : (
-          <button className="btn btn-primary btn-sm" onClick={goNextStage}>{stage === "idea" ? "确认创意，去镜头摘要 →" : "确认摘要，去完整镜头 →"}</button>
-        )}
+        <button className="btn btn-primary btn-sm" onClick={finish}>下一步 · 场景角色道具 →</button>
       </div>
+    </div>
+  );
+}
+
+// ③ 分镜脚本·出镜元素：默认只显示本镜「已勾选出镜」的元素，其余隐藏；点「查看元素」展开全部以增删绑定。
+function ShotAssets({ shot, assets, editShot }: { shot: Shot; assets: Asset[]; editShot: (id: string, patch: Partial<Shot>) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const bound = assets.filter((a) => shot.assetRefs.includes(a.id));
+  const shown = expanded ? assets : bound; // 默认只出现出镜元素；展开后才显示全部
+  const toggle = (a: Asset) => {
+    const on = shot.assetRefs.includes(a.id);
+    editShot(shot.id, { assetRefs: on ? shot.assetRefs.filter((x) => x !== a.id) : [...shot.assetRefs, a.id] });
+  };
+  return (
+    <div className="sb-assets">
+      <span className="sb-assets-lbl">出镜元素</span>
+      {!expanded && bound.length === 0 && <span className="sb-assets-empty">本镜暂无出镜元素，点右侧「查看元素」选择</span>}
+      {shown.map((a) => {
+        const on = shot.assetRefs.includes(a.id);
+        return (
+          <span
+            key={a.id}
+            className={on ? "sb-asset-chip on" : "sb-asset-chip"}
+            onClick={() => toggle(a)}
+            title={on ? "点击取消绑定" : "点击绑定该元素"}
+          >
+            {a.refImg ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={a.refImg} alt="" className="sb-asset-thumb" />
+            ) : (
+              <span className="sb-asset-emoji">{a.emoji}</span>
+            )}
+            {a.name}
+          </span>
+        );
+      })}
+      {(expanded || assets.length > bound.length) && (
+        <button type="button" className="sb-assets-toggle" onClick={() => setExpanded((v) => !v)}>
+          {expanded ? "收起" : `查看元素（${assets.length}）`}
+        </button>
+      )}
     </div>
   );
 }
@@ -2177,6 +2385,9 @@ function StudioStepView(props: {
   setSettings: (f: (s: Record<string, string>) => Record<string, string>) => void;
   assets: Asset[];
   setAssets: (f: (a: Asset[]) => Asset[]) => void;
+  genAllImages: () => void; // 一键生成全部参考图（Studio 提升，后台持续）
+  genImgBusy: boolean;
+  genImgProg: { done: number; total: number };
   shots: Shot[];
   ratio: string;
   cache: Record<string, string>; // 已缓存到本地的视频：原始 URL → blobURL
@@ -2231,6 +2442,7 @@ function StudioStepView(props: {
         summary={props.studioSummary}
         setSummary={props.setStudioSummary}
         styleHint={videoStyles.find((v) => v.name === props.settings.视频风格)?.stylePrompt ?? ""}
+        useKB={props.settings.知识库 !== "不使用"}
         rebuildShots={props.rebuildShots}
         setSettings={props.setSettings}
         toast={toast}
@@ -2248,6 +2460,9 @@ function StudioStepView(props: {
         stylePrompt={videoStyles.find((v) => v.name === props.settings.视频风格)?.stylePrompt ?? ""}
         genSettings={props.assetGenSettings}
         setGenSettings={props.setAssetGenSettings}
+        genAllImages={props.genAllImages}
+        genImgBusy={props.genImgBusy}
+        genImgProg={props.genImgProg}
         toast={toast}
         goStep={goStep}
         openLibraryPicker={props.openLibraryPicker}
@@ -2391,32 +2606,7 @@ function StudioStepView(props: {
               </div>
 
               {props.assets.length > 0 && (
-                <div className="sb-assets">
-                  <span className="sb-assets-lbl">出镜元素</span>
-                  {props.assets.map((a) => {
-                    const on = s.assetRefs.includes(a.id);
-                    return (
-                      <span
-                        key={a.id}
-                        className={on ? "sb-asset-chip on" : "sb-asset-chip"}
-                        onClick={() =>
-                          props.editShot(s.id, {
-                            assetRefs: on ? s.assetRefs.filter((x) => x !== a.id) : [...s.assetRefs, a.id],
-                          })
-                        }
-                        title={on ? "点击取消绑定" : "点击绑定该元素"}
-                      >
-                        {a.refImg ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={a.refImg} alt="" className="sb-asset-thumb" />
-                        ) : (
-                          <span className="sb-asset-emoji">{a.emoji}</span>
-                        )}
-                        {a.name}
-                      </span>
-                    );
-                  })}
-                </div>
+                <ShotAssets shot={s} assets={props.assets} editShot={props.editShot} />
               )}
             </div>
           ))}
@@ -2468,11 +2658,6 @@ function StudioStepView(props: {
                       <span className="clip-ok">
                         <Icon name="check" size={11} /> 已生成
                       </span>
-                      {/* 悬停遮罩 + 下载按钮 */}
-                      <div className="clip-hover">
-                        <button className="clip-hover-btn" onClick={() => props.onPlayClip(s)}>▶ 播放</button>
-                        <button className="clip-hover-btn" onClick={() => downloadVideo(s.videoUrl!, `镜头${i + 1}.mp4`)}>⬇ 下载</button>
-                      </div>
                     </>
                   ) : (
                     <>
@@ -2532,15 +2717,6 @@ function StudioStepView(props: {
                       </button>
                     )}
                     <button
-                      className="btn btn-ghost btn-sm clip-del"
-                      title={s.locked ? "已锁定，先解锁再删除" : "删除本镜"}
-                      disabled={s.locked}
-                      onClick={() => props.removeShot(s.id)}
-                      aria-label="删除本镜"
-                    >
-                      <Icon name="trash" size={12} />
-                    </button>
-                    <button
                       className="btn btn-ghost btn-sm"
                       title="从仓库调取已有视频作为本镜"
                       onClick={() =>
@@ -2558,6 +2734,15 @@ function StudioStepView(props: {
                     >
                       <Icon name="film" size={12} /> 仓库
                     </button>
+                    {s.status === "done" && s.videoUrl && (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        title="下载本镜视频到本地"
+                        onClick={() => downloadVideo(s.videoUrl!, `镜头${i + 1}.mp4`)}
+                      >
+                        <Icon name="download" size={12} /> 下载
+                      </button>
+                    )}
                     <button
                       className="btn btn-ghost btn-sm"
                       disabled={!canGen}
@@ -2565,6 +2750,15 @@ function StudioStepView(props: {
                       onClick={() => props.genShot(s.id)}
                     >
                       <Icon name="refresh" size={12} /> {s.status === "done" ? "重新生成" : s.status === "failed" ? "重试" : "生成"}
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm clip-del"
+                      title={s.locked ? "已锁定，先解锁再删除" : "删除本镜"}
+                      disabled={s.locked}
+                      onClick={() => props.removeShot(s.id)}
+                      aria-label="删除本镜"
+                    >
+                      <Icon name="trash" size={12} />
                     </button>
                   </div>
                 )}
@@ -2634,6 +2828,7 @@ function StudioStepView(props: {
       <div className="sp-sub">
         {ready.length} 个分镜按顺序连续播放（共 {ready.reduce((a, s) => a + s.dur, 0)}s）。字幕可编辑后再导出。
       </div>
+      <div className="sp-player-wrap">
       <FilmPlayer
         shots={ready}
         ratio={props.ratio}
@@ -2645,10 +2840,10 @@ function StudioStepView(props: {
         onTime={props.onPreviewTime}
       />
 
-      <div className="sp-actions">
+      <div className="sp-actions sp-actions-export">
         <div className="sp-export">
           <button className="btn btn-primary btn-sm" disabled={props.exporting} onClick={() => setExportMenu((v) => !v)}>
-            {props.exporting ? `导出中 ${props.exportPct}%` : "导出到本地 ▾"}
+            {props.exporting ? `导出中 ${props.exportPct}%` : "导出 ▾"}
           </button>
           {exportMenu && !props.exporting && (
             <>
@@ -2675,6 +2870,7 @@ function StudioStepView(props: {
             </>
           )}
         </div>
+      </div>
       </div>
     </div>
   );
@@ -2730,7 +2926,10 @@ function FilmPlayer({
     else va.pause();
   }, [active, idx, playing, muted]);
 
-  const fmt = (s: number) => `00:${String(Math.floor(s)).padStart(2, "0")}`;
+  const fmt = (s: number) => {
+    const sec = Math.max(0, Math.floor(s));
+    return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+  };
 
   // 切到目标镜 ci（镜头内偏移 offset 秒）。另一 slot 已预加载该镜 → 无缝切换；否则在当前 slot 硬加载。
   function goToShot(ci: number, offset = 0) {
@@ -2900,48 +3099,61 @@ function FilmPlayer({
         <span className="film-shot-tag">
           镜头 {idx + 1}/{shots.length}
         </span>
-      </div>
-      <div className="film-ctrls">
-        <button className="vp-ctrl" onClick={toggle} aria-label={playing ? "暂停" : "播放"}>
-          {playing ? "❚❚" : "▶"}
-        </button>
-        <span className="vp-time">{fmt(t)}</span>
-        <div
-          className="vp-track"
-          onPointerDown={(e) => {
-            seekingRef.current = true;
-            (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-            seek(e.clientX, e.currentTarget);
-          }}
-          onPointerMove={(e) => {
-            if (seekingRef.current) seek(e.clientX, e.currentTarget);
-          }}
-          onPointerUp={(e) => {
-            seekingRef.current = false;
-            (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-          }}
-        >
-          <span className="vp-fill" style={{ width: `${(t / total) * 100}%` }} />
-          {/* 分镜分隔点 */}
-          {shots.slice(0, -1).map((_, i) => {
-            const acc = shots.slice(0, i + 1).reduce((a, s) => a + s.dur, 0);
-            return <span key={i} className="film-tick" style={{ left: `${(acc / total) * 100}%` }} />;
-          })}
-        </div>
-        <span className="vp-time">{fmt(total)}</span>
-        {onToggleCaption && (
-          <button
-            className={`vp-ctrl vp-ctrl-cap${showCaption ? "" : " is-off"}`}
-            onClick={onToggleCaption}
-            aria-label={showCaption ? "隐藏字幕" : "显示字幕"}
-            title={showCaption ? "隐藏字幕" : "显示字幕"}
-          >
-            💬
+        {/* 控制条：叠在视频底部（原生播放器样式）——通宽进度条 + 播放/时间/字幕/音量/全屏 */}
+        <div className="film-ctrls">
+          <button className="vp-ctrl" onClick={toggle} aria-label={playing ? "暂停" : "播放"}>
+            {playing ? "❚❚" : "▶"}
           </button>
-        )}
-        <button className="vp-ctrl" onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"}>
-          {muted ? "🔇" : "🔊"}
-        </button>
+          <span className="vp-time">{fmt(t)}</span>
+          <div
+            className="vp-track"
+            onPointerDown={(e) => {
+              seekingRef.current = true;
+              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+              seek(e.clientX, e.currentTarget);
+            }}
+            onPointerMove={(e) => {
+              if (seekingRef.current) seek(e.clientX, e.currentTarget);
+            }}
+            onPointerUp={(e) => {
+              seekingRef.current = false;
+              (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+            }}
+          >
+            <span className="vp-fill" style={{ width: `${(t / total) * 100}%` }} />
+            {/* 分镜分隔点 */}
+            {shots.slice(0, -1).map((_, i) => {
+              const acc = shots.slice(0, i + 1).reduce((a, s) => a + s.dur, 0);
+              return <span key={i} className="film-tick" style={{ left: `${(acc / total) * 100}%` }} />;
+            })}
+          </div>
+          <span className="vp-time">{fmt(total)}</span>
+          {onToggleCaption && (
+            <button
+              className={`vp-ctrl vp-ctrl-cap${showCaption ? "" : " is-off"}`}
+              onClick={onToggleCaption}
+              aria-label={showCaption ? "隐藏字幕" : "显示字幕"}
+              title={showCaption ? "隐藏字幕" : "显示字幕"}
+            >
+              💬
+            </button>
+          )}
+          <button className="vp-ctrl" onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"}>
+            {muted ? "🔇" : "🔊"}
+          </button>
+          <button
+            className="vp-ctrl"
+            onClick={(e) => {
+              const st = (e.currentTarget as HTMLElement).closest(".film-stage") as HTMLElement | null;
+              if (document.fullscreenElement) document.exitFullscreen();
+              else st?.requestFullscreen?.();
+            }}
+            aria-label="全屏"
+            title="全屏"
+          >
+            ⛶
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -3120,6 +3332,9 @@ function AssetsStep({
   stylePrompt,
   genSettings,
   setGenSettings,
+  genAllImages,
+  genImgBusy,
+  genImgProg,
   toast,
   goStep,
   openLibraryPicker,
@@ -3130,6 +3345,9 @@ function AssetsStep({
   stylePrompt: string; // 项目视频风格的画面描述词（智能匹配为空），生图/改图时注入保持整体风格一致
   genSettings: Record<string, AssetGenSetting>;
   setGenSettings: (updater: Record<string, AssetGenSetting> | ((p: Record<string, AssetGenSetting>) => Record<string, AssetGenSetting>)) => void;
+  genAllImages: () => void; // 一键生成全部参考图（提升到 Studio，切步骤/页面后台仍继续）
+  genImgBusy: boolean;
+  genImgProg: { done: number; total: number };
   toast: (s: string, k?: "warn") => void;
   goStep: (k: string) => void;
   openLibraryPicker: (filter: "image" | "video", onPick: (item: AssetCard) => void) => void;
@@ -3138,8 +3356,6 @@ function AssetsStep({
   const [autoBusy, setAutoBusy] = useState(false);
   const [setOpen, setSetOpen] = useState(false);
   const [filter, setFilter] = useState<"全部" | Asset["kind"]>("全部"); // 按类型筛选元素卡片
-  const [genImgBusy, setGenImgBusy] = useState(false); // 一键生成全部图片
-  const [genImgProg, setGenImgProg] = useState({ done: 0, total: 0 });
 
   function addAsset(kind: Asset["kind"]) {
     setAddOpen(false);
@@ -3207,12 +3423,10 @@ function AssetsStep({
     }
   }
 
-  // 一键生成全部图片：对每个「还没有参考图」的元素，先按剧本+类型优化描述，再据描述 AI 生成参考图并回填
-  async function genAllImages() {
+  // 一键生成全部图片：实际生成逻辑在 Studio（后台持续，切步骤/页面不中断）。这里只做首次点击的「去生成设置」提示。
+  function onGenAll() {
     if (genImgBusy) return;
     if (!assets.length) return toast("还没有元素，请先「自动添加」或手动添加", "warn");
-    const targets = assets.filter((a) => !a.refImg);
-    if (!targets.length) return toast("所有元素都已有参考图（如需重做，点各卡片的「AI 生成」）", "warn");
     // 首次点击：直接打开「生成设置」让用户先确认生图模型 / 清晰度（只拦一次；关闭后再点即开始生成）
     try {
       if (!localStorage.getItem(GEN_IMG_HINT_KEY)) {
@@ -3224,64 +3438,7 @@ function AssetsStep({
     } catch {
       /* 隐私模式禁用 storage 时忽略，直接进入生成 */
     }
-    if (!(await appConfirm(`将为 ${targets.length} 个元素依次「优化描述 + AI 生成参考图」，耗时较久，是否继续？`))) return;
-    setGenImgBusy(true);
-    setGenImgProg({ done: 0, total: targets.length });
-    const styleSuffix = stylePrompt?.trim() ? `，整体画面风格：${stylePrompt.trim()}` : "";
-    // 「生成设置」里选的生图模型（空 = 自动匹配，跟随平台默认）
-    const genModelName = genSettings[ASSET_GEN_MODEL_KEY]?.model ?? STUDIO_IMAGE_MODELS[0].name;
-    const genModelId = STUDIO_IMAGE_MODELS.find((m) => m.name === genModelName)?.modelId || "";
-    let ok = 0;
-    for (let i = 0; i < targets.length; i++) {
-      const a = targets[i];
-      try {
-        // 1) 优化描述：结合剧本 + 类型指令，把元素名扩写成适合出图的画面描述
-        let desc = a.name;
-        const expandInput = `【剧本背景】\n${script?.trim() || "（无）"}\n\n【${a.kind}】${a.name}\n\n请据剧本背景，${assetExpandInstr(a.kind)}，输出一段话，风格与剧本统一。`;
-        const er = await fetch("/api/generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ scene: "studio-asset-desc", input: expandInput, styleHint: stylePrompt }),
-        });
-        if (er.ok && er.body) {
-          const reader = er.body.getReader();
-          const dec = new TextDecoder();
-          let buf = "";
-          let acc = "";
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buf += dec.decode(value, { stream: true });
-            const events = buf.split("\n\n");
-            buf = events.pop() ?? "";
-            for (const evt of events) {
-              const line = evt.split("\n").find((l) => l.startsWith("data:"));
-              if (!line) continue;
-              try { const j = JSON.parse(line.slice(5).trim()) as { text?: string }; if (j.text) acc += j.text; } catch { /* 跳过 */ }
-            }
-          }
-          if (acc.trim()) desc = acc.trim();
-        }
-        // 2) 据优化后的描述生成图片（类型定制提示词 + 项目风格），回填为该元素参考图
-        const size = ASSET_SIZE_MAP[genSettings[a.kind]?.size ?? "2K"] || "2048x2048";
-        const ir = await fetch("/api/image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: `${desc}，${assetKindPrompt(a.kind)}${styleSuffix}`, n: 1, size, ...(genModelId ? { model: genModelId } : {}) }),
-        });
-        const j = (await ir.json().catch(() => ({}))) as { images?: string[]; error?: string };
-        if (ir.ok && j.images?.length) {
-          const url = j.images[0];
-          setAssets((list) => list.map((x) => (x.id === a.id ? { ...x, refImg: url } : x)));
-          ok++;
-        }
-      } catch {
-        /* 单个失败跳过，继续下一个 */
-      }
-      setGenImgProg({ done: i + 1, total: targets.length });
-    }
-    setGenImgBusy(false);
-    toast(ok ? `已为 ${ok}/${targets.length} 个元素生成参考图` : "生成失败，请重试（检查图片模型配置）", ok ? undefined : "warn");
+    genAllImages(); // 交给 Studio 的后台并行生成
   }
 
   const empty = assets.length === 0;
@@ -3290,6 +3447,9 @@ function AssetsStep({
       <div className="sp-title">② 场景角色道具</div>
       <div className="sp-sub">手动添加或自动读剧本生成场景 / 角色 / 道具，给参考图（本地上传 · 仓库选图 · AI 生成）。在「分镜脚本」为每镜勾选出镜元素，生成时注入参考图保持一致。</div>
       <div className="assets-toolbar">
+        <button className="btn btn-soft btn-sm" disabled={autoBusy} onClick={autoGen} title="读取①脚本内容，自动添加场景/角色/道具（只加元素，不生图）">
+          <Icon name={autoBusy ? "refresh" : "sparkle"} size={14} className={autoBusy ? "ico-spin" : undefined} /> {autoBusy ? "添加中…" : "自动添加"}
+        </button>
         <div className="assets-add-wrap">
           <button className="btn btn-soft btn-sm" onClick={() => setAddOpen((v) => !v)}>＋ 手动添加 ▾</button>
           {addOpen && (
@@ -3303,10 +3463,7 @@ function AssetsStep({
             </>
           )}
         </div>
-        <button className="btn btn-soft btn-sm" disabled={autoBusy} onClick={autoGen} title="读取①脚本内容，自动添加场景/角色/道具（只加元素，不生图）">
-          <Icon name={autoBusy ? "refresh" : "sparkle"} size={14} className={autoBusy ? "ico-spin" : undefined} /> {autoBusy ? "添加中…" : "自动添加"}
-        </button>
-        <button className="btn btn-primary btn-sm" disabled={genImgBusy || autoBusy || empty} onClick={genAllImages} title="对所有还没有参考图的元素，先优化描述再 AI 生成参考图">
+        <button className="btn btn-primary btn-sm" disabled={genImgBusy || autoBusy || empty} onClick={onGenAll} title="对所有还没有参考图的元素，先优化描述再 AI 生成参考图（后台生成，可切换到其它步骤）">
           <Icon name={genImgBusy ? "refresh" : "sparkle"} size={14} className={genImgBusy ? "ico-spin" : undefined} /> {genImgBusy ? `生成中 ${genImgProg.done}/${genImgProg.total}…` : "一键生成全部图片"}
         </button>
         <button className="btn btn-ghost btn-sm" onClick={() => setSetOpen(true)} title="生成设置">
@@ -3951,7 +4108,6 @@ function Timeline({
   onEditSub,
   onRemoveSub,
   onAddSub,
-  onSetTransition,
   onPlayClip,
 }: {
   shots: Shot[];
@@ -3964,13 +4120,11 @@ function Timeline({
   onEditSub: (id: string, patch: Partial<Subtitle>) => void; // 编辑字幕文字
   onRemoveSub: (id: string) => void; // 删除字幕
   onAddSub: (sec: number) => void; // 在某时间点新增字幕
-  onSetTransition: (shotId: string, t: TransType) => void; // 设置进入某镜的转场
   onPlayClip: (shot: Shot) => void; // 点击（非拖拽）镜头块 → 弹出大号分镜视频预览
 }) {
   const total = totalDur || 1;
   const [pps, setPps] = useState(92); // 每秒像素（放大缩小改这个）
   const [editingSub, setEditingSub] = useState<string | null>(null); // 正在编辑文字的字幕 id（双击进入）
-  const [transFor, setTransFor] = useState<string | null>(null); // 打开转场选择的镜头 id（该镜与上一镜之间）
   const contentW = Math.max(total * pps, 320);
   const scrollRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -3979,36 +4133,44 @@ function Timeline({
   // 字幕块拖动：mode=move 整体平移改起始 / l 拖左缘改起始+时长 / r 拖右缘改时长
   const subDrag = useRef<{ id: string; mode: "move" | "l" | "r"; grab: number; origStart: number; origEnd: number } | null>(null);
 
-  // 打开时默认「铺满」：按容器宽度自适应，让整段时长（用户生成多少秒）一屏展示完（之后可手动放大缩小）。
-  // 挂载首帧容器宽度可能还没算出，用 rAF 等布局完成再量；量到有效宽度即设定并停止。
+  // 持续跟踪容器可用宽度：既用于首屏「铺满」，也作为缩小下限（缩到正好铺满全部镜头）。
+  const [availW, setAvailW] = useState(0);
+  const fittedRef = useRef(false);
   useEffect(() => {
     const sc = scrollRef.current;
     if (!sc) return;
-    let done = false;
-    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => fit()) : null;
-    const fit = () => {
-      if (done) return;
+    const measure = () => {
       const avail = sc.clientWidth - 32; // 减去左右内边距
-      if (avail > 40) {
-        setPps(Math.max(24, Math.min(480, avail / total)));
-        done = true; // 铺满一次后停止（保留用户之后手动放大缩小）
-        ro?.disconnect();
+      if (avail <= 40) return;
+      setAvailW(avail);
+      if (!fittedRef.current) {
+        setPps(Math.max(6, Math.min(480, avail / total))); // 首屏铺满一次（之后由用户放大缩小）
+        fittedRef.current = true;
       }
     };
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
     ro?.observe(sc);
-    fit(); // 立即量一次（若已就绪）
+    measure();
     return () => ro?.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [total]);
 
+  // 缩放范围：缩小下限 = 正好把全部镜头铺满一屏（availW/total）；放大上限 480px/s，足够精确到 1 秒。
+  const fitPps = availW > 40 ? availW / total : 24;
+  const minPps = fitPps;
+  const maxPps = 480;
+
   const fmt = (s: number) => `00:${String(Math.max(0, Math.floor(s))).padStart(2, "0")}`;
   const before = (i: number) => shots.slice(0, i).reduce((a, x) => a + x.dur, 0);
 
-  // 刻度：次刻度每 0.5s，主刻度每 2s（带时间标签）
+  // 刻度/标签随缩放自适应：放大时到 1 秒一格；缩小时自动拉大间隔，避免刻度和时间标签挤成一团。
+  const NICE = [1, 2, 5, 10, 15, 30, 60];
+  const labelStep = NICE.find((s) => s * pps >= 52) ?? 60; // 相邻时间标签间距 ≥ 52px
+  const tickStep = NICE.find((s) => s * pps >= 16) ?? labelStep; // 相邻次刻度间距 ≥ 16px
   const ticks: number[] = [];
-  for (let s = 0; s <= Math.ceil(total) + 0.001; s += 0.5) ticks.push(Math.round(s * 10) / 10);
+  for (let s = 0; s <= Math.ceil(total) + 0.001; s += tickStep) ticks.push(s);
   const labels: number[] = [];
-  for (let s = 0; s <= Math.ceil(total); s += 2) labels.push(s);
+  for (let s = 0; s <= Math.ceil(total); s += labelStep) labels.push(s);
 
   function xToSec(clientX: number) {
     const rect = innerRef.current?.getBoundingClientRect();
@@ -4035,7 +4197,7 @@ function Timeline({
   }
   // 轨道空白 / 片段上按下拖拽 → 左右平移滚动（字幕输入、刻度尺、播放头、缩放按钮除外）
   function panDown(e: RPointerEvent) {
-    if ((e.target as HTMLElement).closest(".tl2-sub, .tl2-subin, .tl2-ruler, .tl2-playhead, .tl2-zoom, .tl2-trans")) return;
+    if ((e.target as HTMLElement).closest(".tl2-sub, .tl2-subin, .tl2-ruler, .tl2-playhead, .tl2-zoom")) return;
     const sc = scrollRef.current;
     if (!sc) return;
     // 记录按下时命中的镜头块 id（pointer capture 后 panUp 的 target 会变成滚动容器，故在此提前记下）
@@ -4060,7 +4222,7 @@ function Timeline({
       if (shot?.status === "done" && shot.videoUrl) onPlayClip(shot);
     }
   }
-  const zoom = (f: number) => setPps((p) => Math.max(24, Math.min(480, Math.round(p * f))));
+  const zoom = (f: number) => setPps((p) => Math.max(minPps, Math.min(maxPps, Math.round(p * f))));
 
   // 字幕块拖动：按下记录模式与抓取偏移，move 时按指针位置实时改起始/时长
   function subDown(e: RPointerEvent, sub: Subtitle, mode: "move" | "l" | "r") {
@@ -4088,12 +4250,22 @@ function Timeline({
         <button onClick={() => zoom(1 / 1.4)} title="缩小" aria-label="缩小">－</button>
         <button onClick={() => zoom(1.4)} title="放大" aria-label="放大">＋</button>
       </div>
+      {/* 左侧固定轨道名列：与刻度尺留空对齐后，依次是「镜头」「字幕」两条轨道的名牌，不随时间轴横向滚动 */}
+      <div className="tl2-gutter">
+        <div className="tl2-gutter-sp" />
+        <div className="tl2-glabel tl2-glabel-vid">
+          <span>镜头</span>
+        </div>
+        <div className="tl2-glabel tl2-glabel-sub">
+          <span>字幕</span>
+        </div>
+      </div>
       <div className="tl2-scroll" ref={scrollRef} onPointerDown={panDown} onPointerMove={panMove} onPointerUp={panUp}>
         <div className="tl2-inner" ref={innerRef} style={{ width: contentW }}>
           {/* 刻度尺 */}
           <div className="tl2-ruler" onPointerDown={scrubDown} onPointerMove={scrubMove} onPointerUp={scrubUp}>
             {ticks.map((s) => (
-              <span key={s} className={`tl2-tick ${s % 2 === 0 ? "maj" : ""}`} style={{ left: s * pps }} />
+              <span key={s} className={`tl2-tick ${s % labelStep === 0 ? "maj" : ""}`} style={{ left: s * pps }} />
             ))}
             {labels.map((s) => (
               <span key={`l${s}`} className="tl2-time" style={{ left: s * pps }}>
@@ -4124,38 +4296,6 @@ function Timeline({
                 </span>
               </div>
             ))}
-            {/* 镜头之间的转场点：第 2 镜起，在两镜衔接处放一个小圆点，点开选转场类型（默认无） */}
-            {shots.slice(1).map((s, k) => {
-              const i = k + 1;
-              const cur = s.transition ?? "none";
-              return (
-                <div key={`tr-${s.id}`} className="tl2-trans" style={{ left: before(i) * pps }}>
-                  <button
-                    className={`tl2-trans-dot${cur !== "none" ? " on" : ""}`}
-                    title={cur === "none" ? "添加转场" : `转场：${TRANS_LABEL[cur]}`}
-                    onClick={(e) => { e.stopPropagation(); setTransFor(transFor === s.id ? null : s.id); }}
-                  >
-                    {cur === "none" ? "+" : "⇄"}
-                  </button>
-                  {transFor === s.id && (
-                    <>
-                      <div className="tl2-trans-mask" onClick={() => setTransFor(null)} />
-                      <div className="tl2-trans-menu">
-                        {(["none", "black", "white"] as TransType[]).map((t) => (
-                          <button
-                            key={t}
-                            className={cur === t ? "on" : ""}
-                            onClick={() => { onSetTransition(s.id, t); setTransFor(null); }}
-                          >
-                            {TRANS_LABEL[t]}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              );
-            })}
           </div>
 
           {/* 字幕轨：多段独立字幕块，可整体拖动改位置、拖两端边缘调时长、双击空白处新增 */}

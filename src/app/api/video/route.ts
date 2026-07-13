@@ -123,31 +123,60 @@ async function handleSeedance(p: {
     if (attempt < 3) await new Promise((r) => setTimeout(r, 1_500));
   }
 
-  // 渐进式降级：提交被拒/被判敏感时（常见于参考图或首帧里的人物被内容审核拦），
-  // 依次「去参考图 → 去全部输入图片（纯文生）」再试，直到能提交为止——保证能出片，
-  // 代价是可能失去参考锁定 / 与上一镜的画面衔接。degraded 标记回传给前端提示用户。
+  // 渐进式降级：提交被拒/被判敏感时（常见于参考图或首帧里的人物被内容审核拦）分级处理。
+  // 核心原则：绝不悄悄丢掉首帧（first_frame）——那会同时毁掉「与上一镜的衔接」和「人物」，
+  // 产出一段脱节又换人的片子还标成已生成，正是要避免的。故：先原样重试 → 只去参考图（保住首帧衔接）
+  //   → 只有本就没有首帧（首镜纯文生）才允许退化为纯文生；否则宁可保留失败态让用户重试。
+  const submit = (c: Array<Record<string, unknown>>, extra: Record<string, unknown> = {}) =>
+    fetch(`${p.baseURL}/v1/video/generations`, {
+      method: "POST",
+      headers: p.headers,
+      body: JSON.stringify({ ...submitBody, content: c, ...extra }),
+      signal: AbortSignal.timeout(90_000),
+    }).catch(() => null);
+
   let degraded = false;
+  let degradeReason = ""; // 首次被拒的归类原因，随 degraded 回传给前端显示在「未锁人物」角标上
+  const hadFirstFrame = content.some((c) => c.role === "first_frame");
   if (submitRes && !submitRes.ok) {
-    const attempts: Array<{ label: string; content: Array<Record<string, unknown>> }> = [
-      { label: "去掉参考图", content: content.filter((c) => c.role !== "reference_image") },
-      { label: "去掉全部输入图片（纯文生）", content: content.filter((c) => c.type !== "image_url") },
-    ];
-    for (const a of attempts) {
-      if (submitRes.ok) break;
-      if (a.content.length === content.length) continue; // 该步没有可去的图，跳过
-      console.warn(`[video/seedance] 提交被拒，降级「${a.label}」再试 →`, submitRes.status);
-      const body2: Record<string, unknown> = { ...submitBody, content: a.content };
-      // 退化为纯文生时补上分辨率（图生模式原本不带 resolution）
-      if (!a.content.some((c) => c.type === "image_url")) body2.resolution = p.body.resolution || "720p";
-      const retry = await fetch(`${p.baseURL}/v1/video/generations`, {
-        method: "POST",
-        headers: p.headers,
-        body: JSON.stringify(body2),
-        signal: AbortSignal.timeout(90_000),
-      }).catch(() => null);
-      if (retry) {
-        submitRes = retry;
-        if (retry.ok) degraded = true;
+    // 先抓首次被拒原文并归类（审核敏感 / 图片地址网关拉不到 / 其它），便于用户对症——是要换图还是换图床。
+    const firstText = await submitRes.clone().text().catch(() => "");
+    const low = firstText.toLowerCase();
+    degradeReason = /sensitive|敏感|policy|risk|审核|content_detected|violat|nsfw/.test(low)
+      ? "参考图被内容审核判为敏感"
+      : /download|fetch|not found|无法|加载|invalid image|decode|url/.test(low)
+        ? "参考图地址网关读取失败"
+        : `网关拒绝带参考图的请求（${firstText.slice(0, 60) || `HTTP ${submitRes.status}`}）`;
+    console.warn("[video/seedance] 首次被拒原文 →", firstText.slice(0, 200));
+    // ① 原样重试：网关内容审核偶发误杀，同一请求重试常能过；不丢任何图，保住衔接与人物锁定。
+    for (let i = 0; i < 2 && !submitRes.ok; i++) {
+      console.warn(`[video/seedance] 提交被拒，原样重试 ${i + 1}/2 →`, submitRes.status);
+      await new Promise((r) => setTimeout(r, 1_200));
+      const again = await submit(content);
+      if (again) submitRes = again;
+    }
+    // ② 仍被拒 → 只去掉参考图（保留首帧！），保住与上一镜的衔接，仅失去人物/风格的额外锁定。
+    if (!submitRes.ok) {
+      const noRef = content.filter((c) => c.role !== "reference_image");
+      if (noRef.length !== content.length) {
+        console.warn("[video/seedance] 降级「去参考图·保留首帧衔接」→", submitRes.status);
+        const retry = await submit(noRef);
+        if (retry) {
+          submitRes = retry;
+          if (retry.ok) degraded = true;
+        }
+      }
+    }
+    // ③ 仅「本就没有首帧」（首镜纯文生）时才退化为纯文生；有首帧却仍被拒，绝不丢首帧，保留失败态。
+    if (!submitRes.ok && !hadFirstFrame) {
+      const noImg = content.filter((c) => c.type !== "image_url");
+      if (noImg.length !== content.length) {
+        console.warn("[video/seedance] 首镜纯文生降级 →", submitRes.status);
+        const retry = await submit(noImg, { resolution: p.body.resolution || "720p" });
+        if (retry) {
+          submitRes = retry;
+          if (retry.ok) degraded = true;
+        }
       }
     }
   }
@@ -172,7 +201,7 @@ async function handleSeedance(p: {
   console.log("[video/seedance] submit ok →", JSON.stringify(data).slice(0, 200));
 
   // 同步直接返回
-  if (data?.video_url) return Response.json({ videoUrl: data.video_url, degraded });
+  if (data?.video_url) return Response.json({ videoUrl: data.video_url, degraded, ...(degraded ? { degradeReason } : {}) });
 
   const taskId = data?.id ?? data?.task_id;
   if (!taskId) return Response.json({ error: "no task_id", raw: data }, { status: 502 });
@@ -213,7 +242,7 @@ async function handleSeedance(p: {
     const isDone = status.includes("succ") || status.includes("complet"); // succeeded/success/completed
     const isFail = status.includes("fail") || status.includes("error");
     if (videoUrl && (isDone || !rawStatus)) {
-      return Response.json({ videoUrl, degraded });
+      return Response.json({ videoUrl, degraded, ...(degraded ? { degradeReason } : {}) });
     }
     if (isFail) {
       const reason = pd?.data?.fail_reason || "generation failed";

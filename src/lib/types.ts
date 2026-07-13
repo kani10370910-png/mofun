@@ -383,9 +383,10 @@ export type GenStages = Record<"content" | "image" | "video", string[]>;
 
 /* ---------- 文案生成 API ---------- */
 export interface GenerateRequest {
-  scene: ContentSceneKey | "ip" | "ip-propose" | "ip-story-desc" | "ip-story" | "t2i-associate" | "t2i-event" | "studio-script" | "studio-assets" | "studio-asset-desc" | "studio-idea" | "studio-summary" | "studio-shots" | "studio-safe-rewrite";
+  scene: ContentSceneKey | "ip" | "ip-propose" | "ip-story-desc" | "ip-story" | "t2i-associate" | "t2i-event" | "studio-script" | "studio-assets" | "studio-asset-desc" | "studio-idea" | "studio-summary" | "studio-shots" | "studio-safe-rewrite" | "studio-style-match";
   mode?: "outline" | "full";
   styleHint?: string; // 制作大片：项目「视频风格」描述词，注入文本扩写使全片文字基调与画面风格一致（智能匹配为空）
+  useKB?: boolean; // 制作大片：是否使用「魔方智绘知识库」——结合账号所在县域的特色信息生成脚本
   /* t2i-event（活动·文生图扩写）专用 */
   eventSub?: string; // 成图类型：海报/长图/菜单/易拉宝/宣传单/…
   imageRatio?: string; // 图片比例（如 3:4）

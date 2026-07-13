@@ -25,51 +25,67 @@ export async function POST(req: NextRequest) {
     );
   }
   const baseURL = (process.env.IMAGE_BASE_URL || "https://www.anyfast.ai/v1").replace(/\/$/, "");
-  const model = body.model || process.env.IMAGE_MODEL || "dall-e-3";
   const timeoutMs = Number(process.env.IMAGE_TIMEOUT_MS || 120000);
+  const envModel = process.env.IMAGE_MODEL || "dall-e-3"; // 平台默认模型（一定有通道）
+  const reqModel = body.model || envModel; // 前端指定的模型（如「生成设置」选的 Seedream 4.5）
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  // 调用上游文生图；连接抖动（ECONNRESET，常见于本机代理）自动重试至多 3 次、退避递增。
+  async function callImage(modelId: string): Promise<{ res: Response; text: string } | { err: string; status: number }> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const init: RequestInit = {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: modelId,
+        prompt,
+        n: body.n || 1,
+        // 豆包 Seedream 等模型要求图片不小于约 369 万像素（1920×1920），默认用 2048 见方
+        size: body.size || "2048x2048",
+        // 图生图：传参考图（公网 URL）保持一致性；不传则纯文生图。
+        ...(body.image ? { image: body.image } : {}),
+      }),
+      signal: ctrl.signal,
+    };
+    let upstream: Response | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        upstream = await fetch(`${baseURL}/images/generations`, init);
+        break;
+      } catch (e) {
+        if ((e as Error)?.name === "AbortError" || attempt === 2) {
+          clearTimeout(timer);
+          return { err: "无法连接文生图服务，请检查网络或 IMAGE_BASE_URL。", status: 502 };
+        }
+        await new Promise((res) => setTimeout(res, 600 * (attempt + 1)));
+      }
+    }
+    clearTimeout(timer);
+    if (!upstream) return { err: "无法连接文生图服务，请检查网络或 IMAGE_BASE_URL。", status: 502 };
+    return { res: upstream, text: await upstream.text() };
+  }
 
-  const init: RequestInit = {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      prompt,
-      n: body.n || 1,
-      // 豆包 Seedream 等模型要求图片不小于约 369 万像素（1920×1920），默认用 2048 见方
-      size: body.size || "2048x2048",
-      // 图生图：传参考图（公网 URL）以保持人物一致性；不传则纯文生图。
-      // 豆包 Seedream 4.0+ 支持在 generations 接口里带 image 作参考。
-      ...(body.image ? { image: body.image } : {}),
-    }),
-    signal: ctrl.signal,
+  // 「无可用通道」判定：聚合网关上游临时忙/掉线/限流时返回，多为瞬时状态
+  const isNoChannel = (t: string) => {
+    const low = t.toLowerCase();
+    return low.includes("model_not_found") || low.includes("no available channel") || low.includes("no_available");
   };
 
-  // 连接偶发被重置（ECONNRESET，常见于本机代理抖动）时自动重试，最多 3 次、退避递增
-  let upstream: Response | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      upstream = await fetch(`${baseURL}/images/generations`, init);
-      break;
-    } catch (e) {
-      if ((e as Error)?.name === "AbortError" || attempt === 2) {
-        clearTimeout(timer);
-        return Response.json({ error: "无法连接文生图服务，请检查网络或 IMAGE_BASE_URL。" }, { status: 502 });
-      }
-      await new Promise((res) => setTimeout(res, 600 * (attempt + 1)));
-    }
+  let call = await callImage(reqModel);
+  if ("err" in call) return Response.json({ error: call.err }, { status: call.status });
+  // ① 瞬时「无可用通道」→ 退避重试同一模型至多 3 次（并发批量时常因上游瞬时紧张全失败，退避几秒多半恢复）
+  for (let i = 0; i < 3 && !call.res.ok && isNoChannel(call.text); i++) {
+    await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
+    const retry = await callImage(reqModel);
+    if (!("err" in retry)) call = retry;
   }
-  clearTimeout(timer);
-  if (!upstream) {
-    return Response.json({ error: "无法连接文生图服务，请检查网络或 IMAGE_BASE_URL。" }, { status: 502 });
+  // ② 仍是「无可用通道」且指定了具体模型 → 退回平台默认模型再试一次（默认模型通道最稳）
+  if (!call.res.ok && body.model && reqModel !== envModel && isNoChannel(call.text)) {
+    const retry = await callImage(envModel);
+    if (!("err" in retry)) call = retry;
   }
+  const { res: upstream, text } = call;
 
-  const text = await upstream.text();
   if (!upstream.ok) {
     const low = text.toLowerCase();
     // 内容审核拦截 → 友好中文提示；其它错误保留原文（截断）

@@ -86,6 +86,25 @@ export function upsertProject(p: StudioProject) {
   saveAll(all);
 }
 
+/** 把某个已存在项目（含完整 state）克隆为一个新项目：新 id、新名字，state 深拷贝并改名。
+    用于「视频模板 / 案例」——点「使用」即得到与源项目一模一样的视频设定 + 五步全部内容。 */
+export function cloneProject(sourceId: string, newId: string, newName: string): boolean {
+  const src = getProject(sourceId);
+  if (!src?.state) return false;
+  const state = JSON.parse(JSON.stringify(src.state)) as Record<string, unknown>;
+  state.projectName = newName;
+  upsertProject({
+    id: newId,
+    name: newName,
+    updated: nowStamp(),
+    ts: Date.now(),
+    count: src.count,
+    cover: src.cover,
+    state,
+  });
+  return true;
+}
+
 export function deleteProject(id: string) {
   saveAll(loadAll().filter((p) => p.id !== id));
 }
