@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { readReedit } from "@/lib/reedit";
 import { Icon } from "@/components/ui/Icon";
 import { EditorRail, type RailItem } from "@/components/ui/EditorRail";
 import { GenModal } from "@/components/ui/GenModal";
@@ -39,6 +40,20 @@ import { FontPanel, type FontImageState } from "./FontPanel";
 import { FontGallery, type FontRunRow } from "./FontGallery";
 
 const iconOf = (k: string): IconName => IMG_ICON[k] ?? "image";
+
+/* 二次编辑：把「我的作品」里的图片作品重建成对应模块的一条历史记录（供跳回定位/高亮） */
+function buildEventReedit(c: AssetCard, id: string): EventRunRow {
+  return { id, prompt: c.edit?.input || c.name, sub: "活动", ratioName: c.edit?.ratio || "", time: c.time || "", pct: 100, imgs: c.img ? [c.img] : [], grads: [c.grad] };
+}
+function buildIpReedit(c: AssetCard, id: string): IpRunRow {
+  return { id, title: c.name, desc: c.edit?.input, time: c.time || "", pct: 100, grads: [c.grad], imgs: c.img ? [c.img] : [] };
+}
+function buildLogoReedit(c: AssetCard, id: string): LogoRunRow {
+  return { id, prompt: c.edit?.input || c.name, style: c.edit?.style || "", desc: c.edit?.input, time: c.time || "", pct: 100, results: [{ emoji: "🎨", grad: c.grad, fav: false, ...(c.img ? { img: c.img } : {}) }] };
+}
+function buildFontReedit(c: AssetCard, id: string): FontRunRow {
+  return { id, text: c.edit?.text || c.name, effect: c.edit?.effect || "", dir: c.edit?.dir || "横向", time: c.time || "", pct: 100, results: [{ grad: c.grad }] };
+}
 
 /* 活动·预置生成历史（演示）：进入即有完整记录，可直接点编辑/深度编辑/下载/收藏/另存。
    结果图借用 public/poster-samples 真图，time 用固定值避免 SSR/CSR 不一致。*/
@@ -118,6 +133,16 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   const sim = useSimGenerate();
   const { addWork } = useLibrary();
 
+  // 二次编辑：读取暂存的图片作品，据 edit.sub 重建为对应模块的一条历史记录并高亮定位
+  const reeditNonce = initial?.reedit;
+  const reeditCard = useMemo(() => {
+    const c = readReedit(reeditNonce);
+    return c && c.kind === "图片" ? c : null;
+  }, [reeditNonce]);
+  const reeditSub = reeditCard?.edit?.sub; // "event" | "ip" | "logo" | "font"
+  const reeditRowId = `reedit-${reeditNonce}`;
+  const [highlightRow, setHighlightRow] = useState<string | null>(reeditCard ? reeditRowId : null);
+
   // 监听 localStorage 空间不足事件（由 store.tsx 的 save() 触发）
   useEffect(() => {
     const handler = () => toast("本地存储空间不足，历史记录可能无法保存", "warn");
@@ -126,8 +151,20 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 二次编辑：滚动定位到重建的历史记录并高亮片刻
+  useEffect(() => {
+    if (!highlightRow) return;
+    const t1 = window.setTimeout(
+      () => document.getElementById(`imgrun-${highlightRow}`)?.scrollIntoView({ behavior: "smooth", block: "center" }),
+      170,
+    );
+    const t2 = window.setTimeout(() => setHighlightRow(null), 3200);
+    return () => { window.clearTimeout(t1); window.clearTimeout(t2); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [active, setActive] = useState<ImageTypeKey>(
-    (imageTypes.find((t) => t.key === initialSub)?.key as ImageTypeKey) ?? imageTypes[0].key
+    (imageTypes.find((t) => t.key === (reeditSub || initialSub))?.key as ImageTypeKey) ?? imageTypes[0].key
   );
   const type = imageTypes.find((t) => t.key === active) ?? imageTypes[0];
 
@@ -181,17 +218,23 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   }
   // 默认看「生成历史」（已有预置演示历史）；点生成时 runLogoGenerate 也会切到「生成历史」
   const [logoTab, setLogoTab] = useState<"history" | "inspire">("history");
-  const [logoRuns, setLogoRuns] = useState<LogoRunRow[]>([]);
+  const [logoRuns, setLogoRuns] = useState<LogoRunRow[]>(() =>
+    reeditCard && reeditSub === "logo" ? [buildLogoReedit(reeditCard, reeditRowId)] : [],
+  );
   const [logoBusy, setLogoBusy] = useState(false);
   const logoTimer = useRef<number | null>(null);
   // AI字体：默认看「生成历史」（已有预置演示历史）
   const [fontTab, setFontTab] = useState<"history" | "inspire" | "story">("history");
-  const [fontRuns, setFontRuns] = useState<FontRunRow[]>([]);
+  const [fontRuns, setFontRuns] = useState<FontRunRow[]>(() =>
+    reeditCard && reeditSub === "font" ? [buildFontReedit(reeditCard, reeditRowId)] : [],
+  );
   const [fontBusy, setFontBusy] = useState(false);
   const fontTimer = useRef<number | null>(null);
   const fontTimeout = useRef<number | null>(null);
   // IP 设计：内联生成历史（含进度 + 真实出图）；预置演示历史，进入即有完整记录
-  const [ipRuns, setIpRuns] = useState<IpRunRow[]>(SEED_IP_RUNS);
+  const [ipRuns, setIpRuns] = useState<IpRunRow[]>(() =>
+    reeditCard && reeditSub === "ip" ? [buildIpReedit(reeditCard, reeditRowId), ...SEED_IP_RUNS] : SEED_IP_RUNS,
+  );
   const [ipBusy, setIpBusy] = useState(false);
   const ipTimer = useRef<number | null>(null);
   const ipTimeout = useRef<number | null>(null); // 120s 超时兜底，防止 4 张串行永久卡住
@@ -202,7 +245,9 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   // 「延展设计」：把某张生成图作为待延展的 IP 图，带去 IP扩展设计子表单
   const [ipExtendSeed, setIpExtendSeed] = useState<IpExtendSeed | null>(null);
   // 活动：内联生成历史（进度卡 + 真实出图，文生图/图生图共用）；预置演示历史，进入即有完整记录
-  const [eventRuns, setEventRuns] = useState<EventRunRow[]>(SEED_EVENT_RUNS);
+  const [eventRuns, setEventRuns] = useState<EventRunRow[]>(() =>
+    reeditCard && reeditSub === "event" ? [buildEventReedit(reeditCard, reeditRowId), ...SEED_EVENT_RUNS] : SEED_EVENT_RUNS,
+  );
   const [eventBusy, setEventBusy] = useState(false);
   const eventTimer = useRef<number | null>(null);
   const eventTimeout = useRef<number | null>(null); // 90s 超时兜底，防止生成永久卡住
@@ -499,7 +544,9 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       setIpRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct } : r)));
     }, 500);
 
-    // 120s 超时兜底（4 张串行生成，单张最慢约 30s，超出则强制结束）
+    // 超时兜底：按张数动态放大（网关拥塞时单张可达 40~50s，写死 120s 会把 4 张串行误判超时）。
+    // 每张给 90s 预算 + 20s 缓冲，4 张 ≈ 380s 上限；实际每张成功即进入下一张，通常远快于此。
+    const ipBudgetMs = grads.length * 90_000 + 20_000;
     if (ipTimeout.current) window.clearTimeout(ipTimeout.current);
     ipTimeout.current = window.setTimeout(() => {
       if (ipTimer.current) window.clearInterval(ipTimer.current);
@@ -510,7 +557,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       );
       setIpBusy(false);
       toast("IP 形象生成超时，请稍后重试", "warn");
-    }, 120_000);
+    }, ipBudgetMs);
 
     function finishTimer() {
       if (ipTimer.current) window.clearInterval(ipTimer.current);
@@ -524,6 +571,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         const r = await fetch("/api/image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          // 单张独立超时：拥塞时单张可达 40~50s，给 90s；超时则 abort → 走重试，避免个别卡死拖垮整批
+          signal: AbortSignal.timeout(90_000),
           // 有参考图（扩展设计的 IP 图，已转 base64 data URL）则走图生图，保持人物一致性
           body: JSON.stringify({
             prompt: payload!.prompt,
@@ -780,7 +829,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       setEventRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct } : r)));
     }, 500);
 
-    // 90s 超时兜底
+    // 超时兜底：按张数动态放大（网关拥塞时单张可达 40~50s，写死 90s 会把多张串行误判超时）
+    const eventBudgetMs = n * 90_000 + 20_000;
     if (eventTimeout.current) window.clearTimeout(eventTimeout.current);
     eventTimeout.current = window.setTimeout(() => {
       if (eventTimer.current) window.clearInterval(eventTimer.current);
@@ -791,7 +841,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       );
       setEventBusy(false);
       toast("活动图生成超时，请稍后重试", "warn");
-    }, 90_000);
+    }, eventBudgetMs);
 
     const finishTimer = () => {
       if (eventTimer.current) window.clearInterval(eventTimer.current);
@@ -818,6 +868,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         const r = await fetch("/api/image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(90_000), // 单张独立超时，超时 abort → 走重试
           body: JSON.stringify({ prompt: genPrompt, size, ...(refDataUrl ? { image: refDataUrl } : {}) }),
         });
         if (r.status === 429) return ERR_QUOTA;
@@ -983,6 +1034,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
           tab={ipTab}
           setTab={setIpTab}
           runRows={ipRuns}
+          highlightId={highlightRow ?? undefined}
           onDeleteRun={deleteIpRun}
           onCopyRun={(payload) => {
             // 切到对应设计 tab，再把整条记录的结构化信息回填到左侧
@@ -1022,6 +1074,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         tab={fontTab}
         setTab={setFontTab}
         runRows={fontRuns}
+        highlightId={highlightRow ?? undefined}
         onUseCase={useFontCase}
         onUseStory={useFontStory}
         onCopy={copyFontRun}
@@ -1034,6 +1087,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         tab={logoTab}
         setTab={setLogoTab}
         runRows={logoRuns}
+        highlightId={highlightRow ?? undefined}
         onUseCase={useLogoCase}
         onCopy={copyLogoHistory}
         onDeleteRun={deleteLogoRun}
@@ -1055,6 +1109,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
           tab={eventTab}
           setTab={setEventTab}
           runRows={eventRuns}
+          highlightId={highlightRow ?? undefined}
           onDeleteRun={deleteEventRun}
           onCopyRun={copyEventRun}
           onUseCase={(it) => {

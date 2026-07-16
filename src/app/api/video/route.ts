@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
   const apiKey  = process.env.VIDEO_API_KEY  || process.env.IMAGE_API_KEY  || "";
   const baseURL = (process.env.VIDEO_BASE_URL || process.env.IMAGE_BASE_URL || "").replace(/\/$/, "");
-  const model   = body.model || process.env.VIDEO_MODEL || "seedance-2.0";
+  const model   = body.model || process.env.VIDEO_MODEL || "seedance-2.0-mini";
 
   console.log("[video] model:", model, "| baseURL:", baseURL || "(empty)", "| key:", apiKey ? "set" : "MISSING", "| imageUrl:", body.imageUrl ? body.imageUrl.slice(0, 40) + `… (${(body.imageUrl.length/1024).toFixed(0)}KB)` : "none", "| tailImageUrl:", body.tailImageUrl ? `(${(body.tailImageUrl.length/1024).toFixed(0)}KB)` : "none");
   if (!apiKey || !baseURL) return Response.json({ error: "no API key" }, { status: 503 });
@@ -142,41 +142,54 @@ async function handleSeedance(p: {
     // 先抓首次被拒原文并归类（审核敏感 / 图片地址网关拉不到 / 其它），便于用户对症——是要换图还是换图床。
     const firstText = await submitRes.clone().text().catch(() => "");
     const low = firstText.toLowerCase();
-    degradeReason = /sensitive|敏感|policy|risk|审核|content_detected|violat|nsfw/.test(low)
-      ? "参考图被内容审核判为敏感"
-      : /download|fetch|not found|无法|加载|invalid image|decode|url/.test(low)
-        ? "参考图地址网关读取失败"
-        : `网关拒绝带参考图的请求（${firstText.slice(0, 60) || `HTTP ${submitRes.status}`}）`;
+    const isRealPerson = /real person|privacy|personinfo|人像|真人/.test(low);
+    const isMixErr = /cannot be mixed|first\/last frame|mixed/.test(low);
+    degradeReason = isRealPerson
+      ? "首帧图含真人被模型隐私审核拦截"
+      : isMixErr
+        ? "首帧与参考图不能同时使用"
+        : /sensitive|敏感|policy|risk|审核|content_detected|violat|nsfw/.test(low)
+          ? "参考图被内容审核判为敏感"
+          : /download|fetch|not found|无法|加载|invalid image|decode|url/.test(low)
+            ? "参考图地址网关读取失败"
+            : `网关拒绝请求（${firstText.slice(0, 60) || `HTTP ${submitRes.status}`}）`;
     console.warn("[video/seedance] 首次被拒原文 →", firstText.slice(0, 200));
+    const hasRef = content.some((c) => c.role === "reference_image");
     // ① 原样重试：网关内容审核偶发误杀，同一请求重试常能过；不丢任何图，保住衔接与人物锁定。
-    for (let i = 0; i < 2 && !submitRes.ok; i++) {
-      console.warn(`[video/seedance] 提交被拒，原样重试 ${i + 1}/2 →`, submitRes.status);
-      await new Promise((r) => setTimeout(r, 1_200));
-      const again = await submit(content);
-      if (again) submitRes = again;
+    //    但「首帧+参考图不能混用」「真人首帧被拦」是确定性错误，重试无意义 → 跳过直接降级。
+    if (!isMixErr && !isRealPerson) {
+      for (let i = 0; i < 2 && !submitRes.ok; i++) {
+        console.warn(`[video/seedance] 提交被拒，原样重试 ${i + 1}/2 →`, submitRes.status);
+        await new Promise((r) => setTimeout(r, 1_200));
+        const again = await submit(content);
+        if (again) submitRes = again;
+      }
     }
-    // ② 仍被拒 → 只去掉参考图（保留首帧！），保住与上一镜的衔接，仅失去人物/风格的额外锁定。
+    // ② 有首帧+参考图时：优先回退到「纯参考图模式」——丢首帧、留参考图（即首镜那种 referenceGenerate）。
+    //    Seedance 2.0 不允许 first_frame 与 reference_image 混用，且真人首帧会被隐私审核拦；
+    //    改用纯参考图既避开这两条限制，又保住跨镜人物/风格一致（代价：失去与上一镜尾帧的无缝衔接）。
+    if (!submitRes.ok && hadFirstFrame && hasRef) {
+      const refOnly = content.filter((c) => c.role !== "first_frame" && c.role !== "last_frame");
+      console.warn("[video/seedance] 降级「纯参考图·丢首帧」→", submitRes.status);
+      const retry = await submit(refOnly, { resolution: p.body.resolution || "720p" });
+      if (retry) { submitRes = retry; if (retry.ok) degraded = true; }
+    }
+    // ③ 仍被拒 → 只去参考图（保留首帧 i2v，保衔接）。对不含真人的镜头有效。
     if (!submitRes.ok) {
       const noRef = content.filter((c) => c.role !== "reference_image");
       if (noRef.length !== content.length) {
-        console.warn("[video/seedance] 降级「去参考图·保留首帧衔接」→", submitRes.status);
+        console.warn("[video/seedance] 降级「去参考图·保留首帧」→", submitRes.status);
         const retry = await submit(noRef);
-        if (retry) {
-          submitRes = retry;
-          if (retry.ok) degraded = true;
-        }
+        if (retry) { submitRes = retry; if (retry.ok) degraded = true; }
       }
     }
-    // ③ 仅「本就没有首帧」（首镜纯文生）时才退化为纯文生；有首帧却仍被拒，绝不丢首帧，保留失败态。
-    if (!submitRes.ok && !hadFirstFrame) {
+    // ④ 还不行 → 纯文生（丢所有图）。彻底兜底，产出脱节但可用的视频。
+    if (!submitRes.ok) {
       const noImg = content.filter((c) => c.type !== "image_url");
       if (noImg.length !== content.length) {
-        console.warn("[video/seedance] 首镜纯文生降级 →", submitRes.status);
+        console.warn("[video/seedance] 兜底纯文生 →", submitRes.status);
         const retry = await submit(noImg, { resolution: p.body.resolution || "720p" });
-        if (retry) {
-          submitRes = retry;
-          if (retry.ok) degraded = true;
-        }
+        if (retry) { submitRes = retry; if (retry.ok) degraded = true; }
       }
     }
   }

@@ -37,7 +37,8 @@ export function IpDownloadModal({
     { id: "seed-ipdl-1", label: "三视图", url: "/poster-samples/20260204165107990130xe92i6.jpg", loading: false },
     { id: "seed-ipdl-2", label: "抠图", url: "/poster-samples/202602041724199902428j5nhr.jpg", loading: false },
   ]);
-  // 已勾选待下载的处理结果 id 集合（可批量下载）
+  // 已勾选待下载的处理结果 id 集合（可批量下载）；原图用固定 id 参与勾选
+  const ORIG_ID = "__original__";
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
 
   function toggleSelect(id: string) {
@@ -130,33 +131,45 @@ export function IpDownloadModal({
   }
 
 
-  // 下载一张图（走 /api/download 同源代理）
+  // 下载一张图：跨域 http(s) 图床走 /api/download 代理（加 attachment 头绕 CORS）；
+  // 站内相对路径 / blob: / data: 是同源，直接下载并补上图片扩展名（否则会被路由当非法地址返回 JSON）
   function downloadUrl(url: string, label: string) {
-    const filename = `${name || "ip"}-${label}-${Date.now()}`.replace(/[\\/:*?"<>|]/g, "_");
-    const href = `/api/download?url=${encodeURIComponent(url)}&name=${encodeURIComponent(filename)}`;
+    const safe = `${name || "ip"}-${label}-${Date.now()}`.replace(/[\\/:*?"<>|]/g, "_");
     const a = document.createElement("a");
-    a.href = href;
-    a.download = filename;
+    if (/^https?:\/\//i.test(url)) {
+      a.href = `/api/download?url=${encodeURIComponent(url)}&name=${encodeURIComponent(safe)}`;
+      a.download = safe;
+    } else {
+      const path = url.split(/[?#]/)[0];
+      const ext =
+        path.match(/\.(png|jpe?g|webp|gif|svg)$/i)?.[1] ||
+        url.match(/^data:image\/(png|jpe?g|webp|gif|svg\+xml)/i)?.[1]?.replace("+xml", "") ||
+        "png";
+      a.href = url;
+      a.download = `${safe}.${ext.toLowerCase().replace("jpeg", "jpg")}`;
+    }
     document.body.appendChild(a);
     a.click();
     a.remove();
   }
 
-  // 2K 高清下载：下载当前左侧大图
-  function download() {
-    if (!curImg) return;
-    downloadUrl(curImg, "2K");
-    toast("已开始下载 2K 高清图到本地");
+  // 下载高清原图：始终下载 IP 原图（不随左侧预览切换）
+  function downloadOriginal() {
+    if (!img) return;
+    downloadUrl(img, "2K原图");
+    toast("已开始下载 2K 高清原图到本地");
   }
 
-  // 批量下载勾选的处理结果（逐个触发，间隔避免浏览器拦截连续下载）
+  // 批量下载勾选的图（原图 + 处理结果），逐个触发、间隔避免浏览器拦截连续下载
   function downloadSelected() {
     const items = results.filter((r) => r.url && selected.has(r.id));
-    if (items.length === 0) return;
-    items.forEach((r, i) => {
-      window.setTimeout(() => downloadUrl(r.url, r.label), i * 400);
-    });
-    toast(`已开始下载 ${items.length} 张图到本地`);
+    const withOrig = Boolean(img && selected.has(ORIG_ID));
+    const total = items.length + (withOrig ? 1 : 0);
+    if (total === 0) return;
+    let i = 0;
+    if (withOrig) { const orig = img as string; window.setTimeout(() => downloadUrl(orig, "原图"), i++ * 400); }
+    items.forEach((r) => { window.setTimeout(() => downloadUrl(r.url, r.label), i++ * 400); });
+    toast(`已开始下载 ${total} 张图到本地`);
   }
 
   return (
@@ -230,15 +243,25 @@ export function IpDownloadModal({
                 <div className="ipdl-group-title">处理结果</div>
                 <div className="ipdl-result-grid">
                   {img && (
-                    <button
+                    <div
                       className={`periph-cell${curImg === img ? " on" : ""}`}
                       onClick={() => setCurImg(img)}
                       title="点击预览：原图"
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={displaySrc(img)} alt="原图" />
+                      {/* 右上角勾选：原图也可选中，参与批量下载（点勾选不触发换图） */}
+                      <span
+                        className={`ipdl-check${selected.has(ORIG_ID) ? " on" : ""}`}
+                        role="checkbox"
+                        aria-checked={selected.has(ORIG_ID)}
+                        aria-label="选择原图"
+                        onClick={(e) => { e.stopPropagation(); toggleSelect(ORIG_ID); }}
+                      >
+                        {selected.has(ORIG_ID) && <Icon name="check" size={14} />}
+                      </span>
                       <span className="periph-cell-tag">原图</span>
-                    </button>
+                    </div>
                   )}
                   {results.map((r) => (
                     <div
@@ -275,18 +298,17 @@ export function IpDownloadModal({
             )}
           </div>
 
-          {/* 底部：有勾选则批量下载，否则 2K 高清下载 */}
+          {/* 底部两个常驻按钮：下载高清原图 + 下载勾选的处理结果 */}
           <div className="ipdl-foot">
-            {selected.size > 0 ? (
-              <button className="ipdl-foot-dl-sel" onClick={downloadSelected}>
+            <div className="ipdl-foot-row">
+              <button className="ipdl-download" onClick={downloadOriginal} disabled={!img}>
+                <span className="ipdl-clear-tag">变清晰</span>
+                下载高清原图
+              </button>
+              <button className="ipdl-foot-dl-sel" onClick={downloadSelected} disabled={selected.size === 0}>
                 <Icon name="download" size={15} /> 下载选中（{selected.size}）
               </button>
-            ) : (
-              <button className="ipdl-download" onClick={download}>
-                <span className="ipdl-clear-tag">变清晰</span>
-                2K高清图下载
-              </button>
-            )}
+            </div>
           </div>
         </div>
 

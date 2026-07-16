@@ -97,6 +97,7 @@ export function IpGallery({
   tab,
   setTab,
   runRows,
+  highlightId,
   onDeleteRun,
   onCopyRun,
   onUseCase,
@@ -106,6 +107,7 @@ export function IpGallery({
   tab: "history" | "inspire";
   setTab: (t: "history" | "inspire") => void;
   runRows: IpRunRow[];
+  highlightId?: string; // 二次编辑重建的记录 id，命中则高亮定位
   onDeleteRun: (id: string) => void;
   onCopyRun: (payload: IpCopyPayload) => void;
   onUseCase: (c: IpCase) => void;
@@ -173,6 +175,7 @@ export function IpGallery({
                   <IpRunRowView
                     key={row.id}
                     row={row}
+                    highlight={row.id === highlightId}
                     toast={toast}
                     onDelete={() => setPending(row.id)}
                     onCopy={() => {
@@ -250,6 +253,7 @@ const LOAD_PHASES = [
 
 function IpRunRowView({
   row,
+  highlight,
   toast,
   onDelete,
   onCopy,
@@ -260,6 +264,7 @@ function IpRunRowView({
   onGenerate,
 }: {
   row: IpRunRow;
+  highlight?: boolean;
   toast: (s: string, kind?: "warn" | "success") => void;
   onDelete: () => void;
   onCopy: () => void;
@@ -281,7 +286,7 @@ function IpRunRowView({
   // 「只看收藏」下，已完成且无收藏结果的行整行隐藏
   if (!loading && !row.error && onlyFav && shown.length === 0) return null;
   return (
-    <div className="lh-row">
+    <div className={`lh-row${highlight ? " reedit-hl" : ""}`} id={`imgrun-${row.id}`}>
       <div className={`lh-meta${row.ext ? " lh-meta-ext" : ""}`}>
         {row.ext ? (
           // 扩展设计：结构化展示——标题 + 上传 IP 图 + 参考图 + 延展项/预设 + 图片描述词

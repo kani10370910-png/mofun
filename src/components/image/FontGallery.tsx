@@ -77,6 +77,7 @@ export function FontGallery({
   tab,
   setTab,
   runRows,
+  highlightId,
   onUseCase,
   onUseStory,
   onCopy,
@@ -85,6 +86,7 @@ export function FontGallery({
   tab: FontTab;
   setTab: (t: FontTab) => void;
   runRows: FontRunRow[];
+  highlightId?: string; // 二次编辑重建的记录 id，命中则高亮定位
   onUseCase: (c: FontCase) => void;
   onUseStory: (s: FontStory) => void;
   onCopy: (text: string, effect: string) => void;
@@ -163,6 +165,7 @@ export function FontGallery({
                   <FontRunRowView
                     key={row.id}
                     row={row}
+                    highlight={row.id === highlightId}
                     toast={toast}
                     onCopy={onCopy}
                     onDelete={() => setPending({ kind: "run", id: row.id })}
@@ -351,6 +354,7 @@ export function FontGallery({
 
 function FontRunRowView({
   row,
+  highlight,
   toast,
   onCopy,
   onDelete,
@@ -359,6 +363,7 @@ function FontRunRowView({
   onToggleFav,
 }: {
   row: FontRunRow;
+  highlight?: boolean;
   toast: (s: string) => void;
   onCopy: (text: string, effect: string) => void;
   onDelete: () => void;
@@ -372,7 +377,7 @@ function FontRunRowView({
   // 「只看收藏」下，已完成且无收藏结果的行整行隐藏
   if (!loading && onlyFav && shown.length === 0) return null;
   return (
-    <div className="lh-row">
+    <div className={`lh-row${highlight ? " reedit-hl" : ""}`} id={`imgrun-${row.id}`}>
       <div className="lh-meta">
         <span className="lh-title">
           <b className="lh-prompt">{row.text}</b>

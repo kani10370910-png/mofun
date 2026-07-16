@@ -25,6 +25,8 @@ import {
 } from "@/data/video";
 import { useLibrary } from "@/lib/store";
 import { LibraryPicker } from "./LibraryPicker";
+import { VOICES, VOICE_SCENES, VOICE_AGES, VOICE_GENDERS, VOICE_EMOTIONS, findVoice, type Voice } from "@/data/voices";
+import { BGM_PRESETS, bgmUrl } from "@/data/bgm";
 import { nowStamp } from "@/lib/datetime";
 import type { IconName } from "@/data/icons";
 import type { AssetCard } from "@/lib/types";
@@ -48,6 +50,7 @@ interface Shot {
   id: string;
   shotDesc: string; // 画面描述（喂给图/视频模型的提示词）
   caption: string; // 字幕（可独立编辑，可从画面描述引号台词自动提取）
+  voiceScript?: string; // AI 分配说话人后的「角色名：台词」分行文本，仅供多说话人配音用（不污染字幕）
   camera: string; // 运镜
   shotSize: string; // 景别：远/全/中/近/特
   assetRefs: string[]; // 出镜元素引用（关联场景角色道具，跨镜一致性）
@@ -58,6 +61,7 @@ interface Shot {
   pct: number;
   failReason?: string; // 失败原因（已映射为中文）
   videoUrl?: string; // 真实生成的视频片段 URL（/api/video 返回）
+  genElemSig?: string; // 生成该视频时的「出镜元素指纹」；之后元素增删/换参考图 → 与当前指纹不符即提示重新生成
   degraded?: boolean; // 本镜因输入图被审核拦而降级生成（可能失去参考锁定；首帧仍保留、衔接不受影响）
   degradeReason?: string; // 降级的具体原因（审核敏感 / 参考图地址读取失败等），显示在角标 tooltip
   firstFrame?: string; // 首尾帧模式：首帧图（base64/URL）
@@ -107,15 +111,26 @@ function buildSubtitlesFromShots(shots: Shot[]): Subtitle[] {
 // 生成模式：文本生成（纯文生，无图）/ 智能多帧（每镜一张图）/ 首尾帧（首、尾帧链式）
 type GenMode = "text" | "smart" | "keyframe";
 
+// 角色音色配置：由「声音设置」弹窗产出，整体存入 Asset.voice（onChange 整体替换）
+interface AssetVoice {
+  id: string; // 关联 data/voices.ts 的音色 id
+  name: string; // 展示名（清甜元气…）
+  rate: number; // 语速 0.5–2.0
+  volume: number; // 音量 1–10
+  pitch: number; // 语调 0.5–2.0
+  emotion?: string; // 情感（仅多情感音色）
+}
+
 interface Asset {
   id: string;
   emoji: string;
   name: string;
   kind: "场景" | "角色" | "道具";
   refImg?: string; // 参考图（一致性锚点），生成时注入
+  voice?: AssetVoice; // 仅角色：配音音色（可选）
 }
 
-const ASSET_KINDS: Asset["kind"][] = ["场景", "角色", "道具"];
+const ASSET_KINDS: Asset["kind"][] = ["角色", "场景", "道具"];
 
 const CAMERAS = [...studioCameras];
 const SHOT_SIZES = [...studioShotSizes];
@@ -169,11 +184,19 @@ function extractDialogue(text: string): string {
 }
 
 // 制作大片逐镜真实生成使用的视频模型（seedance-2.0 系列均有可用通道；默认 doubao 无通道）
-const STUDIO_VIDEO_MODEL = "seedance-2.0-fast";
+const STUDIO_VIDEO_MODEL = "seedance-2.0-mini"; // Direct 分组可用的兜底模型（旧项目存了已下线的名称时回退到它）
 
 // 用户在「视频设定」选择的模型名 → 发给 API 的实际模型 ID；未命中时回退到默认可用模型
 function modelIdOf(name?: string): string {
   return videoModels.find((m) => m.name === name)?.modelId ?? STUDIO_VIDEO_MODEL;
+}
+
+// 支持「首帧 + 参考图」同时使用的模型 ID（可在首帧承接基础上叠加参考图锁脸）。
+// Seedance 系列均不支持混用（同时传会被网关拒「first/last frame content cannot be mixed」→降级丢参考图），故默认空集；
+// 未来接入支持二者叠加的视频模型时，把其 modelId 登记到这里，即可自动在首帧承接之上叠加参考图锁脸。
+const MODELS_FRAME_PLUS_REF = new Set<string>([]);
+function modelSupportsFrameAndRef(name?: string): boolean {
+  return MODELS_FRAME_PLUS_REF.has(modelIdOf(name));
 }
 
 // 生成参考图（生图 / 改图）可选的图片模型：name 展示，modelId 发给 /api/image。
@@ -190,11 +213,18 @@ const STUDIO_IMAGE_MODELS: { name: string; modelId: string; desc: string }[] = [
 type AssetGenSetting = { size?: string; model?: string };
 const ASSET_GEN_MODEL_KEY = "__model"; // genSettings 里存生图模型名的保留键（不参与三类清晰度渲染）
 const GEN_IMG_HINT_KEY = "mofun.studio.genImgHintSeen"; // 「一键生成全部图片」首次提示去生成设置的标记
+// 一键生成图片的取消控制放模块级：生成是「会话级持续」的，切步骤/页面后 Studio 会重挂载成新实例，
+// 若取消标志是实例级 ref，新实例点停止会作用不到还在跑的旧循环。模块级 → 跨实例共享，停得掉。
+const genImgCancelRef = { current: false };
+const genImgAborts = new Set<AbortController>(); // 在飞的生成请求，停止时全部 abort（立即停）
 
 // 后端错误码 / 文案 → 中文提示
 function mapVideoErr(error: unknown, status: number): string {
   const raw = (typeof error === "string" ? error : error && typeof error === "object" && "message" in error ? String((error as { message?: unknown }).message) : "").toLowerCase();
   if (status === 504 || raw.includes("timeout")) return "生成超时（视频耗时过长），请重试";
+  // Seedance 2.0 硬限制：真人首帧被隐私审核拦 / 首帧与参考图不能混用（衔接真人镜头的常见失败）
+  if (raw.includes("real person") || raw.includes("privacy") || raw.includes("人像")) return "首帧图里含真人，被模型隐私审核拦截（Seedance 不接受真人首帧图）。已自动尝试改用「参考图模式」生成——若仍失败，点重试，或把这一镜做成不含正脸真人的画面";
+  if (raw.includes("cannot be mixed") || raw.includes("first/last frame")) return "首帧与参考图不能同时使用（Seedance 限制）。已自动改用其一重试，请点重试";
   // 审核类：尽量区分是「输入图片」还是「文字」被判敏感，避免用户只改文字却改不掉图片的问题
   const sensitive = raw.includes("content") || raw.includes("safety") || raw.includes("policy") || raw.includes("审核") || raw.includes("sensitive");
   if (sensitive) {
@@ -259,6 +289,61 @@ function removeScriptBlock(script: string, idx: number): string {
   return blocks.join("\n\n");
 }
 
+// 解析一段镜头文本为「画面 / 字幕(口播words) / voiceScript(带说话人前缀，供配音路由)」。
+// 有【画面】/【旁白】/【对白】结构标签时按结构拆；否则退回：整段为画面、引号内台词为字幕。
+// 旁白/对白缺失（或写了「无」）则不产出对应内容——不凭空编造。
+function parseShotParts(text: string): { desc: string; caption: string; voiceScript: string } {
+  if (/【\s*画面\s*】/.test(text)) {
+    const grab = (label: string) => {
+      const m = text.match(new RegExp(`【\\s*${label}\\s*】\\s*([\\s\\S]*?)(?=【\\s*(?:画面|旁白|对白)\\s*】|$)`));
+      return m ? m[1].trim() : "";
+    };
+    const isEmpty = (s: string) => !s || /^（?\s*无\s*）?$/.test(s);
+    const desc = grab("画面");
+    const nar = grab("旁白").replace(/\n+/g, " ").trim();
+    const dia = grab("对白").trim();
+    const stripCue = (s: string) => s.replace(/[（(][^）)]{0,20}[）)]/g, "").trim(); // 去掉（低声）等舞台提示，免得被 TTS 读出来
+    const cap: string[] = [];
+    const vs: string[] = [];
+    const narClean = stripCue(nar);
+    if (!isEmpty(narClean)) { cap.push(narClean); vs.push(`旁白：${narClean}`); }
+    if (!isEmpty(dia)) {
+      for (const raw of dia.split(/\n+/).map((l) => l.trim()).filter(Boolean)) {
+        const line = stripCue(raw);
+        if (!line) continue;
+        vs.push(line); // 「角色名：台词」（已去舞台提示），供配音按说话人路由
+        const m = line.match(/^[^：:]{1,12}[：:]\s*(.+)$/);
+        cap.push(m ? m[1].trim() : line); // 字幕去掉「角色名：」前缀，只留说的话
+      }
+    }
+    return { desc: desc || text, caption: cap.join(" "), voiceScript: vs.join("\n") };
+  }
+  return { desc: text, caption: extractDialogue(text), voiceScript: "" };
+}
+
+// 自动撑高的文本框：默认高度=内容高度（全部文字都展示、不出滚动条）；仍保留 CSS 的 resize 手动放大缩小。
+function AutoGrowTextarea({ className, value, placeholder, onChange }: {
+  className?: string;
+  value: string;
+  placeholder?: string;
+  onChange: (v: string) => void;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (el) { el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; }
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      className={className}
+      value={value}
+      placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
+
 function makeShots(script: string, total: number, targetShots?: number): Shot[] {
   // 剧本若本身是「多个镜头段落」，每段 = 一整条镜头（镜头数由内容决定，不按句子拆碎、不受 targetShots 限制）
   const blocks = splitShotBlocks(script);
@@ -286,10 +371,12 @@ function makeShots(script: string, total: number, targetShots?: number): Shot[] 
         : i < L
           ? lines[i]
           : "";
+    const parts = parseShotParts(text); // 拆出画面/字幕/说话人脚本（脚本无旁白对白则各为空，不编造）
     return {
       id: `shot-${i}-${text.length}-${text.charCodeAt(0) || 0}`,
-      shotDesc: text, // 仅填脚本实际提到的内容，无对应句子则留空
-      caption: extractDialogue(text), // 字幕自动从画面描述引号内台词提取（无台词则空，用户可手动改）
+      shotDesc: parts.desc, // 只放「画面」，干净地喂视频模型
+      caption: parts.caption, // 字幕=旁白+对白的口播文字（去说话人前缀）；无则空
+      voiceScript: parts.voiceScript || undefined, // 带「旁白：/角色：」前缀，供配音按说话人分配音色
       camera: CAMERAS[i % CAMERAS.length],
       shotSize: SHOT_SIZES[i % SHOT_SIZES.length],
       assetRefs: [] as string[],
@@ -319,6 +406,116 @@ function blankShot(i: number): Shot {
     status: "idle",
     pct: 0,
   };
+}
+
+// 量音频时长（秒）：给定音频 URL，读元数据返回 duration；失败/无限返回 0。
+function audioDuration(url: string): Promise<number> {
+  return new Promise((resolve) => {
+    const a = new Audio();
+    a.preload = "metadata";
+    const done = (v: number) => { a.onloadedmetadata = null; a.onerror = null; resolve(v); };
+    a.onloadedmetadata = () => done(Number.isFinite(a.duration) ? a.duration : 0);
+    a.onerror = () => done(0);
+    setTimeout(() => done(Number.isFinite(a.duration) ? a.duration : 0), 6000); // 兜底
+    a.src = url;
+  });
+}
+
+// 出镜元素重点排序：人物 > 场景 > 道具（角色最优先——显示靠前，且生成注入参考图时不被 4 张上限挤掉）
+const KIND_ORDER: Record<string, number> = { 角色: 0, 场景: 1, 道具: 2 };
+function sortRefsByKind(ids: string[], assets: Asset[]): string[] {
+  const rank = (id: string) => KIND_ORDER[assets.find((x) => x.id === id)?.kind ?? ""] ?? 9;
+  return [...ids].sort((a, b) => rank(a) - rank(b));
+}
+// 出镜元素指纹：绑定的元素 id + 各自参考图特征。元素增删、或某元素换了参考图，指纹就变。
+function elemSig(assetRefs: string[], assets: Asset[]): string {
+  return [...assetRefs]
+    .map((id) => {
+      const a = assets.find((x) => x.id === id);
+      if (!a) return id;
+      return `${a.id}:${a.refImg ? a.refImg.length + a.refImg.slice(-16) : "-"}`;
+    })
+    .sort()
+    .join("|");
+}
+
+// AudioBuffer(单声道) → WAV Blob（16bit PCM）
+function encodeWav(data: Float32Array, sr: number): Blob {
+  const len = data.length;
+  const ab = new ArrayBuffer(44 + len * 2);
+  const dv = new DataView(ab);
+  const ws = (o: number, s: string) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  ws(0, "RIFF"); dv.setUint32(4, 36 + len * 2, true); ws(8, "WAVE"); ws(12, "fmt ");
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+  ws(36, "data"); dv.setUint32(40, len * 2, true);
+  let o = 44;
+  for (let i = 0; i < len; i++) { const s = Math.max(-1, Math.min(1, data[i])); dv.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true); o += 2; }
+  return new Blob([ab], { type: "audio/wav" });
+}
+
+// 把多段音频(ArrayBuffer[]) 解码拼接为单条 WAV（段间留 150ms 间隔）。用于一镜多说话人对话。
+async function concatAudioToWav(parts: ArrayBuffer[]): Promise<Blob | null> {
+  const Ctx = typeof window !== "undefined" ? (window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext) : undefined;
+  if (!Ctx) return null;
+  const ctx = new Ctx();
+  try {
+    const bufs: AudioBuffer[] = [];
+    for (const p of parts) { try { bufs.push(await ctx.decodeAudioData(p.slice(0))); } catch { /* 跳过坏段 */ } }
+    if (!bufs.length) return null;
+    const sr = bufs[0].sampleRate;
+    const gap = Math.round(sr * 0.15);
+    const total = bufs.reduce((a, b) => a + b.length, 0) + gap * (bufs.length - 1);
+    const out = new Float32Array(total);
+    let off = 0;
+    for (let i = 0; i < bufs.length; i++) { out.set(bufs[i].getChannelData(0), off); off += bufs[i].length + (i < bufs.length - 1 ? gap : 0); }
+    return encodeWav(out, sr);
+  } finally { void ctx.close(); }
+}
+
+// 把「每句配音 + 该句在镜内的起始偏移」混成一条镜头音轨（单声道 WAV）。
+// 各句按 offset 定位放入；重叠部分直接相加（方案 B：允许略微交叠，不提速、不截断）。
+async function mixDubToWav(segs: { buf: ArrayBuffer; offset: number }[], minDur: number): Promise<{ blob: Blob; dur: number } | null> {
+  const Ctx = typeof window !== "undefined" ? (window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext) : undefined;
+  if (!Ctx || !segs.length) return null;
+  const ctx = new Ctx();
+  try {
+    const decoded: { data: Float32Array; sr: number; offset: number }[] = [];
+    for (const s of segs) {
+      try { const b = await ctx.decodeAudioData(s.buf.slice(0)); decoded.push({ data: b.getChannelData(0), sr: b.sampleRate, offset: s.offset }); } catch { /* 跳过坏段 */ }
+    }
+    if (!decoded.length) return null;
+    const sr = decoded[0].sr;
+    // 输出长度 = max(minDur, 各句结束点)；每句结束点 = offset + 句长
+    let endSamples = Math.ceil(minDur * sr);
+    for (const d of decoded) endSamples = Math.max(endSamples, Math.round(d.offset * sr) + d.data.length);
+    const out = new Float32Array(endSamples);
+    for (const d of decoded) {
+      const start = Math.max(0, Math.round(d.offset * sr));
+      for (let i = 0; i < d.data.length && start + i < out.length; i++) {
+        let v = out[start + i] + d.data[i];
+        if (v > 1) v = 1; else if (v < -1) v = -1; // 交叠相加后限幅防爆音
+        out[start + i] = v;
+      }
+    }
+    return { blob: encodeWav(out, sr), dur: endSamples / sr };
+  } finally { void ctx.close(); }
+}
+
+// 任意音频 Blob（浏览器录音多为 webm/opus，或上传的 mp3/m4a）→ 单声道 WAV Blob。
+// 火山声音复刻只收 wav/mp3/ogg/m4a/aac/pcm，不收 webm，故上传前统一解码重编码为 WAV。
+async function blobToWav(blob: Blob): Promise<Blob | null> {
+  const Ctx = typeof window !== "undefined" ? (window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext) : undefined;
+  if (!Ctx) return null;
+  const ctx = new Ctx();
+  try {
+    const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+    return encodeWav(buf.getChannelData(0), buf.sampleRate);
+  } catch {
+    return null;
+  } finally {
+    void ctx.close();
+  }
 }
 
 // 视频比例字符串 → CSS aspect-ratio（"智能"/无匹配默认 16:9）
@@ -473,7 +670,7 @@ export function Studio({
       stepKey: studioSteps.find((s) => s.key === initialStep)?.key ?? "script",
       script: "", // 新建项目从空开始 → 剧本编辑默认落在第一步「原始创意」，走三步向导
 
-      settings: { 模型: "Seedance 2.0 Fast", 视频比例: "16:9", 视频风格: videoStyles[0].name, 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示", 知识库: "使用", ...readNewSettingsDraft() },
+      settings: { 模型: "Seedance 2.0 Mini", 视频比例: "16:9", 视频风格: videoStyles[0].name, 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示", 知识库: "使用", ...readNewSettingsDraft() },
       totalSec: 15, // 新建默认单镜拉满 15s（模型上限）
       targetShots: 1,
       assets: [] as Asset[], // 新建项目默认无元素 → 展示空态引导，由用户手动添加 / 自动生成
@@ -492,6 +689,23 @@ export function Studio({
   const [editProjOpen, setEditProjOpen] = useState(false); // 「编辑项目」弹窗：修改视频预设（同新建大片）
   const [cachedVideos, setCachedVideos] = useState<Record<string, string>>({}); // 原始视频 URL → 本地缓存 blobURL
   const cachedVideosRef = useRef<Record<string, string>>({});
+  // ⑤ 配音（方案B）：逐镜用角色音色把台词合成火山 TTS，shotId → 音频 blobURL；预览/导出用它替代视频原声。
+  const [voiceTracks, setVoiceTracks] = useState<Record<string, string>>({});
+  // 配音在时间轴上的偏移（秒，相对镜头起点，可拖动调整；正=延后播放）。shotId → 偏移
+  const [voiceOffsets, setVoiceOffsets] = useSessionField<Record<string, number>>("voiceOffsets");
+  const setVoiceOffset = (shotId: string, sec: number) => setVoiceOffsets((m) => ({ ...(m ?? {}), [shotId]: sec }));
+  const [voiceDurs, setVoiceDurs] = useSessionField<Record<string, number>>("voiceDurs"); // 每镜配音实际时长（秒），时间轴按此画配音块宽度
+  // 按字幕的配音元数据：subtitleId → { dur 该句配音时长, name 音色名 }。用于时间轴「每条字幕一个配音块」展示。
+  const [voiceSegs, setVoiceSegs] = useSessionField<Record<string, { dur: number; name: string }>>("voiceSegs");
+  const [audioMode, setAudioMode] = useSessionField<string>("audioMode"); // 声音来源：dub=火山配音 / original=视频自带原声
+  const [synthBusy, setSynthBusy] = useState(false);
+  const [dubConfigShot, setDubConfigShot] = useState<Shot | null>(null); // ⑤ 时间轴：正在为哪一镜「生成配音」弹「声音设置」
+  const [bgmPickerOpen, setBgmPickerOpen] = useState(false); // ⑤ 时间轴「添加背景音乐」弹层（内置曲库+上传）
+  const [speakerBusy, setSpeakerBusy] = useState(false); // AI 分配说话人进行中
+  const [voiceMatchBusy, setVoiceMatchBusy] = useState(false); // AI 自动匹配音色进行中
+  const voiceTracksRef = useRef<Record<string, string>>({});
+  // ⑤ 背景音乐（BGM）：本地上传的音频，整片循环播放；预览/导出与配音一起混音。volume 0–100。
+  const [bgm, setBgm] = useState<{ url: string; name: string; volume: number } | null>(null);
   // 用户自定义：目标镜头数 + 总时长（秒）。默认 1 镜 / 5 秒。用 ref 保存最新值，
   // 避免两个 stepper 互读对方的陈旧闭包值导致覆盖。
   const [totalSec, setTotalSec] = useSessionField<number>("totalSec");
@@ -502,6 +716,14 @@ export function Studio({
   targetShotsRef.current = targetShots;
   const [assets, setAssets] = useSessionField<Asset[]>("assets");
   const [shots, setShots] = useSessionField<Shot[]>("shots");
+  // 挂载时复位「卡在生成中却没有实际生成在跑」的镜头（多因刷新/服务重启中断），否则会永远转圈且无按钮可救。
+  useEffect(() => {
+    setShots((prev) => {
+      if (!prev?.some((s) => s.status === "gen" && !genInFlight.current.has(s.id))) return prev;
+      return prev.map((s) => (s.status === "gen" && !genInFlight.current.has(s.id) ? { ...s, status: "idle" as const, pct: 0 } : s));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [exporting, setExporting] = useState(false);
   const [exportPct, setExportPct] = useState(0);
   const [playingClip, setPlayingClip] = useState<Shot | null>(null); // 分镜视频大播放器
@@ -509,6 +731,7 @@ export function Studio({
   const [genMode, setGenMode] = useSessionField<GenMode>("genMode"); // 生成模式：文本生成 / 智能多帧 / 首尾帧
   const [subtitlesRaw, setSubtitles] = useSessionField<Subtitle[]>("subtitles"); // 时间轴多段字幕（老项目可能无此字段）
   const subtitles = subtitlesRaw ?? [];
+  const [subCapSig, setSubCapSig] = useSessionField<string>("subCapSig"); // 上次构建字幕所依据的「各镜台词+时长」签名；台词变了就重建字幕
   const [assetGenRaw, setAssetGenSettings] = useSessionField<Record<string, AssetGenSetting>>("assetGenSettings"); // 场景/角色/道具的生图清晰度 + 一键生成模型
   const assetGenSettings = assetGenRaw ?? {};
   // 「一键生成全部图片」后台运行态：放会话级 → 切换步骤/离开页面后仍在后台继续，回来还能看到进度
@@ -554,14 +777,17 @@ export function Studio({
     const start = Math.max(0, Math.min(T - dur, +sec.toFixed(2)));
     setSubtitles((prev) => [...(prev ?? []), { id: `sub-new-${Math.round(sec * 100)}-${(prev ?? []).length}`, text: "新字幕", start, dur }]);
   }
-  // 进入「视频预览」时，若还没有时间轴字幕，就按各镜台词自动拆句生成（之后用户可自由拖动/增删，不再自动覆盖）
+  // 进入「视频预览」时按各镜台词自动生成时间轴字幕，并「一直跟随脚本」：
+  // 只要各镜台词（caption）或时长变化（改脚本/重排镜头），就按最新台词重建字幕；台词没变时保留用户手动拖动/增删/改字。
   useEffect(() => {
     if (stepKey !== "preview") return;
-    if ((subtitlesRaw?.length ?? 0) > 0) return;
+    const sig = shots.map((s) => `${s.caption}@${s.dur}`).join("|"); // 台词+时长签名
+    if (sig === (subCapSig ?? "") && (subtitlesRaw?.length ?? 0) > 0) return; // 脚本未变且已有字幕 → 保留手动编辑
     const built = buildSubtitlesFromShots(shots);
-    if (built.length) setSubtitles(built);
+    setSubtitles(built);
+    setSubCapSig(sig);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepKey]);
+  }, [stepKey, shots]);
 
   // 时间轴播放头 ↔ 视频预览联动：previewTime = 当前时间（秒）；拖动时间轴时通过 seekTarget 通知预览跳帧。
   const [previewTime, setPreviewTime] = useState(0);
@@ -756,6 +982,199 @@ export function Studio({
       return nextShots;
     });
   }
+
+  // 某镜配音音色：优先本镜勾选的角色里第一个有音色的；否则退回项目主角色（有音色的第一个角色）。
+  function shotVoice(shot: Shot): AssetVoice | undefined {
+    const bound = assets.find((a) => shot.assetRefs.includes(a.id) && a.kind === "角色" && a.voice);
+    if (bound?.voice) return bound.voice;
+    return assets.find((a) => a.kind === "角色" && a.voice)?.voice;
+  }
+
+  // 方案B 逐镜配音：台词=shot.caption，音色=该镜角色音色 → 调 /api/tts（火山）合成，存 voiceTracks[shotId]。
+  async function synthVoices(onlyShotId?: string) {
+    if (synthBusy) return;
+    const done = shots.filter((s) => s.status === "done" && s.videoUrl);
+    const targets = done.filter((s) => s.caption.trim() && shotVoice(s) && (!onlyShotId || s.id === onlyShotId));
+    if (!targets.length) {
+      toast(onlyShotId ? "这一镜没有可配音的内容：需有台词（字幕）且出场角色已选音色" : "没有可配音的镜头：请确认镜头有台词（字幕）且出场角色已在②选好音色", "warn");
+      return;
+    }
+    setSynthBusy(true);
+    // 自动分角色：多角色镜头若还没分过说话人，先自动分配（用返回的映射，避免读到未刷新的 state）。
+    const needAssign = targets.filter((s) => isMultiChar(s) && !s.voiceScript?.trim());
+    if (needAssign.length) { setSpeakerBusy(true); toast(`检测到 ${needAssign.length} 个多角色镜头，正在自动分角色…`); }
+    const speakerMap = needAssign.length ? await computeSpeakers(needAssign) : {};
+    if (needAssign.length) setSpeakerBusy(false);
+    const next = { ...voiceTracksRef.current };
+    const nextSegs: Record<string, { dur: number; name: string }> = { ...(voiceSegs ?? {}) };
+    let ok = 0;
+    const subs = (subtitles ?? []).slice();
+    // 各镜在全片时间轴上的起始秒（用于把字幕句归属到镜头、算镜内偏移）
+    let acc = 0; const shotStartMap = new Map<string, number>();
+    for (const sh of shots) { shotStartMap.set(sh.id, acc); acc += sh.dur; }
+    const shotForSub = (sub: Subtitle) => shots.find((sh) => { const st = shotStartMap.get(sh.id) ?? 0; return sub.start >= st - 0.05 && sub.start < st + sh.dur - 0.001; }) ?? null;
+    const normTxt = (t: string) => t.replace(/[，。！？、；：""''「」,.!?;:\s]/g, "");
+    // 单次合成 → 返回 ArrayBuffer（失败 null）
+    const synthOnce = async (vt: string, text: string, speed: number, voice: AssetVoice): Promise<ArrayBuffer | null> => {
+      try {
+        const res = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, voice: vt, speed, volume: (voice.volume ?? 5) / 5, emotion: voice.emotion ? VOLC_EMOTION[voice.emotion] : undefined, clone: /^S_/.test(vt) }),
+        });
+        if (!res.ok) return null;
+        const buf = await res.arrayBuffer();
+        return buf.byteLength ? buf : null;
+      } catch { return null; }
+    };
+    // 台词分「说话人段」：每行"名字：台词"用该角色音色；无前缀/名字没匹配 → 默认音色（多说话人）。
+    const parseSegs = (caption: string, def: AssetVoice): { text: string; voice: AssetVoice }[] => {
+      const lines = caption.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+      const src = lines.length ? lines : [caption];
+      const segs: { text: string; voice: AssetVoice }[] = [];
+      for (const line of src) {
+        const m = line.match(/^([^：:]{1,12})[：:]\s*(.+)$/);
+        if (m) {
+          const a = assets.find((x) => x.kind === "角色" && x.voice && x.name === m[1].trim());
+          segs.push({ text: m[2].trim(), voice: a?.voice ?? def });
+        } else segs.push({ text: line, voice: def });
+      }
+      return segs.filter((x) => x.text);
+    };
+    for (const s of targets) {
+      const def = shotVoice(s)!;
+      const segs = parseSegs((speakerMap[s.id] || s.voiceScript?.trim() || s.caption).trim(), def);
+      // 把一句字幕文本匹配到说话人段 → 取该说话人音色；匹配不到用本镜默认音色。
+      const voiceForText = (text: string): AssetVoice => {
+        const st = normTxt(text);
+        const hit = segs.find((g) => { const gt = normTxt(g.text); return gt && (st.includes(gt) || gt.includes(st)); });
+        return hit?.voice ?? def;
+      };
+      const shotStartT = shotStartMap.get(s.id) ?? 0;
+      const shotSubs = subs.filter((sub) => sub.text.trim() && shotForSub(sub)?.id === s.id).sort((a, b) => a.start - b.start);
+      // 逐句配音项：优先按时间轴字幕逐条；本镜没有字幕则退回整镜台词一句
+      const items = shotSubs.length
+        ? shotSubs.map((sub) => ({ id: sub.id, text: sub.text.trim(), offset: Math.max(0, sub.start - shotStartT) }))
+        : [{ id: `dubshot-${s.id}`, text: s.caption.trim(), offset: 0 }];
+      const mixSegs: { buf: ArrayBuffer; offset: number }[] = [];
+      for (const it of items) {
+        const voice = voiceForText(it.text);
+        const vt = /^S_/.test(voice.id) ? voice.id : findVoice(voice.id)?.tts;
+        if (!vt) continue;
+        const buf = await synthOnce(vt, it.text, Math.min(2, voice.rate || 1), voice); // 自然语速，不为塞进字幕格提速（方案B）
+        if (!buf) continue;
+        // 测该句时长（时间轴按此画配音块宽）
+        const tmpUrl = URL.createObjectURL(new Blob([buf], { type: "audio/mpeg" }));
+        const segDur = await audioDuration(tmpUrl).catch(() => 1);
+        URL.revokeObjectURL(tmpUrl);
+        nextSegs[it.id] = { dur: segDur > 0 ? segDur : 1, name: voice.name || voiceNameOf(voice.id) || "配音" };
+        mixSegs.push({ buf, offset: it.offset });
+      }
+      if (!mixSegs.length) continue;
+      // 各句按镜内偏移混成一条镜头音轨（交叠相加）；播放器仍按镜头播这条轨，不用改。
+      const mixed = await mixDubToWav(mixSegs, s.dur);
+      if (!mixed) continue;
+      if (next[s.id]?.startsWith("blob:")) URL.revokeObjectURL(next[s.id]);
+      next[s.id] = URL.createObjectURL(mixed.blob);
+      ok++;
+    }
+    voiceTracksRef.current = next;
+    setVoiceTracks(next);
+    setVoiceSegs(nextSegs);
+    setSynthBusy(false);
+    if (!ok) { toast("配音合成失败，请检查火山配置/额度", "warn"); return; }
+    toast("已按字幕逐句合成配音（预览已启用）");
+  }
+
+  // 某镜是否是「多角色（≥2 个有音色的角色）」镜头 → 需要分说话人
+  const isMultiChar = (s: Shot) => assets.filter((a) => s.assetRefs.includes(a.id) && a.kind === "角色" && a.voice).length >= 2;
+
+  // 对给定镜头做 AI 分说话人：调 LLM 把台词标成「角色名：台词」分行，返回 shotId→分行文本 映射，同时写入 voiceScript 持久化。
+  async function computeSpeakers(targetShots: Shot[]): Promise<Record<string, string>> {
+    const map: Record<string, string> = {};
+    for (const s of targetShots) {
+      const chars = assets.filter((a) => s.assetRefs.includes(a.id) && a.kind === "角色").map((a) => a.name);
+      const input = `【画面描述】\n${s.shotDesc || "（无）"}\n\n【台词】\n${s.caption.trim()}\n\n【本镜出场角色】${chars.join("、")}`;
+      try {
+        const res = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scene: "studio-speakers", input }),
+        });
+        if (!res.ok || !res.body) continue;
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "", acc = "";
+        for (;;) {
+          const { done: rd, value } = await reader.read();
+          if (rd) break;
+          buf += dec.decode(value, { stream: true });
+          const events = buf.split("\n\n"); buf = events.pop() ?? "";
+          for (const evt of events) {
+            const line = evt.split("\n").find((l) => l.startsWith("data:"));
+            if (line) { try { const j = JSON.parse(line.slice(5).trim()) as { text?: string }; if (j.text) acc += j.text; } catch { /* 跳过 */ } }
+          }
+        }
+        const script = acc.trim();
+        if (script && /[：:]/.test(script)) { map[s.id] = script; editShot(s.id, { voiceScript: script }); }
+      } catch { /* 单镜失败跳过 */ }
+    }
+    return map;
+  }
+
+
+  // AI 自动匹配音色：读每个角色的设定 + 剧本，让 LLM 从火山音色库里选最贴合的音色，自动填入 asset.voice。
+  // 和有戏"自动匹配角色声音"一致——从固定库里选，不是生成新声音。redoAll=false 时只匹配还没音色的角色。
+  async function autoMatchVoices(redoAll = false) {
+    if (voiceMatchBusy) return;
+    const chars = assets.filter((a) => a.kind === "角色");
+    const targets = redoAll ? chars : chars.filter((a) => !a.voice);
+    if (!targets.length) { toast(chars.length ? "所有角色都已有音色（如需重配，点「重新匹配」）" : "还没有角色，请先在②添加/生成角色", "warn"); return; }
+    const catalog = VOICES.map((v) => `${v.name}（${v.gender}·${v.age}·${v.scene}${v.multiEmotion ? "·多情感" : ""}）`).join("\n");
+    setVoiceMatchBusy(true);
+    let ok = 0;
+    for (const a of targets) {
+      const input = `【剧本背景】\n${script?.trim() || "（无）"}\n\n【角色】${a.name}\n\n【可选音色清单】\n${catalog}\n\n请从清单里选一个最贴合「${a.name}」的音色，只输出音色名。`;
+      try {
+        const res = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scene: "studio-voice-match", input }) });
+        if (!res.ok || !res.body) continue;
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "", acc = "";
+        for (;;) {
+          const { done: rd, value } = await reader.read();
+          if (rd) break;
+          buf += dec.decode(value, { stream: true });
+          const events = buf.split("\n\n"); buf = events.pop() ?? "";
+          for (const evt of events) {
+            const line = evt.split("\n").find((l) => l.startsWith("data:"));
+            if (line) { try { const j = JSON.parse(line.slice(5).trim()) as { text?: string }; if (j.text) acc += j.text; } catch { /* 跳过 */ } }
+          }
+        }
+        const out = acc.trim();
+        // 先精确匹配，再包含匹配（模型可能带多余字）；按名字长度降序避免"男友"误命中"儒雅男友"外的短名
+        const matched = VOICES.find((v) => v.name === out) ?? [...VOICES].sort((x, y) => y.name.length - x.name.length).find((v) => out.includes(v.name));
+        if (matched) {
+          setAssets((list) => list.map((x) => (x.id === a.id ? { ...x, voice: { id: matched.id, name: matched.name, rate: 1, volume: 5, pitch: 1 } } : x)));
+          ok++;
+        }
+      } catch { /* 单个失败跳过 */ }
+    }
+    setVoiceMatchBusy(false);
+    toast(ok ? `已为 ${ok}/${targets.length} 个角色自动匹配音色，可在②卡片微调` : "匹配失败，请重试", ok ? undefined : "warn");
+  }
+
+  // 默认自动匹配音色：只要出现「还没音色」的角色，就在后台自动从火山音色库匹配。
+  // 每个角色只自动尝试一次（记在 autoVoiceTried），这样用户手动清空/换掉音色后不会被反复覆盖。
+  const autoVoiceTried = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (voiceMatchBusy) return;
+    const pending = assets.filter((a) => a.kind === "角色" && !a.voice && !autoVoiceTried.current.has(a.id));
+    if (!pending.length) return;
+    pending.forEach((a) => autoVoiceTried.current.add(a.id));
+    void autoMatchVoices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assets, voiceMatchBusy]);
 
   // 生成后默认存为「项目文件」：只要有已生成分镜，就把当前会话（多分镜合集）持久化为一个项目，
   // 显示在制作大片首页「我制作的大片」，可重新打开。读取模块级快照，卸载后（后台生成完成时）仍可调用。
@@ -1043,11 +1462,83 @@ export function Studio({
       if (!hasChar && mainChar && PERSON_HINT.test(desc)) matched.push(mainChar.id);
       if (!matched.length) return s;
       changed = true;
-      return { ...s, assetRefs: matched };
+      return { ...s, assetRefs: sortRefsByKind(matched, assets) };
     });
     if (changed) setShots(() => next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shots, assets]);
+
+  // 出镜元素·AI 识别：字符串精确匹配对散文描述基本无效（元素「西湖湖面」≠ 描述「西湖的水面」），
+  // 所以对启发式没绑上的镜头，让 AI 语义判断每镜出现了②里的哪些元素，自动绑定。每镜只 AI 处理一次。
+  const aiElemTriedRef = useRef<Set<string>>(new Set());
+  const [elemMatchBusy, setElemMatchBusy] = useState(false);
+  async function autoMatchElements(targetShots: Shot[]) {
+    const els = assets.filter((a) => a.name);
+    if (!els.length || !targetShots.length) return;
+    setElemMatchBusy(true);
+    const catalog = els.map((a) => `- ${a.name}（${a.kind}）`).join("\n");
+    const shotsText = targetShots.map((s) => `【${s.id}】${(s.shotDesc || "").slice(0, 300)}`).join("\n\n");
+    const input = `【元素清单】\n${catalog}\n\n【镜头】\n${shotsText}\n\n请输出 JSON：{ "镜头ID": ["出现的元素名称", ...] }`;
+    try {
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scene: "studio-shot-elements", input }),
+      });
+      if (!res.ok || !res.body) return;
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "", acc = "";
+      for (;;) {
+        const { done: rd, value } = await reader.read();
+        if (rd) break;
+        buf += dec.decode(value, { stream: true });
+        const events = buf.split("\n\n"); buf = events.pop() ?? "";
+        for (const evt of events) {
+          const line = evt.split("\n").find((l) => l.startsWith("data:"));
+          if (line) { try { const j = JSON.parse(line.slice(5).trim()) as { text?: string }; if (j.text) acc += j.text; } catch { /* 跳过 */ } }
+        }
+      }
+      const m = acc.match(/\{[\s\S]*\}/);
+      if (!m) return;
+      const map = JSON.parse(m[0]) as Record<string, unknown>;
+      const nameToId = new Map(els.map((a) => [a.name, a.id] as const));
+      let ok = 0;
+      setShots((prev) => prev.map((s) => {
+        if (s.assetRefs.length) return s; // 用户已选/启发式已绑 → 不动
+        const names = map[s.id];
+        if (!Array.isArray(names)) return s;
+        const ids = (names as unknown[]).map((n) => nameToId.get(String(n).trim())).filter(Boolean) as string[];
+        if (!ids.length) return s;
+        ok++;
+        return { ...s, assetRefs: sortRefsByKind(ids, assets) };
+      }));
+      if (ok) toast(`已为 ${ok} 个镜头自动识别出镜元素`);
+    } catch { /* 忽略，用户可手动「查看元素」选择 */ } finally {
+      setElemMatchBusy(false);
+    }
+  }
+  useEffect(() => {
+    if (!assets.length || !shots.length || elemMatchBusy) return;
+    const pending = shots.filter((s) => !s.assetRefs.length && (s.shotDesc || "").trim() && !aiElemTriedRef.current.has(s.id));
+    if (!pending.length) return;
+    pending.forEach((s) => aiElemTriedRef.current.add(s.id));
+    toast(`正在识别 ${pending.length} 个镜头的出镜元素…`);
+    void autoMatchElements(pending);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shots, assets, elemMatchBusy]);
+
+  // 手动「AI 识别出镜元素」：对所有「还没绑元素」的镜头重新识别补齐（自动那趟漏掉的、或后来新增的镜头）。
+  // 只填空镜头，不动用户/已识别好的绑定。
+  function recognizeAllElements() {
+    if (elemMatchBusy) return;
+    if (!assets.length) { toast("请先在②添加场景/角色/道具", "warn"); return; }
+    const empty = shots.filter((s) => !s.assetRefs.length && (s.shotDesc || "").trim());
+    if (!empty.length) { toast("每个镜头都已选好出镜元素"); return; }
+    empty.forEach((s) => aiElemTriedRef.current.add(s.id));
+    toast(`正在识别 ${empty.length} 个镜头的出镜元素…`);
+    void autoMatchElements(empty);
+  }
 
   // 执行单镜生成：真调 /api/video，返回成功的 videoUrl（失败返回 undefined）。
   // imageOverride：外部指定首帧（衔接上一镜尾帧 / 编辑视频保持首帧）。
@@ -1111,19 +1602,38 @@ export function Studio({
     const editNote = opts?.editText?.trim()
       ? `。这是对已有视频的局部修改：在保持画面中人物外观、场景环境、整体画面风格与原视频完全一致的前提下，仅按以下要求改动对应局部，其余部分不要改动：${opts.editText.trim()}`
       : "";
-    const prompt = [stylePrefix, `${cur.shotDesc}${elemText}${editNote}`, shotMeta, consistencyNote].filter(Boolean).join("，");
+    // 尾帧约束（跨镜人物一致的关键）：当前可用的 seedance 系列「不支持参考图锁人物」（reference 模式会 400），
+    // 唯一能保住跨镜同一个人的手段就是「让人脸从上一镜尾帧、经首帧衔接传到下一镜」。且实测这些模型不拦真人首帧，
+    // 所以本镜若有出场人物，就让主角在结尾帧清晰稳定地出现（脸别糊/别背身），下一镜承接同一张脸；无人物镜则收在稳定环境。
+    const isChained = idx >= 0 && idx < liveShots.length - 1;
+    const hasCharInShot = bound.some((a) => a.kind === "角色");
+    const tailRule = isChained
+      ? (hasCharInShot
+          ? "。【结尾帧要求】本镜最后 1 秒让主要人物清晰、稳定地出现在画面中（正面或近景为佳，光线充足、五官清楚、构图稳定，不要背影/不要糊脸），以便作为下一镜的首帧，让下一镜自然承接同一个人物、保持跨镜人物完全一致"
+          : "。【结尾帧要求】本镜最后 1 秒收束在稳定的环境/景物画面，便于作为下一镜首帧自然衔接")
+      : "";
+    // 画面主体前置：本镜若有出场角色，把「角色必须作为主体清晰出现」提到最前面。
+    // 否则 300+ 字风景描述会把人物淹没，模型常只出空镜/风景、漏掉出镜角色（出镜元素没生成出来的根因）。
+    const boundChars = bound.filter((a) => a.kind === "角色");
+    const subjectLead = boundChars.length
+      ? `【画面主体】本镜必须清晰呈现角色${boundChars.map((a) => `「${a.name}」`).join("、")}：真人出镜、位于画面主要位置、体量足够大、面部清楚可见，是本镜的主角，绝不能拍成没有人物的纯风景空镜。`
+      : "";
+    const prompt = [stylePrefix, subjectLead, `${cur.shotDesc}${elemText}${editNote}`, shotMeta, consistencyNote].filter(Boolean).join("，") + tailRule;
     const generateAudio = settings.配音 !== "不配音";
 
     // 首帧 = 外部传入的衔接帧（imageOverride）优先，否则本镜自设首帧图（cur.firstFrame）。imageOverride 由 genShot/genAll 按模式给：
     //   首尾帧(keyframe)=首帧图（镜头1 自设首帧 / 第 2 镜起上一镜尾帧图）；文本/智能多帧=上一镜真实视频尾帧。
     // 都没有则纯文生（首镜常见）。参考图「不」作首帧。
     const imageUrl = imageOverride ?? cur.firstFrame;
-    // 参考图（reference_image）：只注入 lockElems（本镜勾选的出镜元素）的参考图，锁本镜人物/场景/道具外观；
-    // 不占首帧（首帧仍由脚本文生 / 承接上一镜尾帧决定）。已按角色 > 场景 > 道具排序。
-    // 本镜绑了几个有参考图的元素就注入几张、不再截断（因只锁本镜出镜元素，数量本就不多）。
-    const referenceImageUrls = Array.from(
-      new Set(lockElems.filter((a) => a.refImg).map((a) => a.refImg as string)),
-    );
+    // 参考图（reference_image）：锁本镜人物/场景/道具外观。
+    // 策略：默认「首帧承接」为跨镜一致的主手段；参考图能否叠加取决于模型能力。
+    //  - 有首帧的镜（第 2 镜起 / 自设首帧）：默认只用首帧承接，不加参考图（Seedance 混用会被网关拒→降级丢参考图）；
+    //    仅当模型支持「首帧 + 参考图」同时使用（modelSupportsFrameAndRef）时，才在首帧之上叠加参考图锁脸。
+    //  - 无首帧的镜（首镜纯文生）：直接注入参考图去锁外观。
+    const refImgUrls = Array.from(new Set(lockElems.filter((a) => a.refImg).map((a) => a.refImg as string)));
+    const referenceImageUrls = imageUrl
+      ? (modelSupportsFrameAndRef(settings.模型) ? refImgUrls : [])
+      : refImgUrls;
     const tailImageUrl = opts?.tailOverride ?? (genMode === "keyframe" ? cur.lastFrame : undefined);
 
     return fetch("/api/video", {
@@ -1152,7 +1662,7 @@ export function Studio({
           return undefined;
         }
         // 字幕/声音「脚本有就做，没有不做」：不再自动杜撰字幕，仅用脚本填写的字幕字段
-        setShots((prev) => prev.map((s) => (s.id === id ? { ...s, status: "done", pct: 100, videoUrl: j.videoUrl, failReason: undefined, degraded: Boolean(j.degraded), degradeReason: j.degraded ? j.degradeReason : undefined } : s)));
+        setShots((prev) => prev.map((s) => (s.id === id ? { ...s, status: "done", pct: 100, videoUrl: j.videoUrl, genElemSig: elemSig(cur.assetRefs, liveAssets), failReason: undefined, degraded: Boolean(j.degraded), degradeReason: j.degraded ? j.degradeReason : undefined } : s)));
         // 降级（参考图被网关拒收）不再向用户提示；仅内部保留 degraded 状态，控制台仍有日志便于排查。
         if (j.degraded) console.warn("[studio] 本镜降级生成：", j.degradeReason || "参考图被网关拒绝");
         persistProject(); // 生成完成 → 默认存为项目文件（后台完成时也生效）
@@ -1362,16 +1872,25 @@ export function Studio({
 
   // 一键生成全部元素参考图（并行 + 后台）：提升到 Studio → 用户切到其它步骤/页面后仍在后台继续，回来还能看进度。
   // 首次提示「去生成设置」的拦截在 AssetsStep 里做（那是本地弹窗），此处只负责确认 + 并行生成。
-  async function genAllImages() {
+  async function genAllImages(redoAll = false) {
     if (genImgRunning.current || genImgBusy) return;
     const liveAssets = (getStudioSnapshot() as { assets?: Asset[] }).assets ?? assets;
-    const targets = liveAssets.filter((a) => !a.refImg);
-    if (!targets.length) return toast("所有元素都已有参考图（如需重做，点各卡片的「AI 生成」）", "warn");
-    if (!(await appConfirm(`将为 ${targets.length} 个元素并行「优化描述 + AI 生成参考图」，可切换到其它步骤，后台会继续生成。是否继续？`))) return;
+    const targets = redoAll ? liveAssets : liveAssets.filter((a) => !a.refImg);
+    if (!targets.length) return toast(redoAll ? "还没有元素" : "所有元素都已有参考图（如需重做，点「一键全部重做」或各卡片的「AI 生成」）", "warn");
+    const ask = redoAll
+      ? `将按当前视频风格「${settings.视频风格}」重做全部 ${targets.length} 个元素的参考图（覆盖现有图片）。是否继续？`
+      : `将为 ${targets.length} 个元素并行「优化描述 + AI 生成参考图」，可切换到其它步骤，后台会继续生成。是否继续？`;
+    if (!(await appConfirm(ask))) return;
     genImgRunning.current = true;
+    genImgCancelRef.current = false;
+    genImgAborts.clear();
     setGenImgBusy(true);
     setGenImgProg({ done: 0, total: targets.length });
     const stylePrompt = videoStyles.find((v) => v.name === settings.视频风格)?.stylePrompt ?? "";
+    // 风格打头（比结尾更有权重），压住「西湖=水墨」这类地标固有偏向；写实再补实拍关键词。
+    const styleLead = stylePrompt.trim()
+      ? `${settings.视频风格 === "写实" ? "真实摄影照片，实拍质感，" : ""}${stylePrompt.trim()}。`
+      : "";
     const styleSuffix = stylePrompt.trim() ? `，整体画面风格：${stylePrompt.trim()}` : "";
     const genModelName = assetGenSettings[ASSET_GEN_MODEL_KEY]?.model ?? STUDIO_IMAGE_MODELS[0].name;
     const genModelId = STUDIO_IMAGE_MODELS.find((m) => m.name === genModelName)?.modelId || "";
@@ -1379,6 +1898,8 @@ export function Studio({
     let done = 0;
     // 单个元素：优化描述 → 生图 → 回填参考图（setAssets 会话级持久化，卸载后仍能保存）
     const genOne = async (a: Asset) => {
+      const ctrl = new AbortController();
+      genImgAborts.add(ctrl);
       try {
         let desc = a.name;
         const expandInput = `【剧本背景】\n${script?.trim() || "（无）"}\n\n【${a.kind}】${a.name}\n\n请据剧本背景，${assetExpandInstr(a.kind)}，输出一段话，风格与剧本统一。`;
@@ -1386,6 +1907,7 @@ export function Studio({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ scene: "studio-asset-desc", input: expandInput, styleHint: stylePrompt }),
+          signal: ctrl.signal,
         });
         if (er.ok && er.body) {
           const reader = er.body.getReader();
@@ -1406,11 +1928,13 @@ export function Studio({
           }
           if (acc.trim()) desc = acc.trim();
         }
-        const size = ASSET_SIZE_MAP[assetGenSettings[a.kind]?.size ?? "2K"] || "2048x2048";
+        // 角色=「左照片+右三视图」横构图，用宽幅画布（≥3.69M 像素，满足文生图下限），别用正方形挤压
+        const size = a.kind === "角色" ? "2816x1536" : (ASSET_SIZE_MAP[assetGenSettings[a.kind]?.size ?? "2K"] || "2048x2048");
         const ir = await fetch("/api/image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: `${desc}，${assetKindPrompt(a.kind)}${styleSuffix}`, n: 1, size, ...(genModelId ? { model: genModelId } : {}) }),
+          body: JSON.stringify({ prompt: `${styleLead}${desc}，${assetKindPrompt(a.kind)}${styleSuffix}`, n: 1, size, ...(genModelId ? { model: genModelId } : {}) }),
+          signal: ctrl.signal,
         });
         const j = (await ir.json().catch(() => ({}))) as { images?: string[]; error?: string };
         if (ir.ok && j.images?.length) {
@@ -1418,7 +1942,9 @@ export function Studio({
           ok++;
         }
       } catch {
-        /* 单个失败跳过 */
+        /* 单个失败/被中止跳过 */
+      } finally {
+        genImgAborts.delete(ctrl);
       }
       done++;
       setGenImgProg({ done, total: targets.length });
@@ -1429,14 +1955,28 @@ export function Studio({
     try {
       await Promise.all(
         Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
-          for (let a = queue.shift(); a; a = queue.shift()) await genOne(a);
+          for (let a = queue.shift(); a; a = queue.shift()) {
+            if (genImgCancelRef.current) break; // 用户点了停止 → 不再取新任务
+            await genOne(a);
+          }
         }),
       );
     } finally {
       genImgRunning.current = false;
       setGenImgBusy(false);
     }
-    toast(ok ? `已为 ${ok}/${targets.length} 个元素生成参考图` : "生成失败，请重试（检查图片模型配置）", ok ? undefined : "warn");
+    if (genImgCancelRef.current) toast(`已停止，已生成 ${ok}/${targets.length} 个（其余保留未生成，可再次点一键生成继续）`, "warn");
+    else toast(ok ? `已为 ${ok}/${targets.length} 个元素生成参考图` : "生成失败，请重试（检查图片模型配置）", ok ? undefined : "warn");
+  }
+
+  // 停止一键生成图片：置模块级取消标志（跨实例）+ 立即中止在飞的请求，无需等当前那批跑完。
+  function stopGenAllImages() {
+    if (!genImgBusy && !genImgRunning.current) return;
+    genImgCancelRef.current = true;
+    genImgAborts.forEach((c) => c.abort());
+    genImgAborts.clear();
+    setGenImgBusy(false);
+    toast("已停止生成");
   }
 
   // 导出：把分镜逐镜画面用 Ken Burns 录制并拼接为一段真实长视频
@@ -1820,13 +2360,19 @@ export function Studio({
                 aria-label="项目名称"
                 title="点击修改项目名称"
               />
-              <span className="st-proj-meta">
-                {active.name} · {shots.length} 镜 / {totalDur}s · {settings.模型 ?? "Seedance 2.0 Fast"}
-              </span>
-              <span className="st-progress">
-                第 {activeIdx + 1}/{studioSteps.length} 步 · {doneShots.length}/{shots.length} 镜已生成
-              </span>
             </div>
+            {/* 步骤导航移到顶部 header 中部（原项目信息/进度文字已删除），横向、可点击切换 */}
+            <nav className="studio-tabs">
+              {studioSteps.map((s, i) => {
+                const state = i < activeIdx ? "done" : i === activeIdx ? "on" : "";
+                return (
+                  <button key={s.key} className={`st-tab ${state}`} onClick={() => setStepKey(s.key)}>
+                    <span className="st-tab-no">{s.no}</span>
+                    <span className="st-tab-name">{s.name}</span>
+                  </button>
+                );
+              })}
+            </nav>
             <div className="st-right">
               <button className="st-edit-btn" onClick={() => setEditProjOpen(true)} title="编辑项目视频预设">
                 <Icon name="gear" size={15} /> 编辑项目
@@ -1835,27 +2381,6 @@ export function Studio({
           </header>
 
           <div className="studio-body">
-            <aside className="studio-rail">
-              {studioSteps.map((s, i) => {
-                const state = i < activeIdx ? "done" : i === activeIdx ? "on" : "";
-                return (
-                  <div key={s.key} className={`ss-step ${state}`} onClick={() => setStepKey(s.key)}>
-                    <span className="ss-no">{s.no}</span>
-                    <span className="ss-name">{s.name}</span>
-                    {i < activeIdx ? (
-                      <span className="ss-state ok">
-                        <Icon name="check" size={13} />
-                      </span>
-                    ) : i === activeIdx ? (
-                      <span className="ss-state cur">
-                        <Icon name="pencil" size={12} />
-                      </span>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </aside>
-
             <main className="studio-stage">
               <div className="stage-canvas">
                 <StudioStepView
@@ -1872,11 +2397,15 @@ export function Studio({
                   setTotal={setTotal}
                   genMode={genMode}
                   setGenMode={setGenMode}
+                  recognizeElements={recognizeAllElements}
+                  elemMatchBusy={elemMatchBusy}
                   settings={settings}
                   setSettings={setSettings}
                   assets={assets}
                   setAssets={setAssets}
                   genAllImages={genAllImages}
+                  stopGenAllImages={stopGenAllImages}
+                  voiceMatchBusy={voiceMatchBusy}
                   genImgBusy={genImgBusy}
                   genImgProg={genImgProg}
                   shots={shots}
@@ -1905,6 +2434,15 @@ export function Studio({
                   onEditVideo={setEditVideoFor}
                   seekTarget={seekTarget}
                   onPreviewTime={setPreviewTime}
+                  voiceTracks={voiceTracks}
+                  voiceOffsets={voiceOffsets ?? {}}
+                  synthVoices={synthVoices}
+                  synthBusy={synthBusy}
+                  speakerBusy={speakerBusy}
+                  audioMode={audioMode ?? "dub"}
+                  setAudioMode={setAudioMode}
+                  bgm={bgm}
+                  setBgm={setBgm}
                   openLibraryPicker={openLibraryPicker}
                   subtitles={subtitles}
                   assetGenSettings={assetGenSettings}
@@ -1931,6 +2469,23 @@ export function Studio({
                   onRemoveSub={removeSubtitle}
                   onAddSub={addSubtitleAt}
                   onPlayClip={setPlayingClip}
+                  voiceTracks={voiceTracks}
+                  voiceOffsets={voiceOffsets ?? {}}
+                  voiceSegs={voiceSegs ?? {}}
+                  onMoveVoice={setVoiceOffset}
+                  onGenShotDub={(shot) => setDubConfigShot(shot)}
+                  synthBusy={synthBusy}
+                  onOpenBgm={() => setBgmPickerOpen(true)}
+                  audioMode={audioMode ?? "dub"}
+                  setAudioMode={setAudioMode}
+                  assets={assets}
+                  bgm={bgm}
+                  exportFilm={exportFilm}
+                  exportDraft={exportDraftPack}
+                  exportClips={exportClips}
+                  exportSubtitles={exportSubtitles}
+                  exporting={exporting}
+                  exportPct={exportPct}
                 />
               )}
             </main>
@@ -1943,6 +2498,35 @@ export function Studio({
           caption={settings.字幕 !== "隐藏" ? playingClip.caption : ""}
           cache={cachedVideos}
           onClose={() => setPlayingClip(null)}
+        />
+      )}
+      {/* ⑤ 时间轴「生成配音」：为该镜主角色弹「声音设置」，确定后合成这一镜的配音 */}
+      {dubConfigShot && (() => {
+        const ch = assets.find((a) => dubConfigShot.assetRefs.includes(a.id) && a.kind === "角色") ?? assets.find((a) => a.kind === "角色");
+        if (!ch) { toast("这一镜没有出场角色，请先在②角色场景道具添加角色并选音色", "warn"); setDubConfigShot(null); return null; }
+        const shotId = dubConfigShot.id;
+        return (
+          <VoiceSettingsModal
+            asset={ch}
+            confirmLabel={voiceTracks[shotId] ? "重新生成" : "生成配音"}
+            onSave={(v) => {
+              setAssets((list) => list.map((x) => (x.id === ch.id ? { ...x, voice: v } : x)));
+              setDubConfigShot(null);
+              // 等 voice 写入后再合成这一镜（下一帧）
+              window.setTimeout(() => void synthVoices(shotId), 30);
+            }}
+            onClose={() => setDubConfigShot(null)}
+            toast={toast}
+          />
+        );
+      })()}
+      {/* ⑤ 时间轴「添加背景音乐」：内置曲库 + 上传本地音乐的选择弹层 */}
+      {bgmPickerOpen && (
+        <BgmPickerModal
+          current={bgm}
+          onPick={(b) => { setBgm(b); setBgmPickerOpen(false); }}
+          onClose={() => setBgmPickerOpen(false)}
+          toast={toast}
         />
       )}
       {editVideoFor && (
@@ -2295,7 +2879,7 @@ function ScriptStep({
           </div>
           <div className="script-editor">
             <div className="script-editor-hd"><span>原始创意</span>{editorTools(idea, setIdea, "原始创意")}</div>
-            <textarea className="script-body" value={idea} placeholder="原始创意会显示在这里，可直接编辑" onChange={(e) => setIdea(e.target.value)} />
+            <AutoGrowTextarea className="script-body" value={idea} placeholder="原始创意会显示在这里，可直接编辑" onChange={setIdea} />
           </div>
         </section>
 
@@ -2314,13 +2898,13 @@ function ScriptStep({
           </div>
           <div className="script-editor">
             <div className="script-editor-hd"><span>完整镜头</span>{editorTools(script, setScript, "完整镜头")}</div>
-            <textarea className="script-body" value={script} placeholder="完整镜头会显示在这里，可直接编辑" onChange={(e) => setScript(e.target.value)} />
+            <AutoGrowTextarea className="script-body" value={script} placeholder="完整镜头会显示在这里，可直接编辑" onChange={setScript} />
           </div>
         </section>
       </div>
 
       <div className="sp-actions">
-        <button className="btn btn-primary btn-sm" onClick={finish}>下一步 · 场景角色道具 →</button>
+        <button className="btn btn-primary btn-sm" onClick={finish}>下一步 · 角色场景道具 →</button>
       </div>
     </div>
   );
@@ -2329,16 +2913,31 @@ function ScriptStep({
 // ③ 分镜脚本·出镜元素：默认只显示本镜「已勾选出镜」的元素，其余隐藏；点「查看元素」展开全部以增删绑定。
 function ShotAssets({ shot, assets, editShot }: { shot: Shot; assets: Asset[]; editShot: (id: string, patch: Partial<Shot>) => void }) {
   const [expanded, setExpanded] = useState(false);
-  const bound = assets.filter((a) => shot.assetRefs.includes(a.id));
-  const shown = expanded ? assets : bound; // 默认只出现出镜元素；展开后才显示全部
+  const [filter, setFilter] = useState<"全部" | Asset["kind"]>("全部"); // 展开后按类型筛选
+  // 已绑元素按「人物 > 场景 > 道具」排序展示
+  const bound = assets.filter((a) => shot.assetRefs.includes(a.id)).sort((a, b) => (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9));
+  // 默认只出现已勾选元素；展开后显示全部并可按 场景/角色/道具 筛选
+  const shown = expanded ? assets.filter((a) => filter === "全部" || a.kind === filter) : bound;
   const toggle = (a: Asset) => {
     const on = shot.assetRefs.includes(a.id);
-    editShot(shot.id, { assetRefs: on ? shot.assetRefs.filter((x) => x !== a.id) : [...shot.assetRefs, a.id] });
+    // 新增勾选后同样按 人物>场景>道具 重排存储
+    editShot(shot.id, { assetRefs: on ? shot.assetRefs.filter((x) => x !== a.id) : sortRefsByKind([...shot.assetRefs, a.id], assets) });
   };
+  const collapse = () => { setExpanded(false); setFilter("全部"); }; // 收起 → 回到只显示已勾选
   return (
     <div className="sb-assets">
       <span className="sb-assets-lbl">出镜元素</span>
       {!expanded && bound.length === 0 && <span className="sb-assets-empty">本镜暂无出镜元素，点右侧「查看元素」选择</span>}
+      {expanded && (
+        <>
+          <span className="sb-assets-filter">
+            {(["全部", "角色", "场景", "道具"] as const).map((k) => (
+              <span key={k} className={filter === k ? "sb-af on" : "sb-af"} onClick={() => setFilter(k)}>{k}</span>
+            ))}
+          </span>
+          <span className="sb-assets-break" />
+        </>
+      )}
       {shown.map((a) => {
         const on = shot.assetRefs.includes(a.id);
         return (
@@ -2359,8 +2958,8 @@ function ShotAssets({ shot, assets, editShot }: { shot: Shot; assets: Asset[]; e
         );
       })}
       {(expanded || assets.length > bound.length) && (
-        <button type="button" className="sb-assets-toggle" onClick={() => setExpanded((v) => !v)}>
-          {expanded ? "收起" : `查看元素（${assets.length}）`}
+        <button type="button" className="sb-assets-toggle" onClick={() => (expanded ? collapse() : setExpanded(true))}>
+          {expanded ? "收起" : "查看全部元素"}
         </button>
       )}
     </div>
@@ -2381,11 +2980,15 @@ function StudioStepView(props: {
   setTotal: (sec: number) => void;
   genMode: GenMode;
   setGenMode: (m: GenMode) => void;
+  recognizeElements: () => void; // 手动 AI 识别出镜元素（补齐所有未绑镜头）
+  elemMatchBusy: boolean;
   settings: Record<string, string>;
   setSettings: (f: (s: Record<string, string>) => Record<string, string>) => void;
   assets: Asset[];
   setAssets: (f: (a: Asset[]) => Asset[]) => void;
-  genAllImages: () => void; // 一键生成全部参考图（Studio 提升，后台持续）
+  genAllImages: (redoAll?: boolean) => void; // 一键生成全部参考图（Studio 提升，后台持续）
+  stopGenAllImages: () => void; // 停止一键生成
+  voiceMatchBusy: boolean;
   genImgBusy: boolean;
   genImgProg: { done: number; total: number };
   shots: Shot[];
@@ -2414,6 +3017,15 @@ function StudioStepView(props: {
   onEditVideo: (s: Shot) => void;
   seekTarget: { t: number; n: number }; // 时间轴拖动 → 通知预览跳转
   onPreviewTime: (sec: number) => void; // 预览播放 → 回传当前时间给时间轴播放头
+  voiceTracks: Record<string, string>; // ⑤ 配音：shotId → 火山 TTS 音频 blobURL
+  voiceOffsets: Record<string, number>; // 配音时间轴偏移（秒），预览按此延后播放
+  synthVoices: () => void; // 触发逐镜配音合成
+  synthBusy: boolean; // 配音合成进行中
+  speakerBusy: boolean;
+  audioMode: string; // 声音来源：dub=火山配音 / original=视频原声
+  setAudioMode: (m: string) => void;
+  bgm: { url: string; name: string; volume: number } | null; // ⑤ 背景音乐
+  setBgm: (b: { url: string; name: string; volume: number } | null) => void;
   openLibraryPicker: (filter: "image" | "video", onPick: (item: AssetCard) => void) => void; // 打开仓库选择器
   subtitles: Subtitle[]; // 时间轴多段字幕（预览按时间匹配显示）
   assetGenSettings: Record<string, AssetGenSetting>; // 场景/角色/道具生图清晰度 + 一键生成模型
@@ -2426,7 +3038,6 @@ function StudioStepView(props: {
   setStudioSummary: (s: string) => void;
 }) {
   const { goStep, toast } = props;
-  const [exportMenu, setExportMenu] = useState(false); // 「导出到本地」下拉菜单
   // 「视频设定」步骤已移除（改到新建大片时设定）；旧项目若停在该步，落到「分镜脚本」，避免空白
   const stepKey = props.stepKey === "setting" ? "storyboard" : props.stepKey;
 
@@ -2461,6 +3072,8 @@ function StudioStepView(props: {
         genSettings={props.assetGenSettings}
         setGenSettings={props.setAssetGenSettings}
         genAllImages={props.genAllImages}
+        stopGenAllImages={props.stopGenAllImages}
+        voiceMatchBusy={props.voiceMatchBusy}
         genImgBusy={props.genImgBusy}
         genImgProg={props.genImgProg}
         toast={toast}
@@ -2514,6 +3127,9 @@ function StudioStepView(props: {
           <span className={props.genMode === "text" ? "sel-chip on" : "sel-chip"} onClick={() => props.setGenMode("text")}>文本生成</span>
           <span className={props.genMode === "smart" ? "sel-chip on" : "sel-chip"} onClick={() => props.setGenMode("smart")}>智能多帧</span>
           <span className={props.genMode === "keyframe" ? "sel-chip on" : "sel-chip"} onClick={() => props.setGenMode("keyframe")}>首尾帧</span>
+          <button className="btn btn-ghost btn-sm sb-recog" disabled={props.elemMatchBusy} onClick={props.recognizeElements} title="用 AI 识别每个镜头画面里出现的场景/角色/道具，自动补齐所有还没绑定的镜头">
+            <Icon name={props.elemMatchBusy ? "refresh" : "sparkle"} size={14} className={props.elemMatchBusy ? "ico-spin" : undefined} /> {props.elemMatchBusy ? "识别中…" : "AI 识别出镜元素"}
+          </button>
         </div>
         <div className="sb-list">
           {props.shots.map((s, i) => (
@@ -2637,6 +3253,8 @@ function StudioStepView(props: {
           {props.shots.map((s, i) => {
             // 顺序生成门控：前面所有镜头都已生成，才允许生成/重生成本镜（不能先生成后面）
             const canGen = props.shots.slice(0, i).every((p) => p.status === "done");
+            // 出镜元素在生成后是否有变化（增删元素 / 换了参考图）→ 视频已过时，提示重新生成
+            const elemChanged = s.status === "done" && !!s.videoUrl && s.genElemSig != null && s.genElemSig !== elemSig(s.assetRefs, props.assets);
             return (
             <div className="clip-card" key={s.id}>
               <div className="clip-thumb" style={{ aspectRatio: ratioToCss(props.ratio) }}>
@@ -2701,6 +3319,17 @@ function StudioStepView(props: {
                   </button>
                 ) : (
                   <div className="clip-locked">🔒 请先生成前面镜头</div>
+                )}
+                {/* 出镜元素在生成后变了 → 提示重新生成（点角标即重生成本镜） */}
+                {elemChanged && (
+                  <button
+                    className="clip-stale"
+                    onClick={() => props.genShot(s.id)}
+                    disabled={!canGen}
+                    title="这一镜的出镜元素在生成后有改动（增删元素或换了参考图），当前视频还是旧的。点此重新生成以应用新元素/参考图。"
+                  >
+                    <Icon name="refresh" size={11} /> 元素已变 · 重新生成
+                  </button>
                 )}
               </div>
               <div className="clip-foot">
@@ -2827,6 +3456,22 @@ function StudioStepView(props: {
       <div className="sp-title">⑤ 视频预览</div>
       <div className="sp-sub">
         {ready.length} 个分镜按顺序连续播放（共 {ready.reduce((a, s) => a + s.dur, 0)}s）。字幕可编辑后再导出。
+        {/* 声音来源「配音/原声」切换已移到时间轴配音轨（生成配音之后的「🔊 原声」按钮）。此处仅保留已设置背景音乐的音量/移除控件 */}
+        {props.audioMode !== "original" && props.bgm && (
+          <span className="sp-bgm-info" title={props.bgm.name}>
+            <span className="sp-bgm-name">🎵 {props.bgm.name}</span>
+            <input
+              className="sp-bgm-vol"
+              type="range"
+              min={0}
+              max={100}
+              value={props.bgm.volume}
+              title={`音量 ${props.bgm.volume}%`}
+              onChange={(e) => props.bgm && props.setBgm({ ...props.bgm, volume: Number(e.target.value) })}
+            />
+            <button className="sp-bgm-x" title="移除背景音乐" onClick={() => props.setBgm(null)}>×</button>
+          </span>
+        )}
       </div>
       <div className="sp-player-wrap">
       <FilmPlayer
@@ -2838,39 +3483,11 @@ function StudioStepView(props: {
         subtitles={props.subtitles}
         seekTarget={props.seekTarget}
         onTime={props.onPreviewTime}
+        voiceTracks={props.audioMode === "original" ? undefined : props.voiceTracks}
+        voiceOffsets={props.voiceOffsets}
+        bgm={props.audioMode === "original" ? null : props.bgm}
       />
 
-      <div className="sp-actions sp-actions-export">
-        <div className="sp-export">
-          <button className="btn btn-primary btn-sm" disabled={props.exporting} onClick={() => setExportMenu((v) => !v)}>
-            {props.exporting ? `导出中 ${props.exportPct}%` : "导出 ▾"}
-          </button>
-          {exportMenu && !props.exporting && (
-            <>
-              <div className="sp-export-mask" onClick={() => setExportMenu(false)} />
-              <div className="sp-export-menu sp-export-menu2">
-                <button className="sp-export-item" onClick={() => { setExportMenu(false); props.exportFilm({ subtitles: true, audio: true }); }}>
-                  <Icon name="video" size={16} />
-                  <span className="sp-export-it"><b>导出成片</b><small>合成为一段视频（含字幕/声音）并下载</small></span>
-                </button>
-                <button className="sp-export-item" onClick={() => { setExportMenu(false); props.exportDraft(); }}>
-                  <Icon name="film" size={16} />
-                  <span className="sp-export-it"><b>导出剪映素材包</b><small>全部片段 + 字幕(.srt)，拖入剪映二次剪辑</small></span>
-                </button>
-                <button className="sp-export-item" onClick={() => { setExportMenu(false); props.exportClips(); }}>
-                  <Icon name="upload" size={16} />
-                  <span className="sp-export-it"><b>重新导出素材</b><small>把全部分镜片段逐个下载到本地</small></span>
-                </button>
-                <div className="sp-export-sep" />
-                <button className="sp-export-item sp-export-item-sm" onClick={() => { setExportMenu(false); props.exportSubtitles(); }}>
-                  <Icon name="outline" size={15} />
-                  <span className="sp-export-it"><b>只导出字幕（.srt）</b></span>
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
       </div>
     </div>
   );
@@ -2887,6 +3504,9 @@ function FilmPlayer({
   subtitles = [],
   seekTarget,
   onTime,
+  voiceTracks,
+  voiceOffsets,
+  bgm,
 }: {
   shots: Shot[];
   ratio: string;
@@ -2896,8 +3516,15 @@ function FilmPlayer({
   subtitles?: Subtitle[]; // 时间轴多段字幕：按当前整片时间匹配显示
   seekTarget?: { t: number; n: number };
   onTime?: (sec: number) => void;
+  voiceTracks?: Record<string, string>; // 方案B 配音：shotId → 火山 TTS 音频；有则静音视频、改播此配音
+  voiceOffsets?: Record<string, number>; // 配音相对镜头起点的偏移（秒），预览按此延后播放
+  bgm?: { url: string; name: string; volume: number } | null; // 背景音乐：整片循环，与配音一起播
 }) {
   const n = Math.max(1, shots.length);
+  const ttsRef = useRef<HTMLAudioElement>(null);
+  const ttsTimerRef = useRef<number | null>(null); // 配音延后启动定时器
+  const bgmRef = useRef<HTMLAudioElement>(null);
+  const hasVoice = !!voiceTracks && Object.keys(voiceTracks).length > 0;
   const nextOf = (i: number) => (i + 1) % n;
   const vRef0 = useRef<HTMLVideoElement>(null);
   const vRef1 = useRef<HTMLVideoElement>(null);
@@ -2915,16 +3542,68 @@ function FilmPlayer({
   const t = Math.min(total, before + segT);
   const cur = shots[idx];
 
-  // 播放/暂停/静音作用于当前 active 视频；另一 slot 保持暂停但（preload=auto）预加载下一镜
+  // 切到「配音」（出现可播放的配音轨）时自动取消静音，让配音出声。
+  // 此时用户刚点过「配音」切换、页面已有手势，浏览器允许带声播放。
+  useEffect(() => {
+    if (hasVoice) setMuted(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasVoice]);
+
+  // 播放/暂停/静音作用于当前 active 视频；另一 slot 保持暂停但（preload=auto）预加载下一镜。
+  // 方案B 配音：有 voiceTracks 时视频恒静音，改由 TTS 音轨随当前镜播放；静音按钮控制配音是否出声。
   useEffect(() => {
     const va = vRefs[active].current;
     const vb = vRefs[1 - active].current;
     if (vb) vb.pause();
     if (!va) return;
-    va.muted = muted;
+    va.muted = hasVoice ? true : muted;
     if (playing) va.play().catch(() => setPlaying(false));
     else va.pause();
-  }, [active, idx, playing, muted]);
+    const a = ttsRef.current;
+    if (ttsTimerRef.current) { window.clearTimeout(ttsTimerRef.current); ttsTimerRef.current = null; }
+    if (a) {
+      const track = hasVoice ? voiceTracks?.[shots[idx]?.id] : undefined;
+      const off = voiceOffsets?.[shots[idx]?.id] ?? 0; // 配音相对镜头起点的偏移（秒）
+      if (!track) { a.pause(); if (a.getAttribute("src")) a.removeAttribute("src"); }
+      else {
+        if (a.getAttribute("src") !== track) a.src = track;
+        a.muted = muted;
+        if (segT >= off) {
+          // 已过配音起点：定位到 segT-off 处播放
+          try { a.currentTime = Math.max(0, segT - off); } catch { /* 未就绪忽略 */ }
+          if (playing && !muted) a.play().catch(() => {});
+          else a.pause();
+        } else {
+          // 还没到配音起点：先静默，若在播则定时到点再起
+          a.pause(); try { a.currentTime = 0; } catch { /* 忽略 */ }
+          if (playing && !muted) {
+            ttsTimerRef.current = window.setTimeout(() => {
+              try { a.currentTime = 0; } catch { /* 忽略 */ }
+              a.play().catch(() => {});
+            }, Math.max(0, (off - segT) * 1000));
+          }
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, idx, playing, muted, hasVoice, voiceOffsets]);
+
+  // 背景音乐：整片循环，跟随播放/暂停；音量按 bgm.volume；静音按钮同时静音 BGM。
+  // 自动避让(ducking)：当前镜有配音时把 BGM 压到 30%，无配音镜恢复设定音量，避免盖住人声。
+  useEffect(() => {
+    const b = bgmRef.current;
+    if (!b) return;
+    if (!bgm) { b.pause(); if (b.getAttribute("src")) b.removeAttribute("src"); return; }
+    if (b.getAttribute("src") !== bgm.url) b.src = bgm.url;
+    b.loop = true;
+    const base = Math.min(1, Math.max(0, (bgm.volume ?? 30) / 100));
+    const ducking = hasVoice && !!voiceTracks?.[shots[idx]?.id];
+    b.volume = ducking ? base * 0.3 : base;
+    b.muted = muted;
+    if (playing && !muted) b.play().catch(() => {});
+    else b.pause();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bgm, playing, muted, idx, hasVoice]);
 
   const fmt = (s: number) => {
     const sec = Math.max(0, Math.floor(s));
@@ -2942,7 +3621,7 @@ function FilmPlayer({
         } catch {
           /* metadata 未就绪，忽略 */
         }
-        v.muted = muted;
+        v.muted = hasVoice ? true : muted;
         if (playing) v.play().catch(() => {});
       }
       setActive(other);
@@ -2991,6 +3670,8 @@ function FilmPlayer({
     if (ci === idx) {
       const v = vRefs[active].current;
       if (v) v.currentTime = offset;
+      const a = ttsRef.current;
+      if (a && hasVoice) { try { a.currentTime = offset; } catch { /* 忽略 */ } }
       setSegT(offset);
     } else {
       goToShot(ci, offset);
@@ -3036,6 +3717,8 @@ function FilmPlayer({
       setSegT(offset);
       const v = vRefs[active].current;
       if (v) v.currentTime = offset;
+      const a = ttsRef.current;
+      if (a && hasVoice) { try { a.currentTime = offset; } catch { /* 忽略 */ } }
     } else {
       goToShot(ci, offset);
     }
@@ -3043,6 +3726,12 @@ function FilmPlayer({
 
   return (
     <div className="film-player">
+      {/* 方案B 配音音轨：跟随当前镜播放的火山 TTS，视频原声已静音 */}
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <audio ref={ttsRef} onEnded={() => { /* 配音比镜头短 → 播完静默，等切镜 */ }} hidden />
+      {/* 背景音乐：整片循环 */}
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <audio ref={bgmRef} hidden />
       <div className="film-stage" style={{ aspectRatio: ratioToCss(ratio) }}>
         {[0, 1].map((slot) => (
           <video
@@ -3052,11 +3741,20 @@ function FilmPlayer({
             className="film-video"
             style={{ opacity: active === slot ? 1 : 0 }}
             src={playableVideoSrc(shots[slotShot[slot]]?.videoUrl, cache)}
-            muted={muted}
+            muted={hasVoice ? true : muted}
             playsInline
             preload="auto"
             onTimeUpdate={(e) => {
-              if (slot === active && !seekingRef.current) setSegT((e.target as HTMLVideoElement).currentTime);
+              if (slot === active && !seekingRef.current) {
+                const vt = (e.target as HTMLVideoElement).currentTime;
+                setSegT(vt);
+                // 配音连续校准：dub 音轨已把每句按「镜内时间」烤进去，故其 currentTime 应始终等于视频镜内时间。
+                // 只在切镜时同步一次会漂移/晚起 → 每次 timeupdate 若偏差>0.25s 就拉回，保证配音与字幕/画面同步。
+                const a = ttsRef.current;
+                if (a && hasVoice && !muted && playing && a.getAttribute("src") && Math.abs(a.currentTime - vt) > 0.25) {
+                  try { a.currentTime = vt; } catch { /* 未就绪忽略 */ }
+                }
+              }
             }}
             onLoadedMetadata={(e) => {
               if (pendingSeek.current && pendingSeek.current.slot === slot) {
@@ -3308,12 +4006,12 @@ function SettingField({
 const ASSET_KIND_EMOJI: Record<string, string> = { 场景: "🏞️", 角色: "🧑", 道具: "🎁" };
 // 文生图模型要求图片 ≥ 3,686,400 像素（约 1920×1920），故 1K 档也用 1920² 起（避免 size too small 报错）
 const ASSET_SIZE_MAP: Record<string, string> = { "1K": "1920x1920", "2K": "2048x2048", "4K": "4096x4096" };
-const ASSET_KINDS_ALL: Array<Asset["kind"]> = ["场景", "角色", "道具"];
+const ASSET_KINDS_ALL: Array<Asset["kind"]> = ["角色", "场景", "道具"];
 
 // 按元素类型定制生图提示词后缀：场景只出环境（无人物）、角色出三视图、道具出单个静物
 function assetKindPrompt(kind: Asset["kind"]): string {
   if (kind === "场景") return "场景环境概念图，宽幅取景，画面中不要出现人物，写实、氛围统一、高清";
-  if (kind === "角色") return "角色三视图设定图，同一角色的正面、侧面、背面三个视角并排全身，纯白色背景，无场景干扰，高清";
+  if (kind === "角色") return "角色设定图，横构图左右分区：左侧为该角色的半身特写照片（清晰正脸、上半身、突出五官与气质），右侧为同一角色的三视图（正面、侧面、背面三个视角并排全身，姿势自然）；左右为同一个人，外貌/发型/服饰完全一致，纯白色背景，无场景干扰，高清";
   return "单个道具静物图，主体居中，纯色干净背景，无人物、无多余物件，高清";
 }
 
@@ -3333,6 +4031,8 @@ function AssetsStep({
   genSettings,
   setGenSettings,
   genAllImages,
+  stopGenAllImages,
+  voiceMatchBusy,
   genImgBusy,
   genImgProg,
   toast,
@@ -3345,7 +4045,9 @@ function AssetsStep({
   stylePrompt: string; // 项目视频风格的画面描述词（智能匹配为空），生图/改图时注入保持整体风格一致
   genSettings: Record<string, AssetGenSetting>;
   setGenSettings: (updater: Record<string, AssetGenSetting> | ((p: Record<string, AssetGenSetting>) => Record<string, AssetGenSetting>)) => void;
-  genAllImages: () => void; // 一键生成全部参考图（提升到 Studio，切步骤/页面后台仍继续）
+  genAllImages: (redoAll?: boolean) => void; // 一键生成全部参考图（提升到 Studio，切步骤/页面后台仍继续）
+  stopGenAllImages: () => void; // 停止一键生成
+  voiceMatchBusy: boolean;
   genImgBusy: boolean;
   genImgProg: { done: number; total: number };
   toast: (s: string, k?: "warn") => void;
@@ -3406,8 +4108,9 @@ function AssetsStep({
       const obj = m ? (JSON.parse(m[0]) as { scenes?: string[]; characters?: string[]; props?: string[] }) : null;
       if (!obj) return toast("解析失败，请重试", "warn");
       const items: { kind: Asset["kind"]; name: string }[] = [];
-      (obj.scenes || []).forEach((n) => n && items.push({ kind: "场景", name: String(n) }));
+      // 顺序：角色 > 场景 > 道具（自动添加优先给出角色）
       (obj.characters || []).forEach((n) => n && items.push({ kind: "角色", name: String(n) }));
+      (obj.scenes || []).forEach((n) => n && items.push({ kind: "场景", name: String(n) }));
       (obj.props || []).forEach((n) => n && items.push({ kind: "道具", name: String(n) }));
       if (!items.length) return toast("剧本里没提取到场景/角色/道具", "warn");
       // 只替换「上次自动生成的」（id 以 auto- 开头）：保留手动添加 / 示例元素，删掉旧的自动元素、换成本次的
@@ -3424,10 +4127,10 @@ function AssetsStep({
   }
 
   // 一键生成全部图片：实际生成逻辑在 Studio（后台持续，切步骤/页面不中断）。这里只做首次点击的「去生成设置」提示。
-  function onGenAll() {
+  // redoAll=true：全部重做（含已有图片，按当前视频风格覆盖重生成）。
+  function onGenAll(redoAll = false) {
     if (genImgBusy) return;
     if (!assets.length) return toast("还没有元素，请先「自动添加」或手动添加", "warn");
-    // 首次点击：直接打开「生成设置」让用户先确认生图模型 / 清晰度（只拦一次；关闭后再点即开始生成）
     try {
       if (!localStorage.getItem(GEN_IMG_HINT_KEY)) {
         localStorage.setItem(GEN_IMG_HINT_KEY, "1");
@@ -3438,14 +4141,15 @@ function AssetsStep({
     } catch {
       /* 隐私模式禁用 storage 时忽略，直接进入生成 */
     }
-    genAllImages(); // 交给 Studio 的后台并行生成
+    genAllImages(redoAll); // 交给 Studio 的后台并行生成
   }
+  const allHaveImg = assets.length > 0 && assets.every((a) => a.refImg);
 
   const empty = assets.length === 0;
   return (
     <div className="stage-panel">
-      <div className="sp-title">② 场景角色道具</div>
-      <div className="sp-sub">手动添加或自动读剧本生成场景 / 角色 / 道具，给参考图（本地上传 · 仓库选图 · AI 生成）。在「分镜脚本」为每镜勾选出镜元素，生成时注入参考图保持一致。</div>
+      <div className="sp-title">② 角色场景道具</div>
+      <div className="sp-sub">手动添加或自动读剧本生成角色 / 场景 / 道具，给参考图（本地上传 · 仓库选图 · AI 生成）。在「分镜脚本」为每镜勾选出镜元素，生成时注入参考图保持一致。</div>
       <div className="assets-toolbar">
         <button className="btn btn-soft btn-sm" disabled={autoBusy} onClick={autoGen} title="读取①脚本内容，自动添加场景/角色/道具（只加元素，不生图）">
           <Icon name={autoBusy ? "refresh" : "sparkle"} size={14} className={autoBusy ? "ico-spin" : undefined} /> {autoBusy ? "添加中…" : "自动添加"}
@@ -3463,12 +4167,24 @@ function AssetsStep({
             </>
           )}
         </div>
-        <button className="btn btn-primary btn-sm" disabled={genImgBusy || autoBusy || empty} onClick={onGenAll} title="对所有还没有参考图的元素，先优化描述再 AI 生成参考图（后台生成，可切换到其它步骤）">
-          <Icon name={genImgBusy ? "refresh" : "sparkle"} size={14} className={genImgBusy ? "ico-spin" : undefined} /> {genImgBusy ? `生成中 ${genImgProg.done}/${genImgProg.total}…` : "一键生成全部图片"}
-        </button>
+        {genImgBusy ? (
+          <button className="btn btn-primary btn-sm assets-genall-stop" onClick={stopGenAllImages} title="点击停止（正在生成的这几张会完成，其余不再生成）">
+            <Icon name="refresh" size={14} className="ico-spin" /> 生成中 {genImgProg.done}/{genImgProg.total} · 点击停止
+          </button>
+        ) : (
+          <button className="btn btn-primary btn-sm" disabled={autoBusy || empty} onClick={() => onGenAll(allHaveImg)} title={allHaveImg ? "全部元素重新生成参考图（按当前视频风格覆盖现有图片）" : "对所有还没有参考图的元素，先优化描述再 AI 生成参考图（后台生成，可切换到其它步骤）"}>
+            <Icon name={allHaveImg ? "refresh" : "sparkle"} size={14} /> {allHaveImg ? "一键全部重做" : "一键生成全部图片"}
+          </button>
+        )}
         <button className="btn btn-ghost btn-sm" onClick={() => setSetOpen(true)} title="生成设置">
           <Icon name="gear" size={14} />
         </button>
+        {/* 音色改为默认自动匹配（角色出现即在后台匹配），此处不再放手动按钮 */}
+        {voiceMatchBusy && (
+          <span className="btn btn-ghost btn-sm" style={{ pointerEvents: "none", opacity: 0.75 }}>
+            <Icon name="refresh" size={14} className="ico-spin" /> 匹配音色中…
+          </span>
+        )}
         {!empty && (
           <div className="assets-filter">
             {(["全部", ...ASSET_KINDS_ALL] as const).map((k) => (
@@ -3588,6 +4304,7 @@ function AssetCardEdit({
   const fileRef = useRef<HTMLInputElement>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [zoom, setZoom] = useState(false); // 点已有参考图 → 放大查看
+  const [voiceOpen, setVoiceOpen] = useState(false); // 「声音设置」弹窗（仅角色）
   function onFile(e: ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     e.target.value = "";
@@ -3643,12 +4360,6 @@ function AssetCardEdit({
           <Icon name="sparkle" size={11} /> AI 生成
         </button>
       </div>
-      <input
-        className="sp-card2-name"
-        value={asset.name}
-        placeholder="元素名称"
-        onChange={(e) => onChange({ name: e.target.value })}
-      />
       <div className="sp-card2-kinds">
         {ASSET_KINDS.map((k) => (
           <span
@@ -3660,6 +4371,28 @@ function AssetCardEdit({
           </span>
         ))}
       </div>
+      <input
+        className="sp-card2-name"
+        value={asset.name}
+        placeholder="元素名称"
+        onChange={(e) => onChange({ name: e.target.value })}
+      />
+      {/* 仅角色：底部「音色选择」行，点开「声音设置」弹窗 */}
+      {asset.kind === "角色" && (
+        <button className="sp-card2-voice" type="button" onClick={() => setVoiceOpen(true)} title="为该角色选择配音音色">
+          <span className="sp-card2-voice-lbl">音色选择：</span>
+          <b className={asset.voice ? "" : "muted"}>{asset.voice?.name ?? "未选择"}</b>
+          <span className="sp-card2-voice-arrow">›</span>
+        </button>
+      )}
+      {voiceOpen && (
+        <VoiceSettingsModal
+          asset={asset}
+          onSave={(v) => { onChange({ voice: v }); setVoiceOpen(false); }}
+          onClose={() => setVoiceOpen(false)}
+          toast={toast}
+        />
+      )}
       {modalOpen && (
         <AssetGenModal
           asset={asset}
@@ -3673,6 +4406,566 @@ function AssetCardEdit({
         />
       )}
     </div>
+  );
+}
+
+// 情感中文名 → 火山 emotion 枚举
+const VOLC_EMOTION: Record<string, string> = { 开心: "happy", 伤心: "sad", 生气: "angry", 惊讶: "surprise", 平静: "neutral", 中性: "neutral" };
+
+// 试听/合成：调 /api/tts（火山语音）拿音频并播放。成功返回 null；失败返回可读原因（不抛异常）。
+let voicePreviewEl: HTMLAudioElement | null = null;
+async function playVoicePreview(
+  text: string,
+  voiceType?: string,
+  opts?: { speed?: number; volume?: number; pitch?: number; emotion?: string },
+): Promise<string | null> {
+  try {
+    if (voicePreviewEl) { voicePreviewEl.pause(); voicePreviewEl = null; }
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: text.slice(0, 300),
+        voice: voiceType,
+        speed: opts?.speed,
+        volume: opts?.volume,
+        pitch: opts?.pitch,
+        emotion: opts?.emotion ? VOLC_EMOTION[opts.emotion] : undefined,
+        clone: /^S_/.test(voiceType || ""),
+      }),
+    });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      return j.error || `试听失败（${res.status}）`;
+    }
+    const buf = await res.arrayBuffer();
+    if (!buf.byteLength) return "试听失败：未返回音频";
+    const url = URL.createObjectURL(new Blob([buf], { type: "audio/mpeg" }));
+    const a = new Audio(url);
+    a.onended = () => URL.revokeObjectURL(url);
+    voicePreviewEl = a;
+    await a.play();
+    return null;
+  } catch {
+    return "试听失败，请检查网络或 TTS 配置";
+  }
+}
+
+// 音色收藏（localStorage）
+function loadVoiceFavs(): string[] {
+  try { return JSON.parse(localStorage.getItem("mofun.studio.voiceFavs") || "[]") as string[]; } catch { return []; }
+}
+function saveVoiceFavs(ids: string[]) {
+  try { localStorage.setItem("mofun.studio.voiceFavs", JSON.stringify(ids)); } catch { /* 隐私模式忽略 */ }
+}
+
+// 声音复刻：用户自己的音色（localStorage）。id 即火山 speaker_id（S_xxx），name 为用户命名
+interface CustomVoice { id: string; name: string; time?: string }
+function loadCustomVoices(): CustomVoice[] {
+  try { return JSON.parse(localStorage.getItem("mofun.studio.customVoices") || "[]") as CustomVoice[]; } catch { return []; }
+}
+function saveCustomVoices(list: CustomVoice[]) {
+  try { localStorage.setItem("mofun.studio.customVoices", JSON.stringify(list)); } catch { /* 隐私模式忽略 */ }
+}
+// 音色名解析：复刻音色查本地库，系统音色查 voices.ts
+function voiceNameOf(id?: string): string {
+  if (!id) return "";
+  if (/^S_/.test(id)) return loadCustomVoices().find((v) => v.id === id)?.name || "我的声音";
+  return findVoice(id)?.name || "";
+}
+// 音色对象解析：复刻音色包成与系统音色兼容的对象（tts=speaker_id），系统音色查 voices.ts
+function resolveVoice(id?: string): Voice | undefined {
+  if (!id) return undefined;
+  if (/^S_/.test(id)) {
+    const cv = loadCustomVoices().find((v) => v.id === id);
+    return cv ? ({ id: cv.id, name: cv.name, tts: cv.id, scene: "声音复刻", age: "", gender: "", multiEmotion: false } as Voice) : undefined;
+  }
+  return findVoice(id);
+}
+
+// 音色选择弹窗（图3）：系统音色/收藏 + 场景/年龄/性别筛选 + 网格（试听/收藏）+ 取消/确定
+function VoicePickerModal({
+  currentId,
+  onPick,
+  onClose,
+}: {
+  currentId?: string;
+  onPick: (voiceId: string) => void;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<"system" | "fav">("system");
+  const [scene, setScene] = useState<string>(VOICE_SCENES[0]);
+  const [age, setAge] = useState<string>(VOICE_AGES[0]);
+  const [gender, setGender] = useState<string>(VOICE_GENDERS[0]);
+  const [sel, setSel] = useState<string | undefined>(currentId);
+  const [favs, setFavs] = useState<string[]>([]);
+  const [customs, setCustoms] = useState<CustomVoice[]>([]); // 声音复刻：我的声音
+  const [cloneOpen, setCloneOpen] = useState(false); // 「使用自己声音」录制/上传弹层
+  const [menuFor, setMenuFor] = useState<string | null>(null); // 我的声音的「⋮」菜单展开项
+  const [editId, setEditId] = useState<string | null>(null); // 正在重命名的我的声音 id
+  const [editName, setEditName] = useState("");
+  const [mounted, setMounted] = useState(false);
+  // 我的声音：重命名 / 删除（仅复刻音色，写回 localStorage）
+  const renameCustom = (id: string, nm: string) => {
+    const name = nm.trim();
+    if (!name) return;
+    const next = loadCustomVoices().map((v) => (v.id === id ? { ...v, name } : v));
+    saveCustomVoices(next); setCustoms(next);
+  };
+  const deleteCustom = (id: string) => {
+    const next = loadCustomVoices().filter((v) => v.id !== id);
+    saveCustomVoices(next); setCustoms(next);
+    if (sel === id) setSel(undefined);
+  };
+  useEffect(() => { setMounted(true); setFavs(loadVoiceFavs()); setCustoms(loadCustomVoices()); }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const toggleFav = (id: string) => {
+    setFavs((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      saveVoiceFavs(next);
+      return next;
+    });
+  };
+  const list = VOICES.filter((v) => {
+    if (tab === "fav" && !favs.includes(v.id)) return false;
+    // 「多情感」是标记维度：选它则只看有多情感的音色；其它场景按 v.scene 精确匹配
+    if (scene === "多情感") { if (!v.multiEmotion) return false; }
+    else if (scene !== VOICE_SCENES[0] && v.scene !== scene) return false;
+    if (age !== VOICE_AGES[0] && v.age !== age) return false;
+    if (gender !== VOICE_GENDERS[0] && v.gender !== gender) return false;
+    return true;
+  });
+  const resetFilters = () => { setScene(VOICE_SCENES[0]); setAge(VOICE_AGES[0]); setGender(VOICE_GENDERS[0]); };
+
+  if (!mounted) return null;
+  return createPortal(
+    <div className="vp-mask" onClick={onClose}>
+      <div className="vpk-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="vpk-head">
+          <div className="vp-tabs">
+            <button className={tab === "system" ? "vp-tab on" : "vp-tab"} onClick={() => setTab("system")}>系统音色</button>
+            <button className={tab === "fav" ? "vp-tab on" : "vp-tab"} onClick={() => setTab("fav")}>收藏音色</button>
+          </div>
+          <button className="vp-x" aria-label="关闭" onClick={onClose}><Icon name="close" size={18} /></button>
+        </div>
+        <div className="vp-filters">
+          <select className="vp-sel" value={scene} onChange={(e) => setScene(e.target.value)}>
+            {VOICE_SCENES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select className="vp-sel" value={age} onChange={(e) => setAge(e.target.value)}>
+            {VOICE_AGES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select className="vp-sel" value={gender} onChange={(e) => setGender(e.target.value)}>
+            {VOICE_GENDERS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          {/* 使用自己声音（声音复刻）：录/传一段自己的声音克隆成音色 */}
+          <button className="vp-own" onClick={() => setCloneOpen(true)} title="录一段或上传一段自己的声音，克隆成专属音色">
+            使用自己声音
+          </button>
+          <button className="vp-reset" onClick={resetFilters}>重置筛选</button>
+        </div>
+        <div className="vp-grid">
+          {/* 我的声音（复刻音色）：置顶，可选、可试听 */}
+          {tab === "system" && customs.map((cv) => (
+            <div
+              key={cv.id}
+              className={`vp-item vp-item-own${sel === cv.id ? " on" : ""}`}
+              onClick={() => setSel(cv.id)}
+            >
+              <button
+                className="vp-play"
+                title="试听"
+                onClick={(e) => { e.stopPropagation(); void playVoicePreview(`你好，我是${cv.name}。`, cv.id); }}
+              >▶</button>
+              {editId === cv.id ? (
+                <input
+                  className="vp-rename"
+                  value={editName}
+                  autoFocus
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setEditName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { renameCustom(cv.id, editName); setEditId(null); }
+                    if (e.key === "Escape") setEditId(null);
+                  }}
+                  onBlur={() => { renameCustom(cv.id, editName); setEditId(null); }}
+                  maxLength={12}
+                />
+              ) : (
+                <span className="vp-name">{cv.name}</span>
+              )}
+              <span className="vp-badge vp-badge-own">我的</span>
+              {/* 仅「我的声音」有 ⋮ 菜单：重命名 / 删除 */}
+              <button
+                className="vp-more"
+                title="更多"
+                onClick={(e) => { e.stopPropagation(); setMenuFor(menuFor === cv.id ? null : cv.id); }}
+              >⋮</button>
+              {menuFor === cv.id && (
+                <>
+                  <div className="vp-more-mask" onClick={(e) => { e.stopPropagation(); setMenuFor(null); }} />
+                  <div className="vp-more-menu" onClick={(e) => e.stopPropagation()}>
+                    <button onClick={() => { setEditId(cv.id); setEditName(cv.name); setMenuFor(null); }}>重命名</button>
+                    <button className="vp-more-del" onClick={() => { deleteCustom(cv.id); setMenuFor(null); }}>删除</button>
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+          {list.length === 0 && customs.length === 0 && <div className="vp-empty">{tab === "fav" ? "还没有收藏的音色" : "没有符合筛选条件的音色"}</div>}
+          {list.map((v) => (
+            <div
+              key={v.id}
+              className={`vp-item${sel === v.id ? " on" : ""}`}
+              onClick={() => setSel(v.id)}
+            >
+              <button
+                className="vp-play"
+                title="试听"
+                onClick={(e) => { e.stopPropagation(); void playVoicePreview(`你好，我是${v.name}。`, v.tts); }}
+              >▶</button>
+              <span className="vp-name">{v.name}</span>
+              {v.multiEmotion && <span className="vp-badge">多情感</span>}
+              <button
+                className={`vp-fav${favs.includes(v.id) ? " on" : ""}`}
+                title={favs.includes(v.id) ? "取消收藏" : "收藏"}
+                onClick={(e) => { e.stopPropagation(); toggleFav(v.id); }}
+              >{favs.includes(v.id) ? "★" : "☆"}</button>
+            </div>
+          ))}
+        </div>
+        <div className="vp-acts">
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>取消</button>
+          <button className="btn btn-primary btn-sm" disabled={!sel} onClick={() => { if (sel) { onPick(sel); onClose(); } }}>确定</button>
+        </div>
+      </div>
+      {cloneOpen && (
+        <VoiceCloneModal
+          onClose={() => setCloneOpen(false)}
+          onDone={(cv) => {
+            const next = [cv, ...loadCustomVoices().filter((x) => x.id !== cv.id)];
+            saveCustomVoices(next);
+            setCustoms(next);
+            setSel(cv.id);
+            setCloneOpen(false);
+          }}
+        />
+      )}
+    </div>,
+    document.body,
+  );
+}
+
+// 使用自己声音（声音复刻）：录制或上传一段音频 → 火山训练 → 轮询状态 → 存为「我的声音」
+function VoiceCloneModal({ onClose, onDone }: { onClose: () => void; onDone: (cv: CustomVoice) => void }) {
+  const [name, setName] = useState("我的声音");
+  const [audio, setAudio] = useState<{ blob: Blob; url: string; format: string } | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [phase, setPhase] = useState<"idle" | "submitting" | "training" | "error">("idle");
+  const [err, setErr] = useState("");
+  const [mounted, setMounted] = useState(false);
+  const recRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => () => { if (audio) URL.revokeObjectURL(audio.url); }, [audio]);
+
+  const startRec = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      chunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
+      mr.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
+        setAudio({ blob, url: URL.createObjectURL(blob), format: /wav/.test(blob.type) ? "wav" : /mp3|mpeg/.test(blob.type) ? "mp3" : "wav" });
+      };
+      recRef.current = mr;
+      mr.start();
+      setRecording(true);
+    } catch {
+      setErr("无法访问麦克风，请检查浏览器权限，或改用上传音频。");
+      setPhase("error");
+    }
+  };
+  const stopRec = () => { recRef.current?.stop(); setRecording(false); };
+  const onFile = (f?: File) => {
+    if (!f) return;
+    const fmt = /wav/i.test(f.name) ? "wav" : /m4a|aac/i.test(f.name) ? "m4a" : "mp3";
+    setAudio({ blob: f, url: URL.createObjectURL(f), format: fmt });
+  };
+
+  const blobToBase64 = (blob: Blob) =>
+    new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onloadend = () => resolve(String(r.result).replace(/^data:[^;]+;base64,/, ""));
+      r.onerror = reject;
+      r.readAsDataURL(blob);
+    });
+
+  const submit = async () => {
+    if (!audio || !name.trim()) return;
+    setPhase("submitting"); setErr("");
+    try {
+      // 统一转 WAV 再上传（火山不收浏览器录音的 webm 格式）
+      const wav = await blobToWav(audio.blob);
+      if (!wav) { setErr("音频解析失败，请换一段录音或换个音频文件重试。"); setPhase("error"); return; }
+      const b64 = await blobToBase64(wav);
+      const tr = await fetch("/api/voice-clone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "train", audio: b64, format: "wav", used: loadCustomVoices().map((v) => v.id) }),
+      });
+      const tj = await tr.json();
+      if (!tr.ok || !tj.speakerId) { setErr(tj.error || "提交训练失败"); setPhase("error"); return; }
+      const speakerId = tj.speakerId as string;
+      setPhase("training");
+      // 轮询状态（每 4s，最多 ~3 分钟）
+      const deadline = Date.now() + 3 * 60 * 1000;
+      for (;;) {
+        if (Date.now() > deadline) { setErr("训练超时，请稍后在「我的声音」重试。"); setPhase("error"); return; }
+        await new Promise((r) => setTimeout(r, 4000));
+        const sr = await fetch("/api/voice-clone", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "status", speakerId }),
+        });
+        const sj = await sr.json();
+        if (sj.done) {
+          if (sj.ok) { onDone({ id: speakerId, name: name.trim() }); return; }
+          setErr(sj.message || "训练失败，请换一段更清晰的录音重试。"); setPhase("error"); return;
+        }
+      }
+    } catch (e) {
+      setErr(String(e instanceof Error ? e.message : e)); setPhase("error");
+    }
+  };
+
+  if (!mounted) return null;
+  const busy = phase === "submitting" || phase === "training";
+  return createPortal(
+    <div className="vp-mask" onClick={busy ? undefined : onClose}>
+      <div className="vcl-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="vpk-head">
+          <b>使用自己的声音（声音复刻）</b>
+          <button className="vp-x" aria-label="关闭" onClick={onClose}><Icon name="close" size={18} /></button>
+        </div>
+        <div className="vcl-body">
+          <div className="vcl-tip">录一段或上传一段清晰的中文朗读（约 10–20 秒、安静环境、单人），克隆成你的专属音色。</div>
+          <div className="vcl-script">
+            <div className="vcl-script-label">朗读参考（照着念即可）</div>
+            <p className="vcl-script-text">你好，很高兴认识你。今天天气不错，希望你也有个好心情。生活中有很多美好的事情值得我们去发现，只要用心感受，每一天都会充满惊喜。</p>
+          </div>
+          <label className="vcl-field"><span>音色名称</span>
+            <input className="vcl-input" value={name} onChange={(e) => setName(e.target.value)} maxLength={12} placeholder="如：我的声音" />
+          </label>
+          <div className="vcl-capture">
+            {!recording ? (
+              <button className="btn btn-soft btn-sm" onClick={startRec} disabled={busy}>● 录制</button>
+            ) : (
+              <button className="btn btn-primary btn-sm" onClick={stopRec}>■ 停止录制</button>
+            )}
+            <button className="btn btn-soft btn-sm" onClick={() => fileRef.current?.click()} disabled={busy}>⬆ 上传音频</button>
+            <input ref={fileRef} type="file" accept="audio/*" hidden onChange={(e) => onFile(e.target.files?.[0])} />
+            {audio && <audio className="vcl-audio" src={audio.url} controls controlsList="nodownload noplaybackrate" />}
+          </div>
+          {err && <div className="vcl-err">{err}</div>}
+          {phase === "training" && <div className="vcl-status">🧬 正在训练你的声音，请稍候（约 1–2 分钟）…</div>}
+          {phase === "submitting" && <div className="vcl-status">上传中…</div>}
+        </div>
+        <div className="vp-acts">
+          <button className="btn btn-ghost btn-sm" onClick={onClose} disabled={busy}>取消</button>
+          <button className="btn btn-primary btn-sm" disabled={!audio || !name.trim() || busy} onClick={submit}>
+            {busy ? "处理中…" : "开始克隆"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// 背景音乐选择弹层（⑤ 时间轴「添加背景音乐」用）：内置曲库 + 上传本地音乐
+function BgmPickerModal({
+  current,
+  onPick,
+  onClose,
+  toast,
+}: {
+  current?: { url: string; name: string; volume: number } | null;
+  onPick: (b: { url: string; name: string; volume: number }) => void;
+  onClose: () => void;
+  toast: (s: string, k?: "warn") => void;
+}) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  if (!mounted) return null;
+  return createPortal(
+    <div className="vp-mask" onClick={onClose}>
+      <div className="bgmpick" onClick={(e) => e.stopPropagation()}>
+        <div className="bgmpick-head">
+          <b>🎵 背景音乐</b>
+          <button className="vp-x" aria-label="关闭" onClick={onClose}><Icon name="close" size={18} /></button>
+        </div>
+        <div className="bgmpick-body">
+          <div className="sp-bgm-menu-title">内置曲库</div>
+          <div className="sp-bgm-presets">
+            {BGM_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                className={current?.name === p.name ? "sp-bgm-preset on" : "sp-bgm-preset"}
+                onClick={async () => {
+                  const url = bgmUrl(p.id);
+                  const ok = await fetch(url, { method: "HEAD" }).then((r) => r.ok).catch(() => false);
+                  if (!ok) { toast("内置曲库的音乐文件还没放置（需把 mp3 放到 public/bgm/），请先用「上传本地音乐」", "warn"); return; }
+                  onPick({ url, name: p.name, volume: current?.volume ?? 30 });
+                }}
+              >
+                {p.name}<em>{p.mood}</em>
+              </button>
+            ))}
+          </div>
+          <label className="sp-bgm-upload">
+            ＋ 上传本地音乐（mp3/wav）
+            <input
+              type="file"
+              accept="audio/*"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (!f) return;
+                if (f.size > 20 * 1024 * 1024) { toast("音频不能超过 20MB", "warn"); return; }
+                onPick({ url: URL.createObjectURL(f), name: f.name.replace(/\.[^.]+$/, ""), volume: current?.volume ?? 30 });
+              }}
+            />
+          </label>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// 声音设置弹窗（图2）：头部音色 + 语速/音量/语调 + 情感 + 试听/确定选择
+function VoiceSettingsModal({
+  asset,
+  onSave,
+  onClose,
+  toast,
+  confirmLabel = "确定选择",
+}: {
+  asset: Asset;
+  onSave: (v: AssetVoice) => void;
+  onClose: () => void;
+  toast: (s: string, k?: "warn") => void;
+  confirmLabel?: string; // 确定按钮文案（重新编辑已生成的配音时传「重新生成」）
+}) {
+  const [voiceId, setVoiceId] = useState<string | undefined>(asset.voice?.id);
+  const [rate, setRate] = useState(asset.voice?.rate ?? 1.0);
+  const [volume, setVolume] = useState(asset.voice?.volume ?? 5);
+  const [pitch, setPitch] = useState(asset.voice?.pitch ?? 1.0);
+  const [emotion, setEmotion] = useState<string | undefined>(asset.voice?.emotion);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && (pickerOpen ? undefined : onClose());
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose, pickerOpen]);
+
+  const voice: Voice | undefined = resolveVoice(voiceId);
+  // 换音色后，若新音色不支持多情感，清掉情感
+  useEffect(() => { if (!voice?.multiEmotion) setEmotion(undefined); }, [voice?.multiEmotion]);
+
+  const doPreview = async () => {
+    if (previewing) return;
+    setPreviewing(true);
+    const err = await playVoicePreview(`你好，我是${asset.name || "角色"}，很高兴见到你。`, voice?.tts, {
+      speed: rate, volume: volume / 5, pitch, emotion: voice?.multiEmotion ? emotion : undefined,
+    });
+    setPreviewing(false);
+    if (err) toast(err, "warn");
+  };
+  const confirm = () => {
+    if (!voice) { toast("请先选择音色", "warn"); return; }
+    onSave({ id: voice.id, name: voice.name, rate, volume, pitch, emotion: voice.multiEmotion ? emotion : undefined });
+  };
+
+  if (!mounted) return null;
+  return createPortal(
+    <div className="vs-mask" onClick={onClose}>
+      <div className="vs-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="vs-head">
+          <b>声音设置</b>
+          <button className="vs-x" aria-label="关闭" onClick={onClose}><Icon name="close" size={18} /></button>
+        </div>
+        <div className="vs-top">
+          <span className="vs-avatar">
+            {asset.refImg
+              // eslint-disable-next-line @next/next/no-img-element
+              ? <img src={asset.refImg} alt={asset.name} />
+              : <Icon name="image" size={20} />}
+          </span>
+          <span className="vs-name">{asset.name || "角色"}</span>
+          <span className={`vs-voice${voice ? " on" : ""}`}>{voice ? `🎤 ${voice.name}` : "🎤 未选择音色"}</span>
+          <button className="vs-pick" onClick={() => setPickerOpen(true)}>音色选择 ›</button>
+        </div>
+
+        <div className="vs-row">
+          <span className="vs-lbl">语速</span>
+          <input className="vs-range" type="range" min={0.5} max={2} step={0.1} value={rate} onChange={(e) => setRate(Number(e.target.value))} />
+          <span className="vs-val">{rate.toFixed(1)}x</span>
+        </div>
+        <div className="vs-row">
+          <span className="vs-lbl">音量</span>
+          <input className="vs-range" type="range" min={1} max={10} step={1} value={volume} onChange={(e) => setVolume(Number(e.target.value))} />
+          <span className="vs-val">{volume}</span>
+        </div>
+        <div className="vs-row">
+          <span className="vs-lbl">语调</span>
+          <input className="vs-range" type="range" min={0.5} max={2} step={0.1} value={pitch} onChange={(e) => setPitch(Number(e.target.value))} />
+          <span className="vs-val">{pitch.toFixed(1)}x</span>
+        </div>
+        <div className="vs-row vs-row-emotion">
+          <span className="vs-lbl">情感</span>
+          {voice?.multiEmotion ? (
+            <div className="vs-emotions">
+              {VOICE_EMOTIONS.map((em) => (
+                <span key={em} className={emotion === em ? "vs-emo on" : "vs-emo"} onClick={() => setEmotion(em)}>{em}</span>
+              ))}
+            </div>
+          ) : (
+            <span className="vs-emo-lock">🔒 当前音色不支持多情感</span>
+          )}
+        </div>
+
+        <div className="vs-acts">
+          <button className="vs-preview" disabled={previewing} onClick={doPreview}>▶ {previewing ? "试听中…" : "试听"}</button>
+          <button className="btn btn-primary vs-confirm" onClick={confirm}>{confirmLabel}</button>
+        </div>
+      </div>
+      {pickerOpen && (
+        <VoicePickerModal
+          currentId={voiceId}
+          onPick={(id) => setVoiceId(id)}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
+    </div>,
+    document.body,
   );
 }
 
@@ -3785,7 +5078,9 @@ function AssetGenModal({
       // 结合项目「视频风格」：把风格描述词拼进 prompt，使参考图风格与整片统一（智能匹配为空则不拼）
       const styleSuffix = stylePrompt?.trim() ? `，整体画面风格：${stylePrompt.trim()}` : "";
       const modelId = STUDIO_IMAGE_MODELS.find((m) => m.name === model)?.modelId || "";
-      const base = { n: 1, size: ASSET_SIZE_MAP[size] || "2048x2048", ...(modelId ? { model: modelId } : {}) };
+      // 角色=「左照片+右三视图」横构图 → 宽幅画布；其余按清晰度方图
+      const genImgSize = asset.kind === "角色" && !kindPrompt ? "2816x1536" : (ASSET_SIZE_MAP[size] || "2048x2048");
+      const base = { n: 1, size: genImgSize, ...(modelId ? { model: modelId } : {}) };
       // 生图：有基底图（如尾帧以首帧为基底）→ 图生图保住主体/场景；否则纯文生。改图：图生图（原图 + 修改要求）。
       const body =
         tab === "edit"
@@ -4109,6 +5404,23 @@ function Timeline({
   onRemoveSub,
   onAddSub,
   onPlayClip,
+  voiceTracks,
+  voiceOffsets = {},
+  voiceSegs = {},
+  onMoveVoice,
+  onGenShotDub,
+  synthBusy,
+  onOpenBgm,
+  audioMode,
+  setAudioMode,
+  assets = [],
+  bgm,
+  exportFilm,
+  exportDraft,
+  exportClips,
+  exportSubtitles,
+  exporting,
+  exportPct,
 }: {
   shots: Shot[];
   totalDur: number;
@@ -4121,10 +5433,28 @@ function Timeline({
   onRemoveSub: (id: string) => void; // 删除字幕
   onAddSub: (sec: number) => void; // 在某时间点新增字幕
   onPlayClip: (shot: Shot) => void; // 点击（非拖拽）镜头块 → 弹出大号分镜视频预览
+  voiceTracks?: Record<string, string>; // 配音轨：shotId → 已合成的火山 TTS 音频
+  voiceOffsets?: Record<string, number>; // （保留）配音块偏移（秒）
+  voiceSegs?: Record<string, { dur: number; name: string }>; // 按字幕的配音：subtitleId → {时长, 音色名}，配音块按此画
+  onMoveVoice?: (shotId: string, sec: number) => void; // （保留）拖动配音块 → 改偏移
+  onGenShotDub?: (shot: Shot) => void; // 点某镜「生成配音」→ 弹声音设置并合成该镜
+  synthBusy?: boolean; // 配音合成进行中
+  onOpenBgm?: () => void; // 点「背景音乐」→ 上传本地音频作 BGM
+  audioMode?: string; // 声音来源：dub=配音 / original=原声
+  setAudioMode?: (m: string) => void; // 切换配音/原声
+  assets?: Asset[]; // 用于解析每镜配音音色名
+  bgm?: { url: string; name: string; volume: number } | null; // 背景音乐轨
+  exportFilm: (opts?: { subtitles: boolean; audio: boolean }) => void; // 导出成片
+  exportDraft: () => void; // 导出剪映素材包
+  exportClips: () => void; // 重新导出全部分镜素材
+  exportSubtitles: () => void; // 只导出字幕(.srt)
+  exporting: boolean; // 导出进行中
+  exportPct: number; // 导出进度百分比
 }) {
   const total = totalDur || 1;
   const [pps, setPps] = useState(92); // 每秒像素（放大缩小改这个）
   const [editingSub, setEditingSub] = useState<string | null>(null); // 正在编辑文字的字幕 id（双击进入）
+  const [exportMenu, setExportMenu] = useState(false); // 右上角「导出 ▾」下拉
   const contentW = Math.max(total * pps, 320);
   const scrollRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -4132,6 +5462,7 @@ function Timeline({
   const pan = useRef<{ x: number; left: number; clipId: string | null } | null>(null);
   // 字幕块拖动：mode=move 整体平移改起始 / l 拖左缘改起始+时长 / r 拖右缘改时长
   const subDrag = useRef<{ id: string; mode: "move" | "l" | "r"; grab: number; origStart: number; origEnd: number } | null>(null);
+  const voiceDrag = useRef<{ id: string; grabX: number; orig: number } | null>(null); // 拖动配音块
 
   // 持续跟踪容器可用宽度：既用于首屏「铺满」，也作为缩小下限（缩到正好铺满全部镜头）。
   const [availW, setAvailW] = useState(0);
@@ -4144,7 +5475,10 @@ function Timeline({
       if (avail <= 40) return;
       setAvailW(avail);
       if (!fittedRef.current) {
-        setPps(Math.max(6, Math.min(480, avail / total))); // 首屏铺满一次（之后由用户放大缩小）
+        // 首屏按「已生成镜头」的时长铺满（未生成的在右侧，用户滑动或缩小才看到）；一个都没生成则铺满全部
+        const doneDur = shots.filter((s) => s.status === "done" && s.videoUrl).reduce((a, x) => a + x.dur, 0);
+        const fitDur = doneDur > 0 ? doneDur : total;
+        setPps(Math.max(6, Math.min(480, avail / fitDur)));
         fittedRef.current = true;
       }
     };
@@ -4197,7 +5531,7 @@ function Timeline({
   }
   // 轨道空白 / 片段上按下拖拽 → 左右平移滚动（字幕输入、刻度尺、播放头、缩放按钮除外）
   function panDown(e: RPointerEvent) {
-    if ((e.target as HTMLElement).closest(".tl2-sub, .tl2-subin, .tl2-ruler, .tl2-playhead, .tl2-zoom")) return;
+    if ((e.target as HTMLElement).closest(".tl2-sub, .tl2-subin, .tl2-dub, .tl2-dub-gen, .tl2-orig, .tl2-bgm, .tl2-bgm-gen, .tl2-ruler, .tl2-playhead, .tl2-zoom")) return;
     const sc = scrollRef.current;
     if (!sc) return;
     // 记录按下时命中的镜头块 id（pointer capture 后 panUp 的 target 会变成滚动容器，故在此提前记下）
@@ -4245,19 +5579,50 @@ function Timeline({
 
   return (
     <div className="tl2">
-      {/* 放大 / 缩小（剪映式） */}
-      <div className="tl2-zoom">
-        <button onClick={() => zoom(1 / 1.4)} title="缩小" aria-label="缩小">－</button>
-        <button onClick={() => zoom(1.4)} title="放大" aria-label="放大">＋</button>
+      {/* 右上角「导出 ▾」：合成成片 / 剪映素材包 / 素材 / 字幕 */}
+      <div className="tl2-export">
+        <button className="btn btn-primary btn-sm" disabled={exporting} onClick={() => setExportMenu((v) => !v)}>
+          {exporting ? `导出中 ${exportPct}%` : "导出 ▾"}
+        </button>
+        {exportMenu && !exporting && (
+          <>
+            <div className="sp-export-mask" onClick={() => setExportMenu(false)} />
+            <div className="sp-export-menu tl2-export-menu">
+              <button className="sp-export-item" onClick={() => { setExportMenu(false); exportFilm({ subtitles: true, audio: true }); }}>
+                <span className="sp-export-it"><b>导出成片</b><small>合成为一段视频（含字幕/声音）并下载</small></span>
+              </button>
+              <button className="sp-export-item" onClick={() => { setExportMenu(false); exportDraft(); }}>
+                <span className="sp-export-it"><b>导出剪映素材包</b><small>全部片段 + 字幕(.srt)，拖入剪映二次剪辑</small></span>
+              </button>
+              <button className="sp-export-item" onClick={() => { setExportMenu(false); exportClips(); }}>
+                <span className="sp-export-it"><b>重新导出素材</b><small>把全部分镜片段逐个下载到本地</small></span>
+              </button>
+              <div className="sp-export-sep" />
+              <button className="sp-export-item sp-export-item-sm" onClick={() => { setExportMenu(false); exportSubtitles(); }}>
+                <span className="sp-export-it"><b>只导出字幕（.srt）</b></span>
+              </button>
+            </div>
+          </>
+        )}
       </div>
-      {/* 左侧固定轨道名列：与刻度尺留空对齐后，依次是「镜头」「字幕」两条轨道的名牌，不随时间轴横向滚动 */}
+      {/* 左侧固定轨道名列：顶部空位放「放大/缩小」控件，其下依次是各轨道名牌，不随时间轴横向滚动 */}
       <div className="tl2-gutter">
-        <div className="tl2-gutter-sp" />
+        <div className="tl2-gutter-sp">
+          {/* 放大 / 缩小（剪映式） */}
+          <button className="tl2-zoombtn" onClick={() => zoom(1 / 1.4)} title="缩小" aria-label="缩小">－</button>
+          <button className="tl2-zoombtn" onClick={() => zoom(1.4)} title="放大" aria-label="放大">＋</button>
+        </div>
         <div className="tl2-glabel tl2-glabel-vid">
           <span>镜头</span>
         </div>
         <div className="tl2-glabel tl2-glabel-sub">
           <span>字幕</span>
+        </div>
+        <div className="tl2-glabel tl2-glabel-dub">
+          <span>配音</span>
+        </div>
+        <div className="tl2-glabel tl2-glabel-bgm">
+          <span>背景音乐</span>
         </div>
       </div>
       <div className="tl2-scroll" ref={scrollRef} onPointerDown={panDown} onPointerMove={panMove} onPointerUp={panUp}>
@@ -4345,6 +5710,80 @@ function Timeline({
                 <span className="tl2-sub-handle tl2-sub-r" onPointerDown={(e) => subDown(e, sub, "r")} />
               </div>
             ))}
+          </div>
+
+          {/* 配音轨：配音模式下→已配音显示配音块、未配音显示「生成配音」按钮；并在其后放「原声」切换 */}
+          <div className="tl2-track tl2-dubtrack">
+            {/* 原声切换（放在生成配音之后）：切到原声则用视频自带声音、不用配音 */}
+            {setAudioMode && (
+              <button
+                className={`tl2-orig${audioMode === "original" ? " on" : ""}`}
+                style={{ left: before(0) * pps + 100 }}
+                onClick={(e) => { e.stopPropagation(); setAudioMode(audioMode === "original" ? "dub" : "original"); }}
+                title={audioMode === "original" ? "当前用原声（视频自带声音），点切回配音" : "切到原声：用视频自带声音，不用配音"}
+              >
+                {audioMode === "original" ? "原声中" : "原声"}
+              </button>
+            )}
+            {audioMode !== "original" && subtitles.map((sub) => {
+              const seg = voiceSegs[sub.id];
+              if (!seg) return null;
+              // 找该字幕所属镜头（点击配音块 → 重新打开声音设置、重配这一镜）
+              let acc = 0; let shotOf: Shot | undefined;
+              for (const s of shots) { if (sub.start >= acc - 0.05 && sub.start < acc + s.dur - 0.001) { shotOf = s; break; } acc += s.dur; }
+              return (
+                <div
+                  key={`dub-${sub.id}`}
+                  className="tl2-dub"
+                  style={{ left: sub.start * pps, width: Math.max(seg.dur * pps - 2, 24) }}
+                  title={`${seg.name}：${sub.text}（配音 ${seg.dur.toFixed(1)}s）· 点击重新编辑配音`}
+                  onClick={(e) => { e.stopPropagation(); if (shotOf && onGenShotDub) onGenShotDub(shotOf); }}
+                >
+                  <span className="tl2-dub-name">🎙 {seg.name}</span>
+                  <span className="tl2-dub-text">{sub.text}</span>
+                </div>
+              );
+            })}
+            {/* 每个镜头一个「生成配音」按钮（未生成视频的置灰、提示先生成）；已配音的镜头不显示。原声/配音模式下按钮都保留，只切换配音块内容。
+               不限制必须有台词——无台词镜头也显示，声音内容可在弹出的声音设置里手填 */}
+            {onGenShotDub && shots.map((s, i) => {
+              if (voiceTracks?.[s.id]) return null;
+              const canDub = s.status === "done" && !!s.videoUrl;
+              return (
+                <button
+                  key={`dubgen-${s.id}`}
+                  className="tl2-dub-gen"
+                  style={{ left: before(i) * pps + 3, maxWidth: Math.max(s.dur * pps - 8, 56) }}
+                  disabled={synthBusy || !canDub}
+                  onClick={(e) => { e.stopPropagation(); onGenShotDub(s); }}
+                  title={canDub ? `为镜头${i + 1}生成配音：弹出声音设置，设定后合成这一镜的配音` : `镜头${i + 1}还没生成视频，请先在④生成后再配音`}
+                >
+                  {synthBusy ? "合成中…" : "生成配音"}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 背景音乐轨：已设置→整片一条；未设置→每个镜头一个「添加背景音乐」按钮 */}
+          <div className="tl2-track tl2-bgmtrack">
+            {bgm ? (
+              <div className="tl2-bgm" style={{ left: 0, width: Math.max(total * pps - 2, 24) }} title="点击更换背景音乐" onClick={() => onOpenBgm?.()}>
+                <span className="tl2-bgm-name">🎵 {bgm.name}</span>
+              </div>
+            ) : (
+              shots.map((s, i) => (
+                <button
+                  key={`bgmgen-${s.id}`}
+                  className="tl2-bgm-gen"
+                  style={{ left: before(i) * pps + 3, maxWidth: Math.max(s.dur * pps - 8, 56) }}
+                  disabled={!onOpenBgm}
+                  onClick={(e) => { e.stopPropagation(); onOpenBgm?.(); }}
+                  title="上传本地音频作全片背景音乐"
+                >
+                  添加背景音乐
+                </button>
+              ))
+            )}
           </div>
 
           {/* 播放头（可拖拽 scrub，与预览联动） */}

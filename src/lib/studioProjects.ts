@@ -21,17 +21,33 @@ export interface StudioProject extends StudioProjectMeta {
 
 const KEY = "mofun.studio.projects";
 
+// 读取失败时置位：此时绝不允许整表覆写（否则一次读失败 + 一次保存 = 全部项目被抹掉）
+let loadFailed = false;
+
 function loadAll(): StudioProject[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = window.localStorage.getItem(KEY);
+    loadFailed = false;
     return raw ? (JSON.parse(raw) as StudioProject[]) : [];
   } catch {
+    // 解析/读取异常 ≠ 没有数据。返回空列表前先把原始内容备份一份，且标记「读失败」，
+    // 后续 saveAll 拒绝在此状态下覆写主键——修复「读失败返回 []，下次保存整表覆写导致所有项目丢失」的缺陷。
+    loadFailed = true;
+    try {
+      const raw = window.localStorage.getItem(KEY);
+      if (raw) window.localStorage.setItem(`${KEY}.corrupt-backup`, raw);
+    } catch { /* 备份失败也不能抛出 */ }
     return [];
   }
 }
 
 function saveAll(list: StudioProject[]) {
+  // 上一次读取失败（列表可能是残缺的空数组）→ 拒绝整表覆写，保住存储里的原有项目
+  if (loadFailed) {
+    console.warn("[studioProjects] 上次读取失败，跳过本次保存以避免覆写丢失全部项目");
+    return;
+  }
   try {
     window.localStorage.setItem(KEY, JSON.stringify(list));
   } catch (e) {
@@ -41,7 +57,8 @@ function saveAll(list: StudioProject[]) {
   }
 }
 
-// 剔除 base64 大字段（首尾帧），保留外链 videoUrl / poster，避免 localStorage 配额溢出
+// 剔除 base64 大字段（首尾帧 + 超大参考图），保留外链 videoUrl / poster，避免 localStorage 配额溢出。
+// 配额约 5MB，一旦存满整表保存会失败；多个大项目叠加时甚至诱发读写异常连锁丢数据，故必须在入库前瘦身。
 function trimState(state: Record<string, unknown>): Record<string, unknown> {
   const shots = (state.shots as Array<Record<string, unknown>> | undefined) ?? [];
   const slim = shots.map((s) => {
@@ -51,7 +68,16 @@ function trimState(state: Record<string, unknown>): Record<string, unknown> {
     }
     return c;
   });
-  return { ...state, shots: slim };
+  // 元素参考图：外链 URL 原样保留；内嵌 base64 超过 ~300KB 的剔除（重开项目后可重新生成/上传）
+  const assets = (state.assets as Array<Record<string, unknown>> | undefined) ?? [];
+  const slimAssets = assets.map((a) => {
+    const img = a.refImg;
+    if (typeof img === "string" && img.startsWith("data:") && img.length > 300_000) {
+      return { ...a, refImg: undefined };
+    }
+    return a;
+  });
+  return { ...state, shots: slim, assets: slimAssets };
 }
 
 /** 项目列表（不含 state，按最近更新倒序）——供首页展示。 */

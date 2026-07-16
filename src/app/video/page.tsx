@@ -13,6 +13,7 @@ function VideoInner() {
       initialFrom={sp.get("from") ?? undefined}
       initialName={sp.get("name") ?? undefined}
       initialPid={sp.get("pid") ?? undefined}
+      initialReedit={sp.get("reedit") ?? undefined}
     />
   );
 }

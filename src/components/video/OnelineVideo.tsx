@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { readReedit } from "@/lib/reedit";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { useLibrary } from "@/lib/store";
@@ -427,10 +428,36 @@ function drawWrappedText(
   shown.forEach((l, i) => ctx.fillText(l, x, startY + i * lineH));
 }
 
-export function OnelineVideo() {
+// 把「我的作品」里的视频作品重建成一条已完成的历史记录（供二次编辑跳回定位）
+function buildReeditRun(card: AssetCard, nonce: string): VideoRunRow {
+  const durLabel = card.edit?.dur || (card.name.match(/(\d+)\s*s/i)?.[1] ? card.name.match(/(\d+)\s*s/i)![1] + "s" : "15s");
+  return {
+    id: `reedit-${nonce}`,
+    mode: "t2v",
+    prompt: card.edit?.input || card.name,
+    ratio: card.edit?.ratio || "16:9",
+    dur: durLabel,
+    style: card.edit?.style || "智能匹配",
+    time: card.time || nowStamp(),
+    status: "done",
+    pct: 100,
+    poster: card.img,
+    videoUrl: card.videoUrl,
+    grad: card.grad,
+    withAudio: true,
+  };
+}
+
+export function OnelineVideo({ reeditNonce }: { reeditNonce?: string }) {
   const toast = useToast();
   const { addWork, isFavorite, toggleFavorite } = useLibrary();
   const router = useRouter();
+
+  // 二次编辑：读取暂存的视频作品，重建为最新历史记录并高亮定位
+  const reeditCard = useMemo(() => {
+    const c = readReedit(reeditNonce);
+    return c && c.kind === "视频" ? c : null;
+  }, [reeditNonce]);
 
   const [tab, setTab] = useState<"t2v" | "i2v">("t2v");
   // —— 文生视频 ——
@@ -456,7 +483,10 @@ export function OnelineVideo() {
   const [model, setModel] = useState<string>("Seedance 1.5 Pro"); // 视频生成模型
   const [count, setCount] = useState(1);
 
-  const [runs, setRuns] = useState<VideoRunRow[]>(SEED_RUNS);
+  const [runs, setRuns] = useState<VideoRunRow[]>(() =>
+    reeditCard ? [buildReeditRun(reeditCard, reeditNonce as string), ...SEED_RUNS] : SEED_RUNS,
+  );
+  const [highlightId, setHighlightId] = useState<string | null>(reeditCard ? `reedit-${reeditNonce}` : null);
   const [resultTab, setResultTab] = useState<"history" | "inspire">("history"); // 右侧面板 Tab
   const [onlyFav, setOnlyFav] = useState(false); // 只看收藏
   const [playingId, setPlayingId] = useState<string | null>(null); // 播放器中预览记录的 id
@@ -483,6 +513,20 @@ export function OnelineVideo() {
   const lastRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), []);
+
+  // 二次编辑：进入即切到历史 Tab、滚动定位到重建的记录并高亮片刻
+  useEffect(() => {
+    if (!highlightId) return;
+    setResultTab("history");
+    setOnlyFav(false);
+    const t1 = window.setTimeout(
+      () => document.getElementById(`ov-run-${highlightId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }),
+      140,
+    );
+    const t2 = window.setTimeout(() => setHighlightId(null), 3200);
+    return () => { window.clearTimeout(t1); window.clearTimeout(t2); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 运动预设词开关：已在描述中则移除该词，否则追加（按「，」分词，顺带去重）
   function toggleMotionWord(w: string) {
@@ -745,8 +789,9 @@ export function OnelineVideo() {
           name: `${p.text.slice(0, 12) || "一句话视频"} · ${p.dur}`,
           sub: p.withAudio !== false ? "视频生成 · 一句话成片 · 有声" : "视频生成 · 一句话成片",
           img: poster ?? p.poster, // 优先用捕获的首帧（t2v 无传入 poster 时也有封面）
+          videoUrl, // 存真实视频地址，供作品封面显示首帧 & 二次编辑重建可播放记录
           time: nowStamp(),
-          edit: { sub: "oneline", input: p.text, model },
+          edit: { sub: "oneline", input: p.text, model, ratio: p.ratio, dur: p.dur, style: p.style },
         });
         toast("🎬 视频已生成，已存入「我的作品」");
       } else if (isQuotaError(rawReason)) {
@@ -1386,6 +1431,7 @@ export function OnelineVideo() {
                   <VideoRunCard
                     key={r.id}
                     row={r}
+                    highlight={r.id === highlightId}
                     onDelete={() => deleteRun(r.id)}
                     onPlay={() => setPlayingId(r.id)}
                     onRegenerate={() => regenerate(r)}
@@ -1588,6 +1634,7 @@ const STATUS_TEXT: Record<VideoRunRow["status"], string> = {
 
 function VideoRunCard({
   row,
+  highlight,
   onDelete,
   onPlay,
   onRegenerate,
@@ -1598,6 +1645,7 @@ function VideoRunCard({
   onFav,
 }: {
   row: VideoRunRow;
+  highlight?: boolean;
   onDelete: () => void;
   onPlay: () => void;
   onRegenerate: () => void;
@@ -1612,7 +1660,7 @@ function VideoRunCard({
   const durLabel = (row.dur.match(/\d+/)?.[0] ?? "5").padStart(2, "0");
 
   return (
-    <div className="ov-run">
+    <div className={`ov-run${highlight ? " reedit-hl" : ""}`} id={`ov-run-${row.id}`}>
       <div className="ov-run-head">
         {/* 提示词整宽置顶：默认 2 行省略，溢出时点击展开/收起（复用生图 ClampText 交互） */}
         <ClampText text={row.prompt} lines={2} className="ov-run-prompt" />

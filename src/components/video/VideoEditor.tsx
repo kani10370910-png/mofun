@@ -28,12 +28,14 @@ export function VideoEditor({
   initialFrom,
   initialName,
   initialPid,
+  initialReedit,
 }: {
   initialSub?: string;
   initialInput?: string;
   initialFrom?: string;
   initialName?: string;
   initialPid?: string;
+  initialReedit?: string;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -104,7 +106,7 @@ export function VideoEditor({
       <div className="page">
         <div className="editor-layout">
           <EditorRail items={railItems} activeKey={current} iconOf={iconOf} onPick={switchType} />
-          <OnelineVideo />
+          <OnelineVideo reeditNonce={initialReedit} />
         </div>
       </div>
     );

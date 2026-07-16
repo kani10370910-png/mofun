@@ -68,6 +68,7 @@ export function LogoGallery({
   tab,
   setTab,
   runRows,
+  highlightId,
   onUseCase,
   onCopy,
   onDeleteRun,
@@ -75,6 +76,7 @@ export function LogoGallery({
   tab: "history" | "inspire";
   setTab: (t: "history" | "inspire") => void;
   runRows: LogoRunRow[];
+  highlightId?: string; // 二次编辑重建的记录 id，命中则高亮定位
   onUseCase: (c: LogoCase) => void;
   onCopy: (style: string, prompt: string) => void;
   onDeleteRun: (id: string) => void;
@@ -154,6 +156,7 @@ export function LogoGallery({
                 <LogoRunRowView
                   key={row.id}
                   row={row}
+                  highlight={row.id === highlightId}
                   toast={toast}
                   onCopy={onCopy}
                   onDelete={() => setPending({ kind: "run", id: row.id })}
@@ -264,6 +267,7 @@ export function LogoGallery({
 
 function LogoRunRowView({
   row,
+  highlight,
   toast,
   onCopy,
   onDelete,
@@ -272,6 +276,7 @@ function LogoRunRowView({
   onToggleFav,
 }: {
   row: LogoRunRow;
+  highlight?: boolean;
   toast: (s: string) => void;
   onCopy: (style: string, prompt: string) => void;
   onDelete: () => void;
@@ -291,7 +296,7 @@ function LogoRunRowView({
   // 「只看收藏」下，已完成且无收藏结果的行整行隐藏
   if (!loading && !row.error && onlyFav && shown.length === 0) return null;
   return (
-    <div className="lh-row">
+    <div className={`lh-row${highlight ? " reedit-hl" : ""}`} id={`imgrun-${row.id}`}>
       <div className="lh-meta">
         <span className="lh-title">
           <b className="lh-prompt">{row.prompt}</b>

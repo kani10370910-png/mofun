@@ -72,6 +72,7 @@ export function ActiveGallery({
   tab,
   setTab,
   runRows = [],
+  highlightId,
   onDeleteRun,
   onCopyRun,
   onUseCase,
@@ -82,6 +83,7 @@ export function ActiveGallery({
   tab?: "history" | "cases";
   setTab?: (t: "history" | "cases") => void;
   runRows?: EventRunRow[];
+  highlightId?: string; // 二次编辑重建的记录 id，命中则高亮定位
   onDeleteRun?: (id: string) => void;
   onCopyRun?: (prompt: string) => void;
   onUseCase?: (it: ActiveGalleryItem) => void; // 套用模版：回填画面描述 + 成图类型 + 尺寸
@@ -145,6 +147,7 @@ export function ActiveGallery({
                   <EventRunRowView
                     key={row.id}
                     row={row}
+                    highlight={row.id === highlightId}
                     onlyFav={onlyFav}
                     favs={favs}
                     onToggleFav={toggleFav}
@@ -220,6 +223,7 @@ export function ActiveGallery({
 /* 单条生成行：加载中显示进度占位，完成后显示真图卡；支持「只看收藏」筛选 */
 function EventRunRowView({
   row,
+  highlight,
   onlyFav,
   favs,
   onToggleFav,
@@ -227,6 +231,7 @@ function EventRunRowView({
   onDelete,
 }: {
   row: EventRunRow;
+  highlight?: boolean;
   onlyFav: boolean;
   favs: Set<string>;
   onToggleFav: (key: string) => void;
@@ -246,7 +251,7 @@ function EventRunRowView({
   // 「只看收藏」下整行无收藏（且无错误）则隐藏该行
   if (!loading && !row.error && onlyFav && shown.length === 0) return null;
   return (
-    <div className="lh-row">
+    <div className={`lh-row${highlight ? " reedit-hl" : ""}`} id={`imgrun-${row.id}`}>
       <div className="lh-meta">
         <span className="lh-title lh-title-clamp">
           <b className="lh-prompt"><ClampText text={row.prompt} lines={2} /></b>

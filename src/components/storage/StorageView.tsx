@@ -8,6 +8,7 @@ import { myWorks, myMaterials, brands as seedBrands, BRAND_SEQ_START } from "@/d
 import type { AssetCard } from "@/lib/types";
 import { useLibrary, assetKey } from "@/lib/store";
 import { asset } from "@/lib/asset";
+import { stashReedit } from "@/lib/reedit";
 import { BrandPane } from "./BrandPane";
 import { AssetFilterBar, useAssetFilter } from "./AssetFilter";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
@@ -114,8 +115,11 @@ function WorksPane({ toast }: { toast: (s: string) => void }) {
                     <button
                       className="btn btn-soft btn-sm"
                       onClick={() => {
-                        toast(`正在打开「${target.label}」编辑器…`);
-                        router.push(target.href);
+                        // 暂存作品并带 nonce 跳转：目标模块据此重建为一条最新历史记录并高亮定位
+                        const nonce = stashReedit(w);
+                        const href = target.href + (target.href.includes("?") ? "&" : "?") + "reedit=" + nonce;
+                        toast(`正在打开「${target.label}」…`);
+                        router.push(href);
                       }}
                     >
                       二次编辑
@@ -230,7 +234,16 @@ export function AssetCardView({
             <Icon name="heart" size={15} />
           </button>
         )}
-        {item.img ? (
+        {item.kind === "视频" && item.videoUrl ? (
+          // 视频作品：用视频真实首帧当封面（避免用无关的 poster 海报占位图）
+          <video
+            className="at-img"
+            src={`${asset(item.videoUrl)}#t=0.1`}
+            muted
+            playsInline
+            preload="metadata"
+          />
+        ) : item.img ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img className="at-img" src={asset(item.img!)} alt={item.name} loading="lazy" />
         ) : (

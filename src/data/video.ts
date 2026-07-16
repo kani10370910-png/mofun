@@ -18,9 +18,10 @@ export interface VideoModel {
   badge?: "NEW" | "会员专享"; // 角标
 }
 export const videoModels: VideoModel[] = [
-  { name: "Seedance 2.0",      modelId: "seedance-2.0",      desc: "旗舰版，文生 / 图生，15s 音画同步", tags: ["音画同步", "15s"] },
-  { name: "Seedance 2.0 Fast", modelId: "seedance-2.0-fast", desc: "快速版，出图更快，15s 音画同步",    tags: ["音画同步", "15s"]              },
-  { name: "Seedance 2.0 Mini", modelId: "seedance-2.0-mini", desc: "轻量版，适合快速预览",              tags: ["15s"]                          },
+  // 均为 Direct 分组下实测有通道可用的视频模型（seedance-2.0 / seedance-2.0-fast 在该分组无通道，已移除）
+  { name: "Seedance 2.0 Mini", modelId: "seedance-2.0-mini", desc: "2.0 轻量版，Direct 分组可用，推荐", tags: ["15s", "推荐"] },
+  { name: "Seedance",          modelId: "seedance",          desc: "标准版，Direct 分组可用",            tags: ["音画同步", "15s"] },
+  { name: "Seedance Fast",     modelId: "seedance-fast",     desc: "快速版，出图更快，Direct 分组可用",  tags: ["音画同步", "15s"] },
 ];
 
 /* ---------- 一句话视频：生成管线（简化版，反映模型真实能力） ---------- */
@@ -41,7 +42,7 @@ export const studioShotSizes = ["远景", "全景", "中景", "近景", "特写"
 /* ---------- 视频「制作大片」6 步流程（参考 360 漫剧） ---------- */
 export const studioSteps: StudioStep[] = [
   { key: "script", no: 1, name: "脚本编辑", desc: "填写或 AI 生成视频脚本 / 文案" },
-  { key: "assets", no: 2, name: "场景角色道具", desc: "设定出镜场景、角色与关键道具" },
+  { key: "assets", no: 2, name: "角色场景道具", desc: "设定出镜角色、场景与关键道具" },
   { key: "storyboard", no: 3, name: "分镜脚本", desc: "拆分镜头：画面 + 旁白 + 时长" },
   { key: "clips", no: 4, name: "分镜视频", desc: "逐镜生成视频片段" },
   { key: "preview", no: 5, name: "视频预览", desc: "合成预览、配乐字幕、导出成片" },
