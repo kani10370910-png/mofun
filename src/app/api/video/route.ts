@@ -35,7 +35,10 @@ export async function POST(req: NextRequest) {
   console.log("[video] model:", model, "| baseURL:", baseURL || "(empty)", "| key:", apiKey ? "set" : "MISSING", "| imageUrl:", body.imageUrl ? body.imageUrl.slice(0, 40) + `… (${(body.imageUrl.length/1024).toFixed(0)}KB)` : "none", "| tailImageUrl:", body.tailImageUrl ? `(${(body.tailImageUrl.length/1024).toFixed(0)}KB)` : "none");
   if (!apiKey || !baseURL) return Response.json({ error: "no API key" }, { status: 503 });
 
-  const duration = parseInt(String(body.dur).match(/\d+/)?.[0] ?? "5", 10);
+  // seedance / kling 视频模型只接受有效时长区间（约 5–10 秒），镜头脚本里 2–4s 这种会被模型拒（InvalidParameter）。
+  // 这里把提交给模型的时长贴合到 5–10 秒；分镜时间轴仍用镜头自身时长（短镜头在预览里对生成视频做裁剪），不影响脚本节奏。
+  const rawDur = parseInt(String(body.dur).match(/\d+/)?.[0] ?? "5", 10);
+  const duration = Math.max(5, Math.min(10, Number.isFinite(rawDur) ? rawDur : 5));
   const headers  = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` };
 
   if (isKlingModel(model)) {
@@ -155,8 +158,8 @@ async function handleSeedance(p: {
             : `网关拒绝请求（${firstText.slice(0, 60) || `HTTP ${submitRes.status}`}）`;
     console.warn("[video/seedance] 首次被拒原文 →", firstText.slice(0, 200));
     const hasRef = content.some((c) => c.role === "reference_image");
-    // ① 原样重试：网关内容审核偶发误杀，同一请求重试常能过；不丢任何图，保住衔接与人物锁定。
-    //    但「首帧+参考图不能混用」「真人首帧被拦」是确定性错误，重试无意义 → 跳过直接降级。
+    // ① 原样重试：普通内容审核偶发误杀，同一请求重试常能过。
+    //    但「真人输入图 PrivacyInformation」「首帧+参考图不能混用」是确定性拒绝（Seedance 硬性拒收含真人的输入图），重试无意义 → 跳过，快速失败。
     if (!isMixErr && !isRealPerson) {
       for (let i = 0; i < 2 && !submitRes.ok; i++) {
         console.warn(`[video/seedance] 提交被拒，原样重试 ${i + 1}/2 →`, submitRes.status);
@@ -183,11 +186,13 @@ async function handleSeedance(p: {
         if (retry) { submitRes = retry; if (retry.ok) degraded = true; }
       }
     }
-    // ④ 还不行 → 纯文生（丢所有图）。彻底兜底，产出脱节但可用的视频。
-    if (!submitRes.ok) {
+    // ④ 还不行 → 纯文生（丢所有图）。⚠️ 只对「本就没有首帧」的镜头（首镜纯文生）兜底；
+    //    有首帧的承接镜绝不退化为纯文生——那会同时毁掉「与上一镜尾帧的衔接」和「跨镜人物一致」，
+    //    产出一段脱节又换人的视频还标成已生成。此时宁可保留失败态、把真实原因回传，让用户重试或换模型。
+    if (!submitRes.ok && !hadFirstFrame) {
       const noImg = content.filter((c) => c.type !== "image_url");
       if (noImg.length !== content.length) {
-        console.warn("[video/seedance] 兜底纯文生 →", submitRes.status);
+        console.warn("[video/seedance] 兜底纯文生（无首帧镜）→", submitRes.status);
         const retry = await submit(noImg, { resolution: p.body.resolution || "720p" });
         if (retry) { submitRes = retry; if (retry.ok) degraded = true; }
       }
@@ -207,7 +212,13 @@ async function handleSeedance(p: {
     const raw = await submitRes.json().catch(() => ({})) as { error?: { message?: string }; message?: string; code?: string };
     const errMsg = raw?.error?.message ?? raw?.message ?? raw?.code ?? `HTTP ${submitRes.status}`;
     console.error("[video/seedance] submit failed", submitRes.status, errMsg);
-    return Response.json({ error: errMsg }, { status: submitRes.status });
+    // 承接镜（有首帧）为保证衔接不退化为纯文生 → 回传对症提示，尤其真人首帧被拦时引导换成接受真人首帧的 Mini 模型。
+    const friendly = hadFirstFrame
+      ? /真人|隐私|real person|privacy/.test(degradeReason || errMsg)
+        ? "承接上一镜的首帧里含真人，被模型隐私审核拦截（Seedance 各版本含 Mini 都可能触发，且多为偶发）。已多次重试仍未过、且为保证衔接未退化为纯文生。请直接点「重试」（偶发审核，重试常能过）；若反复被拦，把上一镜结尾改成人物侧身/半身远景（正脸越明确越易被拦），或改用「参考图锁脸」方式。"
+        : `${degradeReason || errMsg}。承接镜为保证与上一镜衔接不会退化为纯文生，请重试本镜。`
+      : errMsg;
+    return Response.json({ error: friendly }, { status: submitRes.status });
   }
 
   const data = await submitRes.json() as { id?: string; task_id?: string; video_url?: string; status?: string };

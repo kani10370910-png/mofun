@@ -13,6 +13,7 @@ export interface StudioProjectMeta {
   ts: number; // 排序用时间戳
   count: number; // 分镜数（集数）
   cover?: string; // 封面：首个已生成视频
+  fav?: boolean; // 是否收藏（首页「只看收藏」筛选用）
 }
 
 export interface StudioProject extends StudioProjectMeta {
@@ -83,7 +84,7 @@ function trimState(state: Record<string, unknown>): Record<string, unknown> {
 /** 项目列表（不含 state，按最近更新倒序）——供首页展示。 */
 export function listProjects(): StudioProjectMeta[] {
   return loadAll()
-    .map((p) => ({ id: p.id, name: p.name, updated: p.updated, ts: p.ts, count: p.count, cover: p.cover }))
+    .map((p) => ({ id: p.id, name: p.name, updated: p.updated, ts: p.ts, count: p.count, cover: p.cover, fav: p.fav }))
     .sort((a, b) => b.ts - a.ts);
 }
 
@@ -133,6 +134,16 @@ export function cloneProject(sourceId: string, newId: string, newName: string): 
 
 export function deleteProject(id: string) {
   saveAll(loadAll().filter((p) => p.id !== id));
+}
+
+/** 切换某项目的收藏状态，返回切换后的值（项目不存在返回 false）。 */
+export function toggleProjectFav(id: string): boolean {
+  const all = loadAll();
+  const p = all.find((x) => x.id === id);
+  if (!p) return false;
+  p.fav = !p.fav;
+  saveAll(all);
+  return !!p.fav;
 }
 
 export function renameProject(id: string, name: string) {

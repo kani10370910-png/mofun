@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { EditorRail, type RailItem } from "@/components/ui/EditorRail";
 import { posterFor } from "@/lib/videoFx";
-import { listProjects, deleteProject, renameProject, reserveProject, uniqueProjectName, cloneProject, type StudioProjectMeta } from "@/lib/studioProjects";
+import { listProjects, deleteProject, renameProject, reserveProject, uniqueProjectName, cloneProject, toggleProjectFav, type StudioProjectMeta } from "@/lib/studioProjects";
 import { appConfirm, appPrompt } from "@/components/ui/Confirm";
 import { SETTING_FIELDS, videoStyles } from "@/data/video";
 import type { IconName } from "@/data/icons";
@@ -55,8 +55,17 @@ export function StudioHome({
   const [projects, setProjects] = useState<StudioProjectMeta[]>([]);
   const [menuFor, setMenuFor] = useState<string | null>(null); // 打开「⋯」菜单的项目 id
   const [allOpen, setAllOpen] = useState(false); // 「查看更多」：打开「全部大片」页
-  const PREVIEW_COUNT = 4; // 首页首屏显示的项目数（配合「＋新建大片」约一行）
-  const shownProjects = projects.slice(0, PREVIEW_COUNT);
+  const [tab, setTab] = useState<"films" | "inspire">("films"); // 顶部 Tab：我制作的大片 / 参考灵感
+  const [onlyFav, setOnlyFav] = useState(false); // 只看收藏
+  const PREVIEW_COUNT = 8; // 首页首屏显示的项目数（大卡片网格约两行）
+  const favProjects = onlyFav ? projects.filter((p) => p.fav) : projects;
+  const shownProjects = favProjects.slice(0, PREVIEW_COUNT);
+
+  // 收藏/取消收藏：写回项目文件并刷新列表
+  function toggleFav(id: string) {
+    toggleProjectFav(id);
+    setProjects(listProjects());
+  }
 
   // 客户端读取真实项目（避免 SSR 不一致）
   useEffect(() => {
@@ -117,11 +126,23 @@ export function StudioHome({
               <Icon name="film" size={30} />
             </span>
           )}
+          <span className="sh-folder-count">{p.count} 镜</span>
         </div>
         <div className="sh-folder-meta2">
           <span className="sh-folder-name">{p.name || "未命名"}</span>
           <span className="sh-folder-time">{p.updated}</span>
         </div>
+      </button>
+      <button
+        className={p.fav ? "sh-folder-fav on" : "sh-folder-fav"}
+        aria-label={p.fav ? "取消收藏" : "收藏"}
+        title={p.fav ? "取消收藏" : "收藏"}
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleFav(p.id);
+        }}
+      >
+        <Icon name="heart" size={15} />
       </button>
       <button
         className="sh-folder-more"
@@ -150,14 +171,29 @@ export function StudioHome({
       <div className="editor-layout">
         <EditorRail items={railItems} activeKey="studio" iconOf={iconOf} onPick={onPickType} />
         <div className="studio-home">
+          {/* 顶部 Tab：我制作的大片 / 参考灵感 + 只看收藏（对标一句话成片布局） */}
+          <div className="lg-head sh-lg-head">
+            <div className="tabs">
+              <div className={tab === "films" ? "tab on" : "tab"} onClick={() => setTab("films")}>我制作的大片</div>
+              <div className={tab === "inspire" ? "tab on" : "tab"} onClick={() => setTab("inspire")}>参考灵感</div>
+            </div>
+            {tab === "films" && projects.length > 0 && (
+              <label className="lg-fav-switch">
+                <input type="checkbox" checked={onlyFav} onChange={(e) => setOnlyFav(e.target.checked)} />
+                <span className="lg-switch" />
+                只看收藏
+              </label>
+            )}
+          </div>
+
           {/* 我制作的大片 */}
+          {tab === "films" ? (
           <section className="sh-section">
             <div className="sh-head">
-              <h3>我制作的大片</h3>
               <span className="sh-sub">点击视频进入编辑</span>
-              {projects.length > PREVIEW_COUNT && (
+              {favProjects.length > PREVIEW_COUNT && (
                 <button className="sh-more-link" onClick={() => setAllOpen(true)}>
-                  查看更多（{projects.length}）
+                  查看更多（{favProjects.length}）
                 </button>
               )}
             </div>
@@ -180,14 +216,13 @@ export function StudioHome({
                     </button>
                   ))}
             </div>
+            {projects.length > 0 && onlyFav && favProjects.length === 0 && (
+              <div className="sh-tpl-empty">还没有收藏的大片，把鼠标移到卡片上点右上角 ♡ 收藏</div>
+            )}
           </section>
-
-          {/* 参考灵感 / 案例 */}
+          ) : (
+          /* 参考灵感 / 案例 */
           <section className="sh-section">
-            <div className="sh-head">
-              <h3>参考灵感</h3>
-              <span className="sh-sub">套用案例快速起稿</span>
-            </div>
             {caseProj || TEMPLATES.length > 0 ? (
               <div className="sh-templates">
                 {/* 案例：西湖文旅宣传视频（克隆源项目完整内容） */}
@@ -228,6 +263,7 @@ export function StudioHome({
               <div className="sh-tpl-empty">模板正在准备中，敬请期待～</div>
             )}
           </section>
+          )}
         </div>
       </div>
 
