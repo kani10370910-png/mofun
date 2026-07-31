@@ -191,3 +191,52 @@ export function pickMime(): string {
 export function mimeExt(mime: string): "mp4" | "webm" {
   return mime.includes("mp4") ? "mp4" : "webm";
 }
+
+/** 把视频重构到指定画幅（w×h）：前景 contain 完整居中（不裁切人物），背景用同一视频 cover+模糊填充，保留音轨。
+    用于「视频比例」——s2v 输出跟随输入图比例，此步把它套进用户选择的画幅。src 为 blob/object URL 或同源 URL。 */
+export async function reframeVideoToRatio(src: string, w: number, h: number, fps = 30): Promise<Blob> {
+  const v = document.createElement("video");
+  v.src = src;
+  v.muted = false; // 需保留口播音轨
+  v.playsInline = true;
+  v.crossOrigin = "anonymous";
+  await new Promise<void>((res, rej) => {
+    v.addEventListener("loadeddata", () => res(), { once: true });
+    v.addEventListener("error", () => rej(new Error("视频加载失败")), { once: true });
+  });
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d")!;
+  const stream = canvas.captureStream(fps);
+  const vStream = (v as HTMLVideoElement & { captureStream?: () => MediaStream }).captureStream?.();
+  const atrack = vStream?.getAudioTracks?.()[0];
+  if (atrack) stream.addTrack(atrack);
+
+  const mime = pickMime();
+  const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  const chunks: Blob[] = [];
+  rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  const done = new Promise<Blob>((res) => { rec.onstop = () => res(new Blob(chunks, { type: mime || "video/webm" })); });
+
+  const draw = () => {
+    const vw = v.videoWidth || w, vh = v.videoHeight || h;
+    // 背景：cover 铺满 + 模糊压暗，填充画幅空白（避免纯色黑边）
+    const sCover = Math.max(w / vw, h / vh);
+    const cw = vw * sCover, chh = vh * sCover;
+    ctx.filter = "blur(24px) brightness(.6)";
+    ctx.drawImage(v, (w - cw) / 2, (h - chh) / 2, cw, chh);
+    ctx.filter = "none";
+    // 前景：contain 完整居中，人物不裁切
+    const sContain = Math.min(w / vw, h / vh);
+    const fw = vw * sContain, fh = vh * sContain;
+    ctx.drawImage(v, (w - fw) / 2, (h - fh) / 2, fw, fh);
+    if (v.ended) { try { rec.stop(); } catch { /* ignore */ } return; }
+    requestAnimationFrame(draw);
+  };
+  await v.play();
+  rec.start();
+  requestAnimationFrame(draw);
+  return done;
+}

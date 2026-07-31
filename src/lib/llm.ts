@@ -51,12 +51,21 @@ const TONE_HINT: Record<string, string> = {
   专业权威: "用专业、权威、可信赖的语气",
   活泼种草: "用活泼、有感染力的种草语气，适合社媒",
   政务正式: "用正式、严谨、规范的政务语气",
+  政企风: "用政企宣传口径，稳健、权威、条理清晰，适合政策解读与产业报道",
+  娱乐风: "用轻松娱乐化表达，有节奏感和趣味，避免低俗",
+  短剧风: "用短剧叙事感，冲突与转折明显，场景画面感强，适合连载阅读",
+  情感文: "用细腻情感叙事，共情与温度并重，适合人文故事",
+  干货科普: "用干货科普口吻，信息密度高、条理清楚、可操作，少空话",
 };
 
 function lengthHint(req: GenerateRequest): string {
   if (req.length === "精简") return "篇幅精简，约 60-100 字";
   if (req.length === "详尽") return "篇幅详尽充分";
   if (req.length === "标准") return "篇幅适中";
+  if (req.length === "600-800字") return "全文约 600-800 字";
+  if (req.length === "800-1200字") return "全文约 800-1200 字";
+  if (req.length === "1200-2000字") return "全文约 1200-2000 字";
+  if (req.length === "2000字以上") return "全文 2000 字以上，可分多小节展开";
   if (req.length && /^\d+$/.test(req.length)) return `字数约 ${req.length} 字`;
   return "篇幅适中";
 }
@@ -195,6 +204,76 @@ function eventPromptFor(sub?: string): string {
   return T2I_EVENT_PROMPTS[sub ?? ""] ?? T2I_EVENT_PROMPTS["海报"];
 }
 
+/* ============================================================
+   商拍·文生图扩写：农旅特产电商 / 种草商拍，按成图类型选用模板。
+   ============================================================ */
+const T2I_PRODUCT_COMMON =
+  "【通用红线】\n" +
+  "1. 输出为纯中文一段画面描述，不含英文、不加解释与标题。\n" +
+  "2. 商品主体外观必须真实可信，不虚构产地认证标识、不夸大成色与功效。\n" +
+  "3. 按【图片比例】匹配构图；不额外匹配或注入画面风格关键词，保持写实商拍质感。\n" +
+  "4. 县域/地区非空时自然融入地域景观或农特产气质，为空则不强制。\n" +
+  "5. 禁止水印、乱码文字、多余 logo；白底类禁止花哨道具抢主体。\n" +
+  "6. 长度控制在一百五十字至二百五十字之间。\n" +
+  "7. 内容顺序：商品主体 → 包装与材质细节 → 场景/背景与光影 → 色调 → 构图 → 画面质量，逗号连接为一段。";
+
+const T2I_PRODUCT_PROMPTS: Record<string, string> = {
+  白底主图:
+    "你是农旅电商商拍提示词专家，专做可过审的白底商品主图。\n" +
+    "任务：把用户简短输入扩写成高质量中文图像提示词，直接送文生图模型。\n\n" +
+    "【输入参数】\n用户描述：{{ user_input }}\n县域/地区：{{ county_name }}\n图片比例：{{ image_ratio }}\n\n" +
+    T2I_PRODUCT_COMMON +
+    "\n【白底主图专项】\n" +
+    "- 背景必须为纯白或极浅灰，主体居中，四边留白均匀。\n" +
+    "- 柔和棚拍光，干净轻微投影，标签朝向镜头、清晰可读（若描述含包装）。\n" +
+    "- 无生活道具堆砌；强调电商主图过审感。",
+  产地场景:
+    "你是农旅电商商拍提示词专家，专做产地氛围场景图。\n" +
+    "任务：把用户简短输入扩写成高质量中文图像提示词，直接送文生图模型。\n\n" +
+    "【输入参数】\n用户描述：{{ user_input }}\n县域/地区：{{ county_name }}\n图片比例：{{ image_ratio }}\n\n" +
+    T2I_PRODUCT_COMMON +
+    "\n【产地场景专项】\n" +
+    "- 背景为茶园/竹林/稻田/果园/山泉等贴合品类的真实产地气质。\n" +
+    "- 商品为主体、环境为辅；自然光，光影与投影方向一致，避免「悬浮贴图感」。\n" +
+    "- 定位为展示氛围，不写成溯源凭证口吻。",
+  生活场景:
+    "你是农旅电商商拍提示词专家，专做餐桌/民宿等生活氛围图。\n" +
+    "任务：把用户简短输入扩写成高质量中文图像提示词，直接送文生图模型。\n\n" +
+    "【输入参数】\n用户描述：{{ user_input }}\n县域/地区：{{ county_name }}\n图片比例：{{ image_ratio }}\n\n" +
+    T2I_PRODUCT_COMMON +
+    "\n【生活场景专项】\n" +
+    "- 餐桌、厨房台面或民宿窗台等生活场景，道具点缀克制。\n" +
+    "- 突出使用氛围与食欲/体验感，产品标签朝向镜头。",
+  细节特写:
+    "你是农旅电商商拍提示词专家，专做材质与原料细节特写。\n" +
+    "任务：把用户简短输入扩写成高质量中文图像提示词，直接送文生图模型。\n\n" +
+    "【输入参数】\n用户描述：{{ user_input }}\n县域/地区：{{ county_name }}\n图片比例：{{ image_ratio }}\n\n" +
+    T2I_PRODUCT_COMMON +
+    "\n【细节特写专项】\n" +
+    "- 微距或近景，突出纹理、绒毫、流质、编织肌理等可读细节。\n" +
+    "- 浅景深，背景虚化，真实材质，不过度磨皮。",
+  礼盒套图:
+    "你是农旅电商商拍提示词专家，专做伴手礼/节日礼盒摆拍。\n" +
+    "任务：把用户简短输入扩写成高质量中文图像提示词，直接送文生图模型。\n\n" +
+    "【输入参数】\n用户描述：{{ user_input }}\n县域/地区：{{ county_name }}\n图片比例：{{ image_ratio }}\n\n" +
+    T2I_PRODUCT_COMMON +
+    "\n【礼盒套图专项】\n" +
+    "- 礼盒全貌清晰，可微开展示内装；竹编、土布、丝带等点缀克制不堆砌。\n" +
+    "- 礼品感与节日氛围适中，避免廉价促销贴纸感。",
+  详情长图:
+    "你是农旅电商商拍提示词专家，专做详情页竖版长图头图。\n" +
+    "任务：把用户简短输入扩写成高质量中文图像提示词，直接送文生图模型。\n\n" +
+    "【输入参数】\n用户描述：{{ user_input }}\n县域/地区：{{ county_name }}\n图片比例：{{ image_ratio }}\n\n" +
+    T2I_PRODUCT_COMMON +
+    "\n【详情长图专项】\n" +
+    "- 竖版长构图：上方主视觉、中部产地/故事氛围、下方可留信息区暗示。\n" +
+    "- 信息节奏清晰，适合电商详情页头图，不要密密麻麻堆字。",
+};
+
+function productPromptFor(sub?: string): string {
+  return T2I_PRODUCT_PROMPTS[sub ?? ""] ?? T2I_PRODUCT_PROMPTS["白底主图"];
+}
+
 /* 制作大片·内容安全：镜头文字最终会作为视频模型的生成提示词，必须能通过内容审核，
    否则后续「分镜视频」会被模型拦截、生成失败。所有剧本类阶段的 system 提示都追加本规则。 */
 /* 制作大片·风格统一：把项目「视频风格」注入文本扩写，使剧本 / 镜头 / 参考图描述的文字基调
@@ -266,7 +345,7 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
           "你是短视频美术指导。阅读用户给的剧本，提取拍摄需要的「场景、角色、道具」清单，并为每一项写一段结合剧本的画面描述（提示词）。\n" +
           "【只输出 JSON】不要 markdown 代码块、不要任何多余文字，严格如下结构：\n" +
           '{"scenes":[{"name":"场景名","desc":"该场景画面描述"}],"characters":[{"name":"角色名","desc":"该角色外观描述"}],"props":[{"name":"道具名","desc":"该道具画面描述"}]}\n' +
-          "要求：每类给 1-6 个最关键的项，名称简短（2-10 字）、不重复；剧本里没有的类别给空数组。\n" +
+          "要求：角色、场景各给 1-6 个最关键的项；【道具要尽量齐全，不要只挑最关键的】——把剧本里出现的、以及人物手持/使用/佩戴/操作的所有关键物件都列出（如手机、相机、工具、器皿、篮子、帽子、招牌等，最多 12 个）。名称简短（2-10 字，尽量用剧本原词）、不重复；剧本里没有的类别给空数组。\n" +
           "desc 要求：结合剧本的题材/风格/氛围/时代地域，写成适合文生图的一段中文画面描述，120 字以内——" +
           "场景=只写地点/环境/光线/氛围，不出现人物；角色=只写该人物外观（年龄、长相、发型、服饰、气质），不写环境；道具=只写该物件本身。不要标题/解释/换行。" +
           styleRule(req.styleHint),
@@ -489,9 +568,56 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
     ];
   }
 
+  // 数字人模特·口播文案生成：根据主题 + 语气 + 字数生成适合真人/数字人口播的文案
+  if (req.scene === "avatar-script") {
+    const toneMap: Record<string, string> = {
+      亲切口语: "用亲切、口语化的语气，像朋友聊天，接地气，多用短句和口头语",
+      专业权威: "用专业、权威、可信赖的语气，数据和事实结合，适合农技推广或政务播报",
+      活泼种草: "用活泼、有感染力的种草语气，制造想买/想去的冲动，适合电商带货或文旅推广",
+      政务正式: "用正式、严谨、规范的政务语气，措辞庄重，适合通知公告和政策解读",
+    };
+    const toneHint = toneMap[req.tone ?? "亲切口语"] ?? toneMap["亲切口语"];
+    const charTarget = req.length ? `约 ${req.length} 字` : "约 90 字";
+    return [
+      {
+        role: "system",
+        content:
+          `你是一位专业的短视频口播文案创作者，擅长为农业推广、文旅宣传、电商带货、政务播报等场景撰写适合真人/数字人出镜朗读的口播稿。\n\n` +
+          `【写作要求】\n` +
+          `1. ${toneHint}；\n` +
+          `2. 篇幅控制在${charTarget}，一段到底，无章节标题、无列表符号、无 markdown；\n` +
+          `3. 以「吸引注意的开场句」开头，以「行动引导/情感收尾」结尾；\n` +
+          `4. 句子自然流畅，朗读时不绕口，无生僻字，标点清晰（逗号、句号为主）；\n` +
+          `5. 只输出文案正文，不要标题、不要括号注释、不要任何额外说明。`,
+      },
+      {
+        role: "user",
+        content: `请为以下主题创作一段口播文案：\n${req.input?.trim() || "（未提供主题）"}`,
+      },
+    ];
+  }
+
   // 活动·文生图扩写：按成图类型选模板，填入参数，把简短输入扩写成完整画面描述词
   if (req.scene === "t2i-event") {
     const sys = eventPromptFor(req.eventSub)
+      .replace("{{ user_input }}", req.input?.trim() || "（未填写）")
+      .replace("{{ county_name }}", req.county?.trim() || "（未指定，不强制融入地域元素）")
+      .replace("{{ image_ratio }}", req.imageRatio?.trim() || "1:1")
+      .replace("{{ art_style }}", req.artStyle?.trim() || "智能匹配");
+    return [
+      { role: "system", content: sys },
+      {
+        role: "user",
+        content:
+          `用户描述：${req.input?.trim() || "（未填写）"}\n` +
+          `请按上述规则扩写成最终画面描述段落，只输出描述本身。`,
+      },
+    ];
+  }
+
+  // 商拍·文生图扩写：农旅白底/产地/生活/细节/礼盒
+  if (req.scene === "t2i-product") {
+    const sys = productPromptFor(req.eventSub)
       .replace("{{ user_input }}", req.input?.trim() || "（未填写）")
       .replace("{{ county_name }}", req.county?.trim() || "（未指定，不强制融入地域元素）")
       .replace("{{ image_ratio }}", req.imageRatio?.trim() || "1:1")
@@ -636,75 +762,206 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
     ? `请贴合品牌资产「${req.brandAsset}」的调性。`
     : "";
 
-  // 公众号「先生成提纲」
-  if (req.scene === "official" && req.mode === "outline") {
+  // 公众号帮写：一次生成全文（标题 + 关键词；大纲选填）
+  if (req.scene === "official") {
+    // 兼容旧前端：仅生成提纲
+    if (req.mode === "outline") {
+      return [
+        {
+          role: "system",
+          content:
+            "你是资深公众号编辑，服务于「农文旅」（农产品、乡村旅游、地域文化）领域。" +
+            "用户会给出主题，请只输出一份结构清晰的公众号长文提纲（标题 + 若干小节标题与要点），不要写正文。",
+        },
+        {
+          role: "user",
+          content:
+            `主题：${req.title || req.input || "（未填写）"}\n` +
+            (req.keywords ? `关键词：${req.keywords}\n` : "") +
+            `${brandLine}\n请输出提纲，便于用户确认后再扩写全文。`,
+        },
+      ];
+    }
+
+    const title = (req.title || "").trim() || "（未填写标题）";
+    const keywords = (req.keywords || "").trim() || "（未填写）";
+    const outline = (req.outline || "").trim();
+    const styleKey = (req.tone || "").trim();
+    const styleHint =
+      styleKey === "自定义" && req.styleHint
+        ? `文案风格：自定义——${req.styleHint}`
+        : styleKey && TONE_HINT[styleKey]
+          ? `文案风格：${styleKey}——${TONE_HINT[styleKey]}`
+          : "文案风格：干货科普，信息密度高、条理清楚";
+
     return [
       {
         role: "system",
         content:
-          "你是资深公众号编辑，服务于「农文旅」（农产品、乡村旅游、地域文化）领域。" +
-          "用户会给出主题，请只输出一份结构清晰的公众号长文提纲（标题 + 若干小节标题与要点），不要写正文。",
+          "你是资深公众号编辑，服务于「农文旅」（农产品、乡村旅游、地域文化、县域产业）领域。" +
+          "请根据用户给出的标题、关键词与可选大纲，一次性写出完整公众号长文。" +
+          "要求：小标题清晰、段落流畅、适合微信排版；可含适当过渡与结尾行动号召；不要输出提纲说明或元评论，直接输出正文。",
       },
       {
         role: "user",
         content:
-          `主题：${req.input || "（未填写）"}\n` +
-          `${brandLine}\n请输出提纲，便于用户确认后再扩写全文。`,
+          `文章标题：${title}\n` +
+          `核心关键词：${keywords}\n` +
+          `${styleHint}\n` +
+          `篇幅要求：${lengthHint(req)}\n` +
+          (outline ? `内容大纲（请严格依据展开）：\n${outline}\n` : "内容大纲：未提供，请自行设计合理结构。\n") +
+          `${brandLine}\n` +
+          (req.input && !req.title ? `补充素材：${req.input}\n` : "") +
+          "请直接输出完整公众号文章正文。",
       },
     ];
   }
 
-  // 公众号「按提纲生成全文」
-  if (req.scene === "official" && req.mode === "full" && req.outline) {
-    return [
-      {
-        role: "system",
-        content:
-          "你是资深公众号编辑，服务于「农文旅」领域。请按用户提供的提纲扩写成一篇完整的公众号长文，" +
-          "小标题清晰、段落流畅，约 1500-2000 字，可适当加入小标题与过渡。",
-      },
-      {
-        role: "user",
-        content:
-          `原始主题：${req.input || ""}\n${brandLine}\n请严格依据以下提纲扩写全文：\n\n${req.outline}`,
-      },
-    ];
-  }
-
-  // 社媒推文（结构化 JSON）
+  // 社媒推文（朋友圈/小红书，结构化 JSON）
   if (req.scene === "social") {
     const platforms = (req.platforms && req.platforms.length ? req.platforms : ["微信朋友圈"]).join("、");
     return [
       {
         role: "system",
         content:
-          "你是农文旅领域的资深社媒营销策划。请基于用户给的产品信息，产出一份「推广策划案」，" +
+          "你是农文旅领域的社媒文案专家。请基于用户给的产品信息，产出适合朋友圈/小红书的推广文案，" +
           "并严格只输出如下结构的 JSON（不要任何额外文字、不要 markdown 代码块）：\n" +
           `{
-  "titles": ["营销主标题1", "主标题2", "主标题3"],
-  "highlights": [{"tag":"打法标签","text":"亮点文案"}],
+  "titles": ["吸睛标题1", "标题2", "标题3"],
+  "highlights": [{"tag":"卖点标签","text":"一句话亮点"}],
   "posts": {
-    "xhs": {"title":"小红书标题", "body":"小红书正文(可含emoji/换行)", "tags":["#标签1","#标签2"]},
-    "wechat": {"body":"微信朋友圈正文(可含emoji/换行)"}
+    "wechat": {"body":"微信朋友圈正文(口语化、可含emoji/换行)"},
+    "xhs": {"title":"小红书标题", "body":"小红书正文", "tags":["#标签1","#标签2"]}
   }
 }\n` +
-          "若某平台未被选择则该平台字段可省略。titles 给 3 条，highlights 给 2-3 条。",
+          "仅输出用户已选择的平台对应 posts 字段，未选平台不要输出。" +
+          "titles 给 2-3 条，highlights 给 1-2 条。朋友圈宜短、口语化；小红书偏种草、带话题标签。",
       },
       {
         role: "user",
         content:
           `产品名：${req.product || "（未填写）"}\n` +
-          `品牌名：${req.brand || "（无）"}\n` +
+          (req.brand ? `品牌名：${req.brand}\n` : "") +
           `目标人群：${req.audience || "通用人群"}\n` +
-          `产品优势：${req.advantage || "（未填写）"}\n` +
+          (req.advantage ? `产品优势：${req.advantage}\n` : "") +
           `推广平台：${platforms}\n` +
-          (req.outline ? `内容大纲参考：${req.outline}\n` : "") +
-          `请据此产出 JSON 策划案。`,
+          `请据此产出 JSON 社媒推广文案。`,
       },
     ];
   }
 
-  // 品牌推广 / 其它（纯文本）
+  // 品牌推广（多平台品牌策划案，结构化 JSON）
+  if (req.scene === "brand") {
+    const platforms = (req.platforms && req.platforms.length ? req.platforms : ["微信朋友圈"]).join("、");
+    return [
+      {
+        role: "system",
+        content:
+          "你是农文旅领域的资深品牌营销策划。请基于用户给的品牌与产品信息，产出一份「品牌策划方案」，" +
+          "并严格只输出如下结构的 JSON（不要任何额外文字、不要 markdown 代码块）：\n" +
+          `{
+  "titles": ["营销主标题1", "主标题2", "主标题3"],
+  "highlights": [{"tag":"打法标签","text":"亮点文案"}],
+  "posts": {
+    "wechat": {"body":"微信朋友圈正文(可含emoji/换行)"},
+    "xhs": {"title":"小红书标题", "body":"小红书正文", "tags":["#标签1","#标签2"]},
+    "douyin": {"title":"抖音标题/钩子", "body":"抖音口播或文案脚本", "tags":["#话题1"]},
+    "official": {"title":"公众号标题", "body":"公众号长文正文(>1000字，可含小标题)"}
+  }
+}\n` +
+          "仅输出用户已选择的平台对应 posts 字段，未选平台不要输出。" +
+          "titles 给 3 条，highlights 给 2-3 条。" +
+          "微信公众号正文需超过 1000 字；朋友圈宜短；小红书偏种草；抖音偏口播节奏。",
+      },
+      {
+        role: "user",
+        content:
+          `品牌名称及产品类型：${req.product || "（未填写）"}\n` +
+          (req.brand ? `品牌备注：${req.brand}\n` : "") +
+          `目标市场/人群：${req.audience || "通用人群"}\n` +
+          `产品核心优势：${req.advantage || "（未填写）"}\n` +
+          (req.input ? `营销目标：${req.input}\n` : "") +
+          `推广平台：${platforms}\n` +
+          (req.outline ? `各平台内容大纲：\n${req.outline}\n` : "") +
+          `请据此产出 JSON 品牌策划方案。`,
+      },
+    ];
+  }
+
+  if (req.scene === "research-brand") {
+    return [
+      {
+        role: "system",
+        content:
+          "你是资深品牌市场研究分析师，擅长农文旅与区域公用品牌。请输出一份可落地的品牌市场调研报告正文。" +
+          "要求：结构清晰、结论明确、给出可执行建议；不要输出JSON，不要输出多余客套话。",
+      },
+      {
+        role: "user",
+        content:
+          `调研主体：${req.input || "（未填写）"}\n` +
+          `时间跨度：${req.length || "近一年数据"}\n` +
+          "请按以下结构输出：\n" +
+          "1) 调研摘要（3-5行）\n" +
+          "2) 市场规模与增速（可给区间判断）\n" +
+          "3) 用户画像与消费场景\n" +
+          "4) 竞品/对标品牌分析（至少3个）\n" +
+          "5) 渠道表现（电商/私域/线下）\n" +
+          "6) 机会点与风险点\n" +
+          "7) 90天执行建议（分阶段）",
+      },
+    ];
+  }
+
+  if (req.scene === "research-industry") {
+    return [
+      {
+        role: "system",
+        content:
+          "你是资深产业研究员，擅长县域农业与文旅产业链分析。请输出专业、可执行的产业调研报告，结论导向。",
+      },
+      {
+        role: "user",
+        content:
+          `产业主题：${req.input || "（未填写）"}\n` +
+          `时间跨度：${req.length || "近一年数据"}\n` +
+          "请按以下结构输出：\n" +
+          "1) 产业现状总览\n" +
+          "2) 产业链结构（上中下游）\n" +
+          "3) 供需与价格走势\n" +
+          "4) 区域对比与核心约束\n" +
+          "5) 政策与外部环境影响\n" +
+          "6) 投资/经营机会与风险\n" +
+          "7) 行动建议（短中期）",
+      },
+    ];
+  }
+
+  if (req.scene === "research-hotsale") {
+    return [
+      {
+        role: "system",
+        content:
+          "你是电商增长与爆款分析专家，擅长农产品与食品赛道。请输出一份爆款分析报告，聚焦可复用打法。",
+      },
+      {
+        role: "user",
+        content:
+          `商品/品类：${req.input || "（未填写）"}\n` +
+          `时间跨度：${req.length || "近一年数据"}\n` +
+          "请按以下结构输出：\n" +
+          "1) 爆款结论摘要\n" +
+          "2) 销量趋势与价格带判断\n" +
+          "3) 平台表现（淘宝/抖音/小红书/私域）\n" +
+          "4) 爆款要素拆解（卖点、包装、内容、人群）\n" +
+          "5) 竞争商品对比（至少3类）\n" +
+          "6) 可复制打法清单\n" +
+          "7) 下阶段测试计划（2-4周）",
+      },
+    ];
+  }
+
+  // 其它（纯文本）
   const tone = req.tone && TONE_HINT[req.tone] ? TONE_HINT[req.tone] : "语气得体";
   return [
     {

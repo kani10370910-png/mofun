@@ -1,5 +1,7 @@
 "use client";
 
+import { Icon } from "@/components/ui/Icon";
+import { CONTENT_ICON } from "@/data/icons";
 import { useToast } from "@/components/ui/Toast";
 import type { ContentScene } from "@/lib/types";
 
@@ -26,7 +28,9 @@ export function ContentResult({
       <>
         <div className="result-card">
           <div className="result-head">
-            <span className="rh-title">📑 公众号 · 提纲</span>
+            <span className="rh-title">
+              <Icon name="official" size={16} /> 公众号 · 提纲
+            </span>
             <span className="tag green">确认后写全文</span>
           </div>
           <div className="result-body">
@@ -35,10 +39,10 @@ export function ContentResult({
           </div>
           <div className="result-foot">
             <button className="btn btn-ghost btn-sm" disabled={loading} onClick={onReOutline}>
-              🔁 换个提纲
+              <Icon name="refresh" size={15} /> 换个提纲
             </button>
             <button className="btn btn-primary btn-sm" disabled={loading || !text} onClick={onToFull}>
-              ✍️ 按此提纲生成全文 →
+              <Icon name="pencil" size={15} /> 按此提纲生成全文 →
             </button>
           </div>
         </div>
@@ -54,7 +58,8 @@ export function ContentResult({
       <div className="result-card">
         <div className="result-head">
           <span className="rh-title">
-            {scene.ico} {scene.title} · 生成结果
+            <Icon name={CONTENT_ICON[scene.key] ?? "content"} size={16} />
+            {scene.title} · 生成结果
           </span>
           <span className="tag green">{scene.tag}</span>
         </div>
@@ -73,19 +78,19 @@ export function ContentResult({
               }
             }}
           >
-            📋 复制
+            <Icon name="copy" size={15} /> 复制
           </button>
           <button className="btn btn-ghost btn-sm" disabled={!text} onClick={() => toast("已对文案执行「润色」（演示）")}>
-            ✨ 润色
+            <Icon name="sparkle" size={15} /> 润色
           </button>
           <button className="btn btn-ghost btn-sm" disabled={!text} onClick={() => toast("已对文案执行「续写」（演示）")}>
-            ➕ 续写
+            <Icon name="plus" size={15} /> 续写
           </button>
           <button className="btn btn-ghost btn-sm" disabled={!text} onClick={() => toast("已对文案执行「改写」（演示）")}>
-            🔄 改写
+            <Icon name="refresh" size={15} /> 改写
           </button>
           <button className="btn btn-primary btn-sm" disabled={!text} onClick={() => toast("已存入个人仓库（演示）")}>
-            📦 存入个人仓库
+            <Icon name="storage" size={15} /> 存入个人仓库
           </button>
         </div>
       </div>

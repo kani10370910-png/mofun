@@ -4,8 +4,9 @@ import { useRef, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
 import { useToast } from "@/components/ui/Toast";
-import { imageModels, imageRatios, posterRatios, rollupRatios, flyerRatios, editModels, editPresets, logoStyles, paintStyles } from "@/data/image";
-import type { SizePreset } from "@/lib/types";
+import { imageModels, imageRatios, posterRatios, rollupRatios, flyerRatios, editModels, editPresets, logoStyles, paintStyles, productSquareRatios, productSceneRatios, productDetailRatios, productLongRatios } from "@/data/image";
+import { signageStudioSizes } from "@/data/signageStudio";
+import type { SizePreset, PaintStyle } from "@/lib/types";
 import type { ImageType } from "@/lib/types";
 import { asset } from "@/lib/asset";
 import { AutoBgImg } from "./AutoBgImg";
@@ -36,6 +37,31 @@ export function ratioOptsForSub(sub: string): DropdownOption[] {
   return ratioOpts;
 }
 
+const productSquareOpts: DropdownOption[] = toRatioOpts(productSquareRatios);
+const productSceneOpts: DropdownOption[] = toRatioOpts(productSceneRatios);
+const productDetailOpts: DropdownOption[] = toRatioOpts(productDetailRatios);
+
+/** 商拍·按成图类型选用尺寸组 */
+export function productRatioOptsForSub(sub: string): DropdownOption[] {
+  if (sub === "产地场景" || sub === "生活场景") return productSceneOpts;
+  if (sub === "细节特写") return productDetailOpts;
+  // 白底主图 / 礼盒套图 / 自定义 / 其它 → 电商方版组
+  return productSquareOpts;
+}
+
+/** 活动 + 商拍全部尺寸预设（解析宽高用） */
+export const allImageSizePresets: SizePreset[] = [
+  ...imageRatios,
+  ...posterRatios,
+  ...rollupRatios,
+  ...flyerRatios,
+  ...productSquareRatios,
+  ...productSceneRatios,
+  ...productDetailRatios,
+  ...productLongRatios,
+  ...signageStudioSizes,
+];
+
 // 尺寸名（或自定义宽高）→ 具体像素「宽×高 px」字符串（如 1080×1080 px），供「改图片尺寸」回填修改需求
 function pxLabel(ratioName: string, customW = "", customH = ""): string {
   let w = 0, h = 0;
@@ -43,8 +69,7 @@ function pxLabel(ratioName: string, customW = "", customH = ""): string {
     w = Math.round(Number(customW) || 0);
     h = Math.round(Number(customH) || 0);
   } else {
-    const all = [...imageRatios, ...posterRatios, ...rollupRatios, ...flyerRatios];
-    const hit = all.find((s) => s.name === ratioName);
+    const hit = allImageSizePresets.find((s) => s.name === ratioName);
     const m = hit?.size.match(/(\d+(?:\.\d+)?)\s*[×x:：]\s*(\d+(?:\.\d+)?)/);
     if (m) { w = Math.round(Number(m[1]) || 0); h = Math.round(Number(m[2]) || 0); }
   }
@@ -225,6 +250,10 @@ export function ImageEventPanel({
   onOpenImg2Text,
   onOpenStyle,
   onOpenLibrary,
+  descPlaceholder,
+  styles = paintStyles,
+  presets = editPresets,
+  ratioOptsFn = ratioOptsForSub,
 }: {
   type: ImageType;
   state: EventImageState;
@@ -234,6 +263,10 @@ export function ImageEventPanel({
   onOpenImg2Text?: () => void; // 点「图转文」：通知父级在右侧结果区展示图转文面板
   onOpenStyle?: () => void; // 点「画面风格」：通知父级在右侧结果区展示风格选择面板
   onOpenLibrary?: () => void; // 点「仓库」：通知父级打开仓库选图弹窗
+  descPlaceholder?: string;
+  styles?: PaintStyle[];
+  presets?: { name: string; prompt: string }[];
+  ratioOptsFn?: (sub: string) => DropdownOption[];
 }) {
   const toast = useToast();
   const set = <K extends keyof EventImageState>(k: K, v: EventImageState[K]) => setState({ ...state, [k]: v });
@@ -251,7 +284,7 @@ export function ImageEventPanel({
       setState({ ...state, editPreset: name === "不使用预设" ? "不使用预设" : "", editInput: "" });
       return;
     }
-    const preset = editPresets.find((p) => p.name === name);
+    const preset = presets.find((p) => p.name === name);
     // 「生成相似图」初次选中时，相似度从 0 起会显得几乎不参考原图，给个 60% 的合理起点
     const refStrength =
       name === "生成相似图" && state.refStrength === 0 ? 60 : state.refStrength;
@@ -356,7 +389,7 @@ export function ImageEventPanel({
                   onClick={() => {
                     // 切成图类型时，同步把「图片尺寸」重置为该类型尺寸组里第一个实际尺寸；
                     // 用户主动切类型 → 不再视作「套用灵感原样张」，清除 fromCase（恢复扩写）
-                    const opts = ratioOptsForSub(s.name);
+                    const opts = ratioOptsFn(s.name);
                     const firstReal = opts.find((o) => o.name !== "自定义") ?? opts[0];
                     setState({ ...state, sub: s.name, ratio: firstReal?.name ?? state.ratio, fromCase: false });
                   }}
@@ -380,7 +413,7 @@ export function ImageEventPanel({
               // 用户手动编辑/清空描述 → 不再是「套用灵感原样张」，清除 fromCase（立即生成时恢复扩写）
               onChange={(e) => setState({ ...state, input: e.target.value, fromCase: false })}
               onClear={() => setState({ ...state, input: "", fromCase: false })}
-              placeholder="请输入画面描述：主体、风格、氛围、文案…"
+              placeholder={descPlaceholder || "请输入画面描述：主体、风格、氛围、文案…"}
               toolbar={
                 <>
                   <button type="button" className="ta-tool" disabled={assocBusy} onClick={onAssociate}>
@@ -401,7 +434,7 @@ export function ImageEventPanel({
             <div className="ws-label">图片尺寸</div>
             <Dropdown
               title="图片尺寸"
-              options={ratioOptsForSub(state.sub)}
+              options={ratioOptsFn(state.sub)}
               value={state.ratio}
               onChange={(o) => set("ratio", o.name)}
               showSub
@@ -447,7 +480,7 @@ export function ImageEventPanel({
           <div className="field">
             <div className="ws-label">画面风格</div>
             {(() => {
-              const cur = paintStyles.find((s) => s.name === state.style) ?? paintStyles[0];
+              const cur = styles.find((s) => s.name === state.style) ?? styles[0];
               return (
                 <button type="button" className="style-card" onClick={() => onOpenStyle?.()}>
                   <span className={`sc-ico ${cur.grad}`}>{cur.emoji}</span>
@@ -538,7 +571,7 @@ export function ImageEventPanel({
           <div className="field">
             <div className="ws-label">图片处理预设</div>
             <div className="preset-grid">
-              {editPresets.slice(0, 6).map((p) => (
+              {presets.slice(0, 6).map((p) => (
                 <button
                   key={p.name}
                   type="button"
@@ -550,7 +583,7 @@ export function ImageEventPanel({
               ))}
               {state.presetMore && (
                 <div className="preset-more">
-                  {editPresets.slice(6).map((p) => (
+                  {presets.slice(6).map((p) => (
                     <button
                       key={p.name}
                       type="button"

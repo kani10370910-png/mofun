@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { EditorRail, type RailItem } from "@/components/ui/EditorRail";
 import { posterFor } from "@/lib/videoFx";
-import { listProjects, deleteProject, renameProject, reserveProject, uniqueProjectName, cloneProject, toggleProjectFav, type StudioProjectMeta } from "@/lib/studioProjects";
+import { listProjects, deleteProject, renameProject, reserveProject, uniqueProjectName, cloneProject, toggleProjectFav, ensureStudioSeeds, pruneStudioProjectsExcept, type StudioProjectMeta } from "@/lib/studioProjects";
+import { STUDIO_SEEDS } from "@/data/studioSeed";
 import { appConfirm, appPrompt } from "@/components/ui/Confirm";
 import { SETTING_FIELDS, videoStyles } from "@/data/video";
 import type { IconName } from "@/data/icons";
@@ -35,8 +36,9 @@ const DEMO_FILMS = [
 // 视频模板：暂时清空（删除假示例），待接入真实模板后再填充
 const TEMPLATES: { id: string; name: string; tag: string; shots: number; seed: string }[] = [];
 
-// 案例：把「西湖文旅宣传视频」项目作为可套用的案例——点「使用」即克隆其完整状态（视频设定 + 五步全部内容）为新项目
-const CASE_NAME = "西湖文旅宣传视频";
+// 案例：把这些项目作为「参考灵感」里可套用的案例——点「套用灵感」即克隆其完整状态（视频设定 + 五步全部内容）为新项目。
+// 按名称匹配用户项目库里的同名项目；命中才展示（顺序即展示顺序）。
+const CASE_NAMES = ["编非遗技艺展示片"];
 
 export function StudioHome({
   railItems,
@@ -57,9 +59,8 @@ export function StudioHome({
   const [allOpen, setAllOpen] = useState(false); // 「查看更多」：打开「全部大片」页
   const [tab, setTab] = useState<"films" | "inspire">("films"); // 顶部 Tab：我制作的大片 / 参考灵感
   const [onlyFav, setOnlyFav] = useState(false); // 只看收藏
-  const PREVIEW_COUNT = 8; // 首页首屏显示的项目数（大卡片网格约两行）
   const favProjects = onlyFav ? projects.filter((p) => p.fav) : projects;
-  const shownProjects = favProjects.slice(0, PREVIEW_COUNT);
+  const shownProjects = favProjects; // Tab 内展示全部项目（可滚动），不再限制数量 / 不用「查看更多」
 
   // 收藏/取消收藏：写回项目文件并刷新列表
   function toggleFav(id: string) {
@@ -67,8 +68,19 @@ export function StudioHome({
     setProjects(listProjects());
   }
 
-  // 客户端读取真实项目（避免 SSR 不一致）
+  // 客户端读取真实项目（避免 SSR 不一致）；首次进入先幂等注入预置案例（竹编非遗技艺等）
   useEffect(() => {
+    ensureStudioSeeds(STUDIO_SEEDS, "2026-07-22-zhubian7");
+    // 一次性清理：仅保留「编非遗技艺展示片」2026-07-29 版本，删除其余大片以释放 localStorage
+    const PRUNE_KEY = "mofun.studio.pruneVer";
+    const PRUNE_VER = "2026-07-29-zhubian-single";
+    if (typeof window !== "undefined" && window.localStorage.getItem(PRUNE_KEY) !== PRUNE_VER) {
+      pruneStudioProjectsExcept(
+        (p) => p.count === 7 && p.name.includes("非遗技艺展示") && p.updated.startsWith("2026-07-29"),
+        { fallbackId: "seed-zhubian" },
+      );
+      window.localStorage.setItem(PRUNE_KEY, PRUNE_VER);
+    }
     setProjects(listProjects());
   }, []);
 
@@ -86,12 +98,14 @@ export function StudioHome({
     onOpen(pid, name);
   }
 
-  // 套用案例：克隆源项目（西湖文旅宣传视频）的完整 state 到一个新项目并打开，内容与源项目一模一样
-  const caseProj = projects.find((p) => p.name === CASE_NAME);
-  function useCase() {
-    if (!caseProj) return;
+  // 套用案例：克隆源项目的完整 state 到一个新项目并打开，内容与源项目一模一样。
+  // caseProjs：按 CASE_NAMES 顺序命中的项目（去重、跳过未命中的）。
+  const caseProjs = CASE_NAMES
+    .map((n) => projects.find((p) => p.name === n))
+    .filter((p): p is StudioProjectMeta => !!p);
+  function useCase(caseProj: StudioProjectMeta) {
     const pid = `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-    const name = uniqueProjectName(CASE_NAME);
+    const name = uniqueProjectName(caseProj.name);
     if (!cloneProject(caseProj.id, pid, name)) return;
     onOpen(pid, name);
   }
@@ -112,7 +126,7 @@ export function StudioHome({
 
   // 单个项目文件卡片（首页预览网格与「全部大片」页共用，保证样式与操作一致）
   const renderFolder = (p: StudioProjectMeta) => (
-    <div className="sh-folder sh-folder-file" key={p.id}>
+    <div className={`sh-folder sh-folder-file ${menuFor === p.id ? "menu-open" : ""}`} key={p.id}>
       <button className="sh-folder-main" onClick={() => onOpen(p.id)}>
         <div className="sh-folder-cover">
           {p.cover ? (
@@ -189,14 +203,6 @@ export function StudioHome({
           {/* 我制作的大片 */}
           {tab === "films" ? (
           <section className="sh-section">
-            <div className="sh-head">
-              <span className="sh-sub">点击视频进入编辑</span>
-              {favProjects.length > PREVIEW_COUNT && (
-                <button className="sh-more-link" onClick={() => setAllOpen(true)}>
-                  查看更多（{favProjects.length}）
-                </button>
-              )}
-            </div>
             <div className="sh-folders">
               <button className="sh-folder sh-folder-new" onClick={() => { setDraftName(""); setNaming(true); }}>
                 <Icon name="plus" size={26} />
@@ -223,11 +229,11 @@ export function StudioHome({
           ) : (
           /* 参考灵感 / 案例 */
           <section className="sh-section">
-            {caseProj || TEMPLATES.length > 0 ? (
+            {caseProjs.length > 0 || TEMPLATES.length > 0 ? (
               <div className="sh-templates">
-                {/* 案例：西湖文旅宣传视频（克隆源项目完整内容） */}
-                {caseProj && (
-                  <div className="sh-tpl sh-tpl-case">
+                {/* 案例：按 CASE_NAMES 命中的项目（克隆源项目完整内容） */}
+                {caseProjs.map((caseProj) => (
+                  <div className="sh-tpl sh-tpl-case" key={caseProj.id}>
                     <div className="sh-tpl-cover">
                       {caseProj.cover ? (
                         // eslint-disable-next-line jsx-a11y/media-has-caption
@@ -238,7 +244,7 @@ export function StudioHome({
                       <span className="sh-tpl-badge">案例</span>
                       {/* 鼠标移入 → 封面上浮现「套用灵感」按钮，点它克隆整份项目 */}
                       <div className="sh-tpl-hover">
-                        <button className="sh-tpl-hover-btn" onClick={useCase}>套用灵感</button>
+                        <button className="sh-tpl-hover-btn" onClick={() => useCase(caseProj)}>套用灵感</button>
                       </div>
                     </div>
                     <div className="sh-tpl-meta">
@@ -246,7 +252,7 @@ export function StudioHome({
                       <span className="sh-tpl-shots">{caseProj.count} 镜</span>
                     </div>
                   </div>
-                )}
+                ))}
                 {TEMPLATES.map((t) => (
                   <button className="sh-tpl" key={t.id} onClick={() => onOpen(t.name)}>
                     <div className="sh-tpl-cover" style={{ backgroundImage: `url(${posterFor(t.seed)})` }}>

@@ -32,3 +32,20 @@ scripts/ssh_run.py
 # 本地部署密码文件，勿提交
 scripts/.nginx_pwd
 out.tar.gz
+out-code.tar.gz
+
+# 部署日志 / 临时验证
+scripts/.deploy_*.log
+scripts/.*.log
+_verify_online.js
+
+# 本地备份与临时素材
+public/avatars_bak/
+public/avatars_bak_halfbody/
+public/omni-tmp/
+
+tools/*.log
+
+tools/cloudflared.exe
+tools/*.mp4
+

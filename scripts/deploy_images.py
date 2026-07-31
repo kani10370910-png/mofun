@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-# 补传图片到内网 Nginx（代码已由 deploy_code.py 传完）。
-# 断点续传：远程已存在且大小一致的跳过，可反复运行。
+# 补传图片/视频到内网 Nginx（代码由 deploy_code_tar.py 传完；此处补媒体资源）。
+# 断点续传：远程已存在且大小一致的跳过，可反复运行——只上传新增/变化的媒体。
 import os, socket, posixpath
 import paramiko
 
 HOST, PORT, USER = "10.0.120.2", 22, "root"
-REMOTE = "/data/base/nginx/usr/share/nginx/html/mofun"
+# nginx 实际 docroot 是 .../html/out（不是 mofun）。
+REMOTE = "/data/base/nginx/usr/share/nginx/html/out"
 LOCAL = os.path.join(os.getcwd(), "out")
-IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico", ".svg")
+IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico", ".svg", ".mp4", ".webm", ".mov")
 
 with open(os.path.join("scripts", ".nginx_pwd"), "r", encoding="utf-8-sig") as f:
     pwd = f.read().strip()

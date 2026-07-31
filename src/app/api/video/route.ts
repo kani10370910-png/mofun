@@ -26,6 +26,8 @@ export async function POST(req: NextRequest) {
     referenceImageUrls?: string[]; // 多张参考图：整片各镜锁场景/角色/道具与风格一致（不作首帧）
     generateAudio?: boolean; // 让视频模型自带音频（Seedance 原生能力）
     resolution?: string; // 分辨率：480p/720p/1080p/2k/4k（由前端视频质量档位映射）
+    audioUrl?: string; // 参考音频（Seedance 2.0 音频输入）：MP3/WAV，2-15s。模型据此匹配对白嗓音特征、音画同步
+    audioUrls?: string[]; // 多段参考音频（最多 3 段、合计≤15s）
   };
 
   const apiKey  = process.env.VIDEO_API_KEY  || process.env.IMAGE_API_KEY  || "";
@@ -57,7 +59,7 @@ async function handleSeedance(p: {
   baseURL: string;
   headers: Record<string, string>;
   model: string;
-  body: { prompt: string; ratio: string; imageUrl?: string; tailImageUrl?: string; referenceImageUrl?: string; referenceImageUrls?: string[]; resolution?: string };
+  body: { prompt: string; ratio: string; imageUrl?: string; tailImageUrl?: string; referenceImageUrl?: string; referenceImageUrls?: string[]; resolution?: string; audioUrl?: string; audioUrls?: string[] };
   duration: number;
   generateAudio: boolean;
 }): Promise<Response> {
@@ -90,6 +92,11 @@ async function handleSeedance(p: {
       : [];
   for (const url of referenceImages) {
     content.push({ type: "image_url", image_url: { url }, role: "reference_image" });
+  }
+  // 音频输入（Seedance 2.0 多模态）：MP3/WAV，模型据此匹配对白嗓音特征 / 音画同步。最多 3 段。
+  const audios = p.body.audioUrls?.length ? p.body.audioUrls : p.body.audioUrl ? [p.body.audioUrl] : [];
+  for (const url of audios.slice(0, 3)) {
+    content.push({ type: "audio_url", audio_url: { url }, role: "reference_audio" });
   }
 
   // 图生模式（i2v / 首尾帧 flf2v）的输出尺寸由输入帧决定，seedance 不接受显式 resolution，

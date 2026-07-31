@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
 import { readReedit } from "@/lib/reedit";
 import { Icon } from "@/components/ui/Icon";
 import { EditorRail, type RailItem } from "@/components/ui/EditorRail";
@@ -14,7 +13,34 @@ import { imgToDataUrl } from "@/lib/image";
 import { collectGenerate } from "@/lib/useGenerateStream";
 import { logoSvgDataUrl } from "@/lib/logoSvg";
 import type { AssetCard } from "@/lib/types";
-import { imageTypes, imageModels, imageRatios, posterRatios, rollupRatios, flyerRatios, logoStyles, fontEffects, productGalleryItems, signageGalleryItems, paintStyles } from "@/data/image";
+import { imageTypes, imageModels, imageRatios, logoStyles, fontEffects, productGalleryItems, signageGalleryItems, paintStyles } from "@/data/image";
+import {
+  productScenePresets,
+  productTasks,
+  buildProductPrompt,
+  buildAiScenePrompt,
+  aiSceneExpandSub,
+  aiSceneJobLabel,
+  productGalleryBgPatch,
+  taskToExpandSub,
+  PRODUCT_REF_KEEP,
+  PRODUCT_DEAI_SUFFIX,
+  PRODUCT_IMAGE_MODEL,
+  PRODUCT_AI_SCENE_NONE,
+  PRODUCT_AI_SCENE_COLOR,
+  PRODUCT_AI_SCENE_WHITE,
+  PRODUCT_AI_SCENE_UPLOAD,
+  expandProductDescLexicon,
+  isProductBgAi,
+  isProductBgLocalCut,
+  isProductBgNeedUpload,
+  isProductBgBatch,
+  type ProductTaskKey,
+} from "@/data/productStudio";
+import { cutoutProduct } from "@/lib/productCutout";
+import { resolveProductSceneImg } from "@/lib/productSceneThumbs";
+import { ImageProductPanel, initProductStudio, type ProductStudioState } from "./ImageProductPanel";
+import { ImageSignagePanel, initSignageStudio, type SignageStudioState } from "./ImageSignagePanel";
 import { genStages } from "@/data/genStages";
 import { IMG_ICON } from "@/data/icons";
 import type { IconName } from "@/data/icons";
@@ -24,6 +50,7 @@ import {
   ImageEventPanel,
   ImageLogoPanel,
   ratioOptsForSub,
+  allImageSizePresets,
   type DefaultImageState,
   type EventImageState,
   type LogoImageState,
@@ -38,6 +65,18 @@ import { LibraryPickerModal } from "./LibraryPickerModal";
 import { LogoGallery, type LogoRunRow } from "./LogoGallery";
 import { FontPanel, type FontImageState } from "./FontPanel";
 import { FontGallery, type FontRunRow } from "./FontGallery";
+import { ensureProductSeedsLocal, loadProductRuns, saveProductRuns } from "@/lib/productRunsStorage";
+import { loadSignageRuns, saveSignageRuns } from "@/lib/signageRunsStorage";
+import { purgeLocalStorageBloatOnce } from "@/lib/localStorageCleanup";
+import { DEMO } from "@/lib/demo";
+import { demoProductGenerate, shouldUseProductDemo } from "@/lib/productDemo";
+import { demoSignageGenerate, shouldUseSignageDemo } from "@/lib/signageDemo";
+import {
+  buildSignagePrompt,
+  SIGNAGE_IMAGE_MODEL,
+  resolveSignageSize,
+  platformByKey,
+} from "@/data/signageStudio";
 
 const iconOf = (k: string): IconName => IMG_ICON[k] ?? "image";
 
@@ -128,7 +167,6 @@ const SEED_IP_RUNS: IpRunRow[] = [
 ];
 
 export function ImageEditor({ initialSub, initial }: { initialSub?: string; initial?: Record<string, string | undefined> }) {
-  const router = useRouter();
   const toast = useToast();
   const sim = useSimGenerate();
   const { addWork } = useLibrary();
@@ -142,10 +180,16 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   const reeditSub = reeditCard?.edit?.sub; // "event" | "ip" | "logo" | "font"
   const reeditRowId = `reedit-${reeditNonce}`;
   const [highlightRow, setHighlightRow] = useState<string | null>(reeditCard ? reeditRowId : null);
+  const quotaToastAt = useRef(0);
 
   // 监听 localStorage 空间不足事件（由 store.tsx 的 save() 触发）
   useEffect(() => {
-    const handler = () => toast("本地存储空间不足，历史记录可能无法保存", "warn");
+    const handler = () => {
+      const now = Date.now();
+      if (now - quotaToastAt.current < 15_000) return;
+      quotaToastAt.current = now;
+      toast("本地存储空间不足，历史记录可能无法保存", "warn");
+    };
     window.addEventListener("mofun:storage-quota", handler);
     return () => window.removeEventListener("mofun:storage-quota", handler);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -181,6 +225,16 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     const e = initEvent(type);
     if (back.input && initialSub === "event") e.input = back.input;
     return e;
+  });
+  const [productForm, setProductForm] = useState<ProductStudioState>(() => {
+    const p = initProductStudio();
+    if (back.input && initialSub === "product") p.desc = back.input;
+    return p;
+  });
+  const [signageForm, setSignageForm] = useState<SignageStudioState>(() => {
+    const s = initSignageStudio();
+    if (back.input && initialSub === "signage") s.shopName = back.input;
+    return s;
   });
   const [logoForm, setLogoForm] = useState<LogoImageState>(() => ({
     style: (initialSub === "logo" && back.style) || "智能匹配",
@@ -253,12 +307,47 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   const eventTimeout = useRef<number | null>(null); // 90s 超时兜底，防止生成永久卡住
   // 活动右侧 tab：默认看「生成历史」（空态会引导）；生成时也停在生成历史看进度
   const [eventTab, setEventTab] = useState<"history" | "cases">("history");
+  // 商拍：复用活动同款历史/进度结构；预置 1 条 + localStorage 持久化
+  const [productRuns, setProductRuns] = useState<EventRunRow[]>(() =>
+    reeditCard && reeditSub === "product"
+      ? [buildEventReedit(reeditCard, reeditRowId), ...loadProductRuns()]
+      : loadProductRuns(),
+  );
+  const [productBusy, setProductBusy] = useState(false);
+  const productTimer = useRef<number | null>(null);
+  const productTimeout = useRef<number | null>(null);
+  const [productTab, setProductTab] = useState<"history" | "cases">("history");
+
+  const [signageRuns, setSignageRuns] = useState<EventRunRow[]>(() =>
+    typeof window === "undefined" ? [] : loadSignageRuns(),
+  );
+  const [signageBusy, setSignageBusy] = useState(false);
+  const signageTimer = useRef<number | null>(null);
+  const signageTimeout = useRef<number | null>(null);
+  const [signageTab, setSignageTab] = useState<"history" | "cases">("history");
+  const [signageLogoLibOpen, setSignageLogoLibOpen] = useState(false);
+  const [signageRefLibOpen, setSignageRefLibOpen] = useState(false);
+
+  // 商拍：首次写入预置历史；完成后才同步 localStorage
+  useEffect(() => {
+    purgeLocalStorageBloatOnce();
+    ensureProductSeedsLocal();
+  }, []);
+  useEffect(() => {
+    saveProductRuns(productRuns);
+  }, [productRuns]);
+  useEffect(() => {
+    saveSignageRuns(signageRuns);
+  }, [signageRuns]);
+
   // 活动·图转文面板：内嵌在右侧结果区（与「帮我提案」同款交互）
   const [i2tOpen, setI2tOpen] = useState(false);
   // 活动·画面风格选择面板：同款右侧浮层
   const [styleOpen, setStyleOpen] = useState(false);
   // 活动·图生图「仓库」选图弹窗（与 IP 设计一致）
   const [eventLibOpen, setEventLibOpen] = useState(false);
+  const [productLibOpen, setProductLibOpen] = useState(false);
+  const [productFusionLibOpen, setProductFusionLibOpen] = useState(false);
 
   // 点生成历史图片上的「延展设计」：切到 IP扩展设计并把该图作为 IP 图
   function handleIpExtend(seed: IpExtendSeed) {
@@ -288,17 +377,42 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       window.clearTimeout(eventTimeout.current);
       eventTimeout.current = null;
     }
+    if (productTimer.current) {
+      window.clearInterval(productTimer.current);
+      productTimer.current = null;
+    }
+    if (productTimeout.current) {
+      window.clearTimeout(productTimeout.current);
+      productTimeout.current = null;
+    }
+    if (signageTimer.current) {
+      window.clearInterval(signageTimer.current);
+      signageTimer.current = null;
+    }
+    if (signageTimeout.current) {
+      window.clearTimeout(signageTimeout.current);
+      signageTimeout.current = null;
+    }
     sim.close();
     const t = imageTypes.find((x) => x.key === k) ?? imageTypes[0];
     setDefForm(initDefault(t));
     setEventForm(initEvent(t));
+    setProductForm(initProductStudio());
+    setSignageForm(initSignageStudio());
   }
 
-  // 普通/活动：模拟生成（先校验必填）
+  // 普通/活动/商拍：模拟生成（先校验必填）
   function runGenerate() {
     if (active === "event") {
-      // 活动：真实文生图 / 图生图（右侧生成历史进度卡 + 真图）；必填校验在 runEventGenerate 内
       runEventGenerate();
+      return;
+    }
+    if (active === "product") {
+      runProductStudio();
+      return;
+    }
+    if (active === "signage") {
+      runSignageGenerate();
       return;
     } else if (active !== "ip" && !defForm.input.trim()) {
       // IP 设计有独立表单，必填在其组件内处理，这里跳过通用画面描述校验
@@ -768,7 +882,6 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     const stylePrompt = isI2i ? "" : (paintStyles.find((s) => s.name === eventForm.style)?.prompt || "");
     let genPrompt = stylePrompt ? `${prompt}，${stylePrompt}` : prompt;
     // 图生图「生成相似图」：把相似度（0-100%）写进提示词，滑到多少就保留原图多少。
-    // 修改需求框里若仍是自动生成的「生成相似图，相似度X%」模板，则不再重复拼到附加要求里。
     if (isI2i && eventForm.editPreset === "生成相似图") {
       const s = Math.max(0, Math.min(100, Math.round(eventForm.refStrength)));
       const isSimTemplate = /^生成相似图(，相似度\d+%)?$/.test(prompt.trim());
@@ -778,7 +891,6 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         (prompt && !isSimTemplate ? `；附加要求：${prompt}` : "");
     }
     // 图生图「改图片尺寸」：把用户选的目标尺寸（比例/自定义宽高）写进提示词，扩展画面到该比例。
-    // 修改需求框里若仍是自动生成的「将图片扩展为X:X的尺寸」模板，则不再重复拼到附加要求里。
     if (isI2i && eventForm.editPreset === "改图片尺寸") {
       const sizeLabel = eventPxLabel(eventForm.ratio, eventForm.customW, eventForm.customH);
       const isSizeTemplate = /^将图片扩展为.*的尺寸$/.test(prompt.trim());
@@ -806,8 +918,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     setEventRuns((prev) => [row, ...prev]);
 
     // 文生图：按「成图类型」专属系统提示词，把用户简短描述扩写成完整画面描述词再出图
-    // （扩写失败/超时则回退用原始描述 + 风格词，不阻断出图）。
-    // fromCase=true（套用参考灵感 / 图转文 / 联想得到的成品描述）→ 跳过扩写，直接用现成描述出图。
+    // fromCase=true（套用参考灵感 / 图转文）→ 跳过扩写，直接用现成描述出图。
     if (!isI2i && !eventForm.fromCase) {
       const expanded = await collectGenerate({
         scene: "t2i-event",
@@ -815,7 +926,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         eventSub: eventForm.sub || "海报",
         imageRatio: eventRatioLabel(eventForm.ratio, eventForm.customW, eventForm.customH),
         artStyle: eventForm.style || "智能匹配",
-        county: "", // 县域/地区暂留空
+        county: "",
       });
       if (expanded) {
         genPrompt = stylePrompt ? `${expanded}，${stylePrompt}` : expanded;
@@ -829,7 +940,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       setEventRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct } : r)));
     }, 500);
 
-    // 超时兜底：按张数动态放大（网关拥塞时单张可达 40~50s，写死 90s 会把多张串行误判超时）
+    // 超时兜底：按张数动态放大
     const eventBudgetMs = n * 90_000 + 20_000;
     if (eventTimeout.current) window.clearTimeout(eventTimeout.current);
     eventTimeout.current = window.setTimeout(() => {
@@ -849,16 +960,6 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       if (eventTimeout.current) { window.clearTimeout(eventTimeout.current); eventTimeout.current = null; }
     };
 
-    // fail_reason → 中文错误映射
-    function mapEventError(msg: string): string {
-      const m = msg.toLowerCase();
-      if (m.includes("timeout")) return "生成超时，请稍后重试";
-      if (m.includes("content") || m.includes("safety") || m.includes("policy")) return "内容未通过审核，请修改描述";
-      if (m.includes("quota") || m.includes("limit")) return "今日生成次数已达上限";
-      if (m.includes("model") || m.includes("unavailable")) return "模型暂时不可用，请稍后重试";
-      if (m.includes("network") || m.includes("connect")) return "网络连接失败，请稍后重试";
-      return "生成失败，请稍后重试";
-    }
     const ERR_SAFETY = "ERR:SAFETY";
     const ERR_QUOTA = "ERR:QUOTA";
 
@@ -868,7 +969,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         const r = await fetch("/api/image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          signal: AbortSignal.timeout(90_000), // 单张独立超时，超时 abort → 走重试
+          signal: AbortSignal.timeout(90_000),
           body: JSON.stringify({ prompt: genPrompt, size, ...(refDataUrl ? { image: refDataUrl } : {}) }),
         });
         if (r.status === 429) return ERR_QUOTA;
@@ -959,10 +1060,616 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     setEventRuns((prev) => prev.filter((r) => r.id !== id));
   }
 
+  function deleteProductRun(id: string) {
+    setProductRuns((prev) => prev.filter((r) => r.id !== id));
+  }
+
+  // 商品出图台：按任务类型调 API 或本地抠图出 N 张商拍图
+  async function runProductStudio() {
+    if (productBusy) return;
+    const { task, productImg, productName, desc: descRaw, scenePreset, bgMode, bgColor, size, customW, customH, count, fromCase, fusionImgs } = productForm;
+    const desc = expandProductDescLexicon(descRaw);
+
+    // 校验：商品实拍图全模式必填
+    if (!productImg) { toast("请先上传商品图！", "warn"); return; }
+    // 自定义尺寸校验
+    if (size === "自定义") {
+      const w = Number(customW), h = Number(customH);
+      if (!w || !h || w < 64 || h < 64) {
+        toast("请填写有效的自定义宽高（最小 64px）！", "warn"); return;
+      }
+    }
+
+    setProductBusy(true);
+    setProductTab("history");
+
+    const finalSize = eventRatioToSize(size, customW, customH);
+    const sceneEntry = productScenePresets.find((s) => s.name === scenePreset);
+    const scenePrompt = sceneEntry?.prompt || scenePreset;
+
+    // 换底抠图 · 本地抠图（白底/透明/色底）：不走 /api/image
+    if (isProductBgLocalCut(bgMode)) {
+      try {
+        const localMode = bgMode === "cutwhite" ? "white" : bgMode === "transparent" ? "transparent" : "color";
+        const result = await cutoutProduct(productImg, localMode, bgMode === "color" ? bgColor : undefined);
+        const id = "pd-" + productRuns.length + "-cutout-" + Date.now();
+        const modeLabel = bgMode === "cutwhite" ? "抠图白底" : bgMode === "transparent" ? "透明底" : `抠图色底 ${bgColor}`;
+        const row: EventRunRow = {
+          id,
+          prompt: `换底抠图（${modeLabel}）`,
+          sub: "换底抠图",
+          ratioName: size,
+          time: nowStamp(),
+          pct: 100,
+          imgs: [result],
+          grads: ["thumb-grad-1"],
+        };
+        setProductRuns((prev) => [row, ...prev]);
+        addWork({
+          emoji: "✂️",
+          grad: "thumb-grad-1",
+          kind: "图片",
+          name: `${productName || desc.slice(0, 12) || "商品图"} · 抠图`,
+          sub: "品牌设计 · 商拍",
+          img: result,
+          time: nowStamp(),
+          edit: { sub: "product", input: desc },
+        });
+        toast("抠图完成，已存入「我的作品」");
+      } catch {
+        toast("抠图失败，请检查图片后重试", "warn");
+      } finally {
+        setProductBusy(false);
+      }
+      return;
+    }
+
+    // 构建 jobs 列表
+    type Job = { label: string; prompt: string; useRef: boolean; refImage?: string };
+    const jobs: Job[] = [];
+
+    if (bgMode === "scene") {
+      const prompt = `${PRODUCT_REF_KEEP}。将参考图中的商品主体精准保留并融合到「${scenePrompt}」场景，商品为主体，光影方向与场景一致，自然合成，${PRODUCT_DEAI_SUFFIX}`;
+      jobs.push({ label: "换底抠图·场景底", prompt, useRef: true });
+    } else if (isProductBgAi(bgMode)) {
+      const n = Math.max(1, Math.min(4, count));
+      const hasRef = !!productImg;
+      const uploadScene = scenePreset === PRODUCT_AI_SCENE_UPLOAD;
+      if (uploadScene && !fusionImgs[0]) {
+        setProductBusy(false);
+        toast("请先上传场景补充图", "warn");
+        return;
+      }
+      const sceneImgPath = uploadScene ? "" : resolveProductSceneImg(scenePreset);
+      const sceneImg = uploadScene
+        ? fusionImgs[0]
+        : sceneImgPath || "";
+      const useSceneImg = !!(hasRef && sceneImg
+        && scenePreset !== PRODUCT_AI_SCENE_NONE
+        && scenePreset !== PRODUCT_AI_SCENE_COLOR
+        && scenePreset !== PRODUCT_AI_SCENE_WHITE);
+
+      let mixedRef = "";
+      if (useSceneImg) {
+        mixedRef = (await composeFusionReference([productImg, sceneImg])) || "";
+        // 合成失败不阻断：退回「仅商品图 + 文字场景」，仍可出图
+        if (!mixedRef && hasRef) {
+          toast("场景拼图未成功，已改用商品图 + 文字场景继续出图", "warn");
+        }
+      }
+
+      const fusedOk = !!(useSceneImg && mixedRef);
+      const basePrompt = fusedOk
+        ? uploadScene
+          ? `${PRODUCT_REF_KEEP}。将商品实拍图作为主体，放入补充场景图所示环境` +
+            `${desc ? `，并结合以下描述：${desc}` : ""}，` +
+            `商品为主体，光影方向与场景一致，接触阴影自然，画面真实不拼贴感，${PRODUCT_DEAI_SUFFIX}`
+          : `${PRODUCT_REF_KEEP}。将商品实拍图作为主体，放入场景参考图所示的「${scenePreset}」环境（${scenePrompt}），` +
+            `商品为主体，光影方向与场景一致，接触阴影自然，画面真实不拼贴感，${PRODUCT_DEAI_SUFFIX}`
+        : buildAiScenePrompt({
+            productName,
+            desc,
+            scenePreset,
+            bgColor,
+            scenePrompt,
+            hasRef,
+          });
+      const label = aiSceneJobLabel(scenePreset);
+      for (let i = 0; i < n; i++) {
+        jobs.push({
+          label,
+          prompt: basePrompt,
+          useRef: hasRef || fusedOk,
+          ...(mixedRef ? { refImage: mixedRef } : {}),
+        });
+      }
+    }
+
+    if (jobs.length === 0) {
+      setProductBusy(false);
+      toast("没有待出图的任务，请检查配置", "warn");
+      return;
+    }
+
+    const totalJobs = jobs.length;
+    const grads = ["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-grad-4"].slice(0, Math.min(totalJobs, 4));
+    const rowId = "pd-" + productRuns.length + "-" + task + "-" + Date.now();
+    const taskName = productTasks.find((t) => t.key === task)?.name || task;
+
+    const row: EventRunRow = {
+      id: rowId,
+      prompt: jobs[0]?.label || taskName,
+      sub: taskName,
+      ratioName: size,
+      time: nowStamp(),
+      pct: 8,
+      imgs: [],
+      grads,
+    };
+    setProductRuns((prev) => [row, ...prev]);
+
+    // 进度推进到 90%
+    let pct = 8;
+    productTimer.current = window.setInterval(() => {
+      pct = Math.min(90, pct + 7 + (pct % 5));
+      setProductRuns((prev) => prev.map((r) => (r.id === rowId ? { ...r, pct } : r)));
+    }, 500);
+
+    const budgetMs = totalJobs * 90_000 + 20_000;
+    if (productTimeout.current) window.clearTimeout(productTimeout.current);
+    productTimeout.current = window.setTimeout(() => {
+      if (productTimer.current) window.clearInterval(productTimer.current);
+      productTimer.current = null;
+      productTimeout.current = null;
+      setProductRuns((prev) =>
+        prev.map((r) => (r.id === rowId ? { ...r, pct: 100, error: "生成超时，请稍后重试" } : r))
+      );
+      setProductBusy(false);
+      toast("商拍图生成超时，请稍后重试", "warn");
+    }, budgetMs);
+
+    const finishTimer = () => {
+      if (productTimer.current) window.clearInterval(productTimer.current);
+      productTimer.current = null;
+      if (productTimeout.current) { window.clearTimeout(productTimeout.current); productTimeout.current = null; }
+    };
+
+    const ERR_SAFETY = "ERR:SAFETY";
+    const ERR_QUOTA = "ERR:QUOTA";
+
+    async function genOnePdDemo(refDataUrl: string): Promise<string> {
+      return demoProductGenerate({
+        bgMode,
+        scenePreset,
+        bgColor,
+        productImg: productImg || "",
+        fusionImg: fusionImgs[0],
+        refImage: refDataUrl || undefined,
+      });
+    }
+
+    async function genOnePd(jobPrompt: string, refDataUrl: string, attempt = 0): Promise<string> {
+      // 静态导出 / DEMO：无 /api/image，本地抠图+合成+预置图演示
+      if (shouldUseProductDemo()) return genOnePdDemo(refDataUrl);
+      try {
+        const r = await fetch("/api/image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(90_000),
+          body: JSON.stringify({
+            prompt: jobPrompt,
+            size: finalSize,
+            model: PRODUCT_IMAGE_MODEL,
+            ...(refDataUrl ? { image: refDataUrl } : {}),
+          }),
+        });
+        // 404/503：静态站或未配 Key → 走本地演示
+        if (r.status === 404 || r.status === 503) return genOnePdDemo(refDataUrl);
+        if (r.status === 429) return ERR_QUOTA;
+        const j = await r.json().catch(() => ({})) as { images?: string[]; fail_reason?: string; error?: string; message?: string };
+        if (r.status === 400) {
+          const msg = String(j?.error ?? j?.message ?? "").toLowerCase();
+          if (msg.includes("content") || msg.includes("safety") || msg.includes("policy")) return ERR_SAFETY;
+        } else {
+          const failReason = String(j?.fail_reason ?? "").toLowerCase();
+          if (failReason.includes("content") || failReason.includes("safety") || failReason.includes("policy")) return ERR_SAFETY;
+          if (failReason.includes("quota") || failReason.includes("limit")) return ERR_QUOTA;
+          const url = j?.images?.[0] || "";
+          if (url) return url;
+        }
+      } catch {
+        // 网络失败且是静态/演示倾向：最后一试本地演示
+        if (attempt >= 2) return genOnePdDemo(refDataUrl);
+      }
+      if (attempt < 3) {
+        await new Promise((res) => setTimeout(res, 1000 * (attempt + 1)));
+        return genOnePd(jobPrompt, refDataUrl, attempt + 1);
+      }
+      return genOnePdDemo(refDataUrl);
+    }
+
+    try {
+      const imgs: string[] = new Array(totalJobs).fill("");
+
+      for (let i = 0; i < totalJobs; i++) {
+        const job = jobs[i];
+        let jobPrompt = job.prompt;
+
+        // 扩写提示词：有商品实拍时跳过（避免 LLM 改写商品导致不跟参考图）；
+        // fromCase / 本地抠图·场景底 同样跳过；AI 白底/色底无实拍时仍可扩写
+        const skipExpand =
+          DEMO ||
+          fromCase ||
+          !!productImg ||
+          (!isProductBgAi(bgMode) && !isProductBgBatch(bgMode));
+        if (!skipExpand) {
+          const expanded = await collectGenerate({
+            scene: "t2i-product",
+            input: job.prompt,
+            eventSub:
+              bgMode === "aiscene"
+                ? aiSceneExpandSub(scenePreset)
+                : taskToExpandSub("white"),
+            imageRatio: eventRatioLabel(size, customW, customH),
+            county: "",
+          });
+          if (expanded) jobPrompt = expanded;
+        }
+        // 有实拍时再钉一次保主体约束（防止提示词被改写后丢失）
+        if (job.useRef && productImg && !jobPrompt.includes("严格保留参考图")) {
+          jobPrompt = `${PRODUCT_REF_KEEP}。${jobPrompt}`;
+        }
+
+        let refDataUrl = job.refImage || "";
+        if (!refDataUrl && job.useRef && productImg) {
+          refDataUrl = await imgToDataUrl(productImg);
+          if (!refDataUrl) {
+            finishTimer();
+            setProductRuns((prev) =>
+              prev.map((r) => (r.id === rowId ? { ...r, pct: 100, error: "实拍图读取失败，请重新上传" } : r))
+            );
+            toast("实拍图读取失败，请重新上传后重试", "warn");
+            return;
+          }
+        }
+
+        const result = await genOnePd(jobPrompt, refDataUrl);
+        if (result === ERR_SAFETY) {
+          finishTimer();
+          setProductRuns((prev) =>
+            prev.map((r) => (r.id === rowId ? { ...r, pct: 100, error: "描述内容未通过安全审核，请调整后重试" } : r))
+          );
+          return;
+        }
+        if (result === ERR_QUOTA) {
+          finishTimer();
+          setProductRuns((prev) =>
+            prev.map((r) => (r.id === rowId ? { ...r, pct: 100, error: "今日生成次数已达上限" } : r))
+          );
+          setQuotaOpen(true);
+          return;
+        }
+        imgs[i] = result;
+        setProductRuns((prev) => prev.map((r) => (r.id === rowId ? { ...r, imgs: [...imgs] } : r)));
+      }
+
+      finishTimer();
+      const ok = imgs.filter(Boolean);
+      if (ok.length === 0) {
+        setProductRuns((prev) =>
+          prev.map((r) => (r.id === rowId ? { ...r, pct: 100, error: "未能生成合适的结果，请尝试修改描述或商品图" } : r))
+        );
+        return;
+      }
+      setProductRuns((prev) => prev.map((r) => (r.id === rowId ? { ...r, pct: 100, imgs } : r)));
+      toast(
+        ok.length < totalJobs
+          ? `已生成 ${ok.length}/${totalJobs} 张（部分超时），已存入「我的作品」`
+          : DEMO
+            ? `已生成 ${ok.length} 张商拍演示图（离线本地合成），已存入「我的作品」`
+            : `已生成 ${ok.length} 张商拍图，已存入「我的作品」`,
+      );
+      try {
+        addWork({
+          emoji: "图",
+          grad: "thumb-grad-1",
+          kind: "图片",
+          name: `${productName || desc.slice(0, 12) || "商品图"} · ${taskName}`,
+          sub: "品牌设计 · 商拍",
+          img: ok[0],
+          time: nowStamp(),
+          edit: { sub: "product", input: desc },
+        });
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "QuotaExceededError") {
+          toast("本地存储空间不足，历史记录可能无法保存", "warn");
+        }
+      }
+    } catch {
+      finishTimer();
+      setProductRuns((prev) => prev.map((r) => (r.id === rowId ? { ...r, pct: 100, error: "网络连接失败，请稍后重试" } : r)));
+      toast("网络错误，商拍图生成失败。", "warn");
+    } finally {
+      setProductBusy(false);
+    }
+  }
+
+  function deleteSignageRun(id: string) {
+    setSignageRuns((prev) => prev.filter((r) => r.id !== id));
+  }
+
+  /** 店招设计：校验店名 → 进度行 → /api/image（404/503/DEMO 走本地合成） */
+  async function runSignageGenerate() {
+    if (signageBusy) return;
+    const {
+      shopName,
+      slogan,
+      industry,
+      style,
+      logoImg,
+      refImg,
+      size,
+      customW,
+      customH,
+      count,
+      channel,
+      storefrontType,
+      fromCase,
+      extraDesc,
+    } = signageForm;
+
+    if (!shopName.trim()) {
+      toast("请填写店铺名称！", "warn");
+      return;
+    }
+    if (size === "自定义") {
+      const w = Number(customW),
+        h = Number(customH);
+      if (!w || !h || w < 64 || h < 64) {
+        toast("请填写有效的自定义宽高（最小 64px）！", "warn");
+        return;
+      }
+    }
+
+    setSignageBusy(true);
+    setSignageTab("history");
+
+    const { w: pixelW, h: pixelH } = resolveSignageSize({
+      channel,
+      size,
+      customW,
+      customH,
+      platform: signageForm.platform,
+    });
+    const sizeLabel = `${pixelW}×${pixelH}`;
+    const finalSize = `${pixelW}x${pixelH}`;
+    const hasLogo = !!logoImg;
+    const prompt = fromCase && extraDesc.trim()
+      ? extraDesc.trim()
+      : buildSignagePrompt({
+          channel,
+          shopName,
+          slogan,
+          industry,
+          style,
+          sizeLabel: channel === "storefront" ? `${size}（${sizeLabel}）` : `${size}（${sizeLabel} 通栏比例）`,
+          storefrontType,
+          hasLogo,
+          extra: extraDesc,
+        });
+
+    const n = Math.max(1, Math.min(4, count));
+    const grads = ["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-grad-4"].slice(0, n);
+    const rowId = "sg-" + signageRuns.length + "-" + Date.now();
+    const row: EventRunRow = {
+      id: rowId,
+      prompt: `${shopName.trim()} · ${size}`,
+      sub: channel === "storefront" ? "实体门头" : "线上店招",
+      ratioName: size,
+      time: nowStamp(),
+      pct: 8,
+      imgs: [],
+      grads,
+    };
+    setSignageRuns((prev) => [row, ...prev]);
+
+    let pct = 8;
+    signageTimer.current = window.setInterval(() => {
+      pct = Math.min(90, pct + 7 + (pct % 5));
+      setSignageRuns((prev) => prev.map((r) => (r.id === rowId ? { ...r, pct } : r)));
+    }, 500);
+
+    const budgetMs = n * 90_000 + 20_000;
+    if (signageTimeout.current) window.clearTimeout(signageTimeout.current);
+    signageTimeout.current = window.setTimeout(() => {
+      if (signageTimer.current) window.clearInterval(signageTimer.current);
+      signageTimer.current = null;
+      signageTimeout.current = null;
+      setSignageRuns((prev) =>
+        prev.map((r) => (r.id === rowId ? { ...r, pct: 100, error: "生成超时，请稍后重试" } : r)),
+      );
+      setSignageBusy(false);
+      toast("店招生成超时，请稍后重试", "warn");
+    }, budgetMs);
+
+    const finishTimer = () => {
+      if (signageTimer.current) window.clearInterval(signageTimer.current);
+      signageTimer.current = null;
+      if (signageTimeout.current) {
+        window.clearTimeout(signageTimeout.current);
+        signageTimeout.current = null;
+      }
+    };
+
+    const ERR_SAFETY = "ERR:SAFETY";
+    const ERR_QUOTA = "ERR:QUOTA";
+
+    async function genOneSgDemo(): Promise<string> {
+      let logoData = "";
+      if (logoImg) {
+        try {
+          logoData = await imgToDataUrl(logoImg);
+        } catch {
+          logoData = logoImg;
+        }
+      }
+      return demoSignageGenerate({
+        shopName: shopName.trim(),
+        slogan,
+        width: pixelW,
+        height: pixelH,
+        logoImg: logoData || undefined,
+        industry,
+      });
+    }
+
+    async function genOneSg(jobPrompt: string, refDataUrl: string, attempt = 0): Promise<string> {
+      if (shouldUseSignageDemo()) return genOneSgDemo();
+      try {
+        const r = await fetch("/api/image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(90_000),
+          body: JSON.stringify({
+            prompt: jobPrompt,
+            size: finalSize,
+            model: SIGNAGE_IMAGE_MODEL,
+            ...(refDataUrl ? { image: refDataUrl } : {}),
+          }),
+        });
+        if (r.status === 404 || r.status === 503) return genOneSgDemo();
+        if (r.status === 429) return ERR_QUOTA;
+        const j = (await r.json().catch(() => ({}))) as {
+          images?: string[];
+          fail_reason?: string;
+          error?: string;
+          message?: string;
+        };
+        if (r.status === 400) {
+          const msg = String(j?.error ?? j?.message ?? "").toLowerCase();
+          if (msg.includes("content") || msg.includes("safety") || msg.includes("policy")) return ERR_SAFETY;
+        } else {
+          const failReason = String(j?.fail_reason ?? "").toLowerCase();
+          if (failReason.includes("content") || failReason.includes("safety") || failReason.includes("policy"))
+            return ERR_SAFETY;
+          if (failReason.includes("quota") || failReason.includes("limit")) return ERR_QUOTA;
+          const url = j?.images?.[0] || "";
+          if (url) return url;
+        }
+      } catch {
+        if (attempt >= 2) return genOneSgDemo();
+      }
+      if (attempt < 3) {
+        await new Promise((res) => setTimeout(res, 1000 * (attempt + 1)));
+        return genOneSg(jobPrompt, refDataUrl, attempt + 1);
+      }
+      return genOneSgDemo();
+    }
+
+    try {
+      const refSrc = logoImg || refImg;
+      let refDataUrl = "";
+      if (refSrc) {
+        refDataUrl = await imgToDataUrl(refSrc);
+        if (!refDataUrl) {
+          finishTimer();
+          setSignageRuns((prev) =>
+            prev.map((r) => (r.id === rowId ? { ...r, pct: 100, error: "参考图读取失败，请重新上传" } : r)),
+          );
+          toast("参考图读取失败，请重新上传后重试", "warn");
+          return;
+        }
+      }
+
+      const imgs: string[] = new Array(n).fill("");
+      for (let i = 0; i < n; i++) {
+        const result = await genOneSg(prompt, refDataUrl);
+        if (result === ERR_SAFETY) {
+          finishTimer();
+          setSignageRuns((prev) =>
+            prev.map((r) =>
+              r.id === rowId ? { ...r, pct: 100, error: "描述内容未通过安全审核，请调整后重试" } : r,
+            ),
+          );
+          return;
+        }
+        if (result === ERR_QUOTA) {
+          finishTimer();
+          setSignageRuns((prev) =>
+            prev.map((r) => (r.id === rowId ? { ...r, pct: 100, error: "今日生成次数已达上限" } : r)),
+          );
+          setQuotaOpen(true);
+          return;
+        }
+        imgs[i] = result;
+        setSignageRuns((prev) => prev.map((r) => (r.id === rowId ? { ...r, imgs: [...imgs] } : r)));
+      }
+
+      finishTimer();
+      const ok = imgs.filter(Boolean);
+      if (ok.length === 0) {
+        setSignageRuns((prev) =>
+          prev.map((r) =>
+            r.id === rowId ? { ...r, pct: 100, error: "未能生成合适的结果，请尝试修改店名或风格" } : r,
+          ),
+        );
+        return;
+      }
+      setSignageRuns((prev) => prev.map((r) => (r.id === rowId ? { ...r, pct: 100, imgs } : r)));
+      toast(
+        ok.length < n
+          ? `已生成 ${ok.length}/${n} 张（部分超时），已存入「我的作品」`
+          : DEMO
+            ? `已生成 ${ok.length} 张${channel === "storefront" ? "门头" : "店招"}演示图（离线本地合成），已存入「我的作品」`
+            : `已生成 ${ok.length} 张${channel === "storefront" ? "门头" : "店招"}图，已存入「我的作品」`,
+      );
+      try {
+        addWork({
+          emoji: "图",
+          grad: "thumb-grad-5",
+          kind: "图片",
+          name: `${shopName.trim()} · ${channel === "storefront" ? "实体门头" : "店招"}`,
+          sub: "品牌设计 · 店招",
+          img: ok[0],
+          time: nowStamp(),
+          edit: { sub: "signage", input: shopName.trim() },
+        });
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "QuotaExceededError") {
+          toast("本地存储空间不足，历史记录可能无法保存", "warn");
+        }
+      }
+    } catch {
+      finishTimer();
+      setSignageRuns((prev) =>
+        prev.map((r) => (r.id === rowId ? { ...r, pct: 100, error: "网络连接失败，请稍后重试" } : r)),
+      );
+      toast("网络错误，店招生成失败。", "warn");
+    } finally {
+      setSignageBusy(false);
+    }
+  }
+
   // 活动生成历史「复制描述到左侧」
   function copyEventRun(prompt: string) {
     setEventForm({ ...eventForm, tab: "t2i", input: prompt });
     toast("已复制描述到左侧");
+  }
+
+  function copyProductRun(prompt: string) {
+    setProductForm({ ...productForm, desc: prompt });
+    toast("已复制描述到左侧");
+  }
+
+  function copySignageRun(prompt: string) {
+    // 历史行 prompt 多为「店名 · 尺寸」；若含完整描述则放进 extraDesc
+    const shop = prompt.split("·")[0]?.trim();
+    if (shop && shop.length <= 24) {
+      setSignageForm({ ...signageForm, shopName: shop });
+    } else {
+      setSignageForm({ ...signageForm, extraDesc: prompt });
+    }
+    toast("已复制到左侧");
   }
 
   // 生成历史「复制」：把字体记录回填到左侧表单
@@ -1002,7 +1709,25 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
 
   const panel =
     active === "event" ? (
-      <ImageEventPanel type={type} state={eventForm} setState={setEventForm} onGenerate={runGenerate} loading={sim.state.open} onOpenImg2Text={() => setI2tOpen(true)} onOpenStyle={() => setStyleOpen(true)} onOpenLibrary={() => setEventLibOpen(true)} />
+      <ImageEventPanel type={type} state={eventForm} setState={setEventForm} onGenerate={runGenerate} loading={eventBusy} onOpenImg2Text={() => setI2tOpen(true)} onOpenStyle={() => setStyleOpen(true)} onOpenLibrary={() => setEventLibOpen(true)} />
+    ) : active === "product" ? (
+      <ImageProductPanel
+        state={productForm}
+        setState={setProductForm}
+        onGenerate={runGenerate}
+        loading={productBusy}
+        onOpenLibrary={() => setProductLibOpen(true)}
+        onOpenFusionLibrary={() => setProductFusionLibOpen(true)}
+      />
+    ) : active === "signage" ? (
+      <ImageSignagePanel
+        state={signageForm}
+        setState={setSignageForm}
+        onGenerate={runGenerate}
+        loading={signageBusy}
+        onOpenLogoLibrary={() => setSignageLogoLibOpen(true)}
+        onOpenRefLibrary={() => setSignageRefLibOpen(true)}
+      />
     ) : active === "logo" ? (
       <ImageLogoPanel state={logoForm} setState={setLogoForm} onGenerate={runLogoGenerate} loading={logoBusy} />
     ) : active === "ip" ? (
@@ -1152,11 +1877,189 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       </>
     );
   } else if (active === "product") {
-    // 商拍：右侧用通用画廊（生成历史 / 参考灵感），按图片尺寸子类筛选
-    resultArea = <ActiveGallery sub={defForm.size} source={productGalleryItems} />;
+    // 商品出图台：右侧生成历史 / 参考灵感画廊
+    const subTaskMap: Record<string, ProductTaskKey> = {
+      "白底主图": "cutout",
+      "换底抠图": "cutout",
+      "抠图换底": "cutout",
+      "产地场景": "cutout",
+      "生活场景": "cutout",
+      "细节特写": "cutout",
+      "礼盒套图": "cutout",
+    };
+    const gallerySub =
+      productForm.bgMode === "aiscene" || productForm.bgMode === "scene"
+        ? ""
+        : "白底主图";
+    resultArea = (
+      <>
+        <ActiveGallery
+          sub={gallerySub}
+          source={productGalleryItems}
+          caseStyle="ip"
+          resultEdit={false}
+          tab={productTab}
+          setTab={setProductTab}
+          runRows={productRuns}
+          highlightId={highlightRow ?? undefined}
+          onDeleteRun={deleteProductRun}
+          onCopyRun={copyProductRun}
+          onUseCase={(it) => {
+            const sizeField = it.w && it.h
+              ? { size: "自定义" as const, customW: String(it.w), customH: String(it.h) }
+              : { size: "方版1:1", customW: "", customH: "" };
+            const bgPatch = productGalleryBgPatch(it);
+            setProductForm({
+              ...productForm,
+              desc: it.prompt ?? productForm.desc,
+              task: "cutout",
+              ...bgPatch,
+              fromCase: !!it.prompt,
+              ...sizeField,
+            });
+          }}
+          onPickCate={(it) => {
+            const sizeField = it.w && it.h
+              ? { size: "自定义" as const, customW: String(it.w), customH: String(it.h) }
+              : { size: "方版1:1", customW: "", customH: "" };
+            const bgPatch = productGalleryBgPatch(it);
+            setProductForm({
+              ...productForm,
+              task: "cutout",
+              ...bgPatch,
+              ...sizeField,
+            });
+          }}
+        />
+        {i2tOpen && (
+          <Img2TextModal
+            onClose={() => setI2tOpen(false)}
+            onResult={(text) => {
+              setProductForm({ ...productForm, desc: text, fromCase: true });
+            }}
+          />
+        )}
+        {productLibOpen && (
+          <LibraryPickerModal
+            onClose={() => setProductLibOpen(false)}
+            onPick={(img, name) => {
+              setProductForm({ ...productForm, productImg: img, productLabel: name });
+              setProductLibOpen(false);
+              toast(`已从仓库选用「${name}」作为商品图`);
+            }}
+          />
+        )}
+        {productFusionLibOpen && (
+          <LibraryPickerModal
+            onClose={() => setProductFusionLibOpen(false)}
+            onPick={(img, name) => {
+              setProductForm({
+                ...productForm,
+                fusionImgs: [img, "", ""],
+                fusionLabels: [name, "", ""],
+                ...(productForm.bgMode === "aiscene"
+                  ? { scenePreset: PRODUCT_AI_SCENE_UPLOAD }
+                  : {}),
+              });
+              setProductFusionLibOpen(false);
+              toast(`已从仓库选用「${name}」作为补充图`);
+            }}
+          />
+        )}
+      </>
+    );
   } else if (active === "signage") {
-    // 店招设计：右侧用通用画廊（生成历史 / 参考灵感），按图片尺寸子类筛选
-    resultArea = <ActiveGallery sub={defForm.size} source={signageGalleryItems} />;
+    resultArea = (
+      <>
+        <ActiveGallery
+          sub="线上店招"
+          source={signageGalleryItems}
+          caseStyle="ip"
+          resultEdit={false}
+          tab={signageTab}
+          setTab={setSignageTab}
+          runRows={signageRuns}
+          highlightId={highlightRow ?? undefined}
+          onDeleteRun={deleteSignageRun}
+          onCopyRun={copySignageRun}
+          onUseCase={(it) => {
+            const nameM = it.prompt?.match(/店铺名「([^」]+)」/);
+            const sloganM = it.prompt?.match(/副文案「([^」]+)」/);
+            const matchedPlat =
+              it.w === 1920 && it.h === 150
+                ? platformByKey("tb_banner")
+                : it.w === 950 && it.h === 120
+                  ? platformByKey("tb_pc")
+                  : it.w === 750 && it.h === 200
+                    ? platformByKey("tb_wireless")
+                    : undefined;
+            let industry = signageForm.industry;
+            if (it.prompt?.includes("茶叶")) industry = "茶叶";
+            else if (it.prompt?.includes("特产") || it.prompt?.includes("生鲜")) industry = "特产生鲜";
+            else if (it.prompt?.includes("农家乐") || it.prompt?.includes("餐饮")) industry = "餐饮农家乐";
+            else if (it.prompt?.includes("文旅") || it.prompt?.includes("景区")) industry = "文旅景区";
+            else if (it.prompt?.includes("手作") || it.prompt?.includes("伴手礼")) industry = "手作伴手礼";
+            let style = signageForm.style;
+            if (it.prompt?.includes("新中式")) style = "新中式";
+            else if (it.prompt?.includes("国潮")) style = "国潮";
+            else if (it.prompt?.includes("清新产地")) style = "清新产地";
+            else if (it.prompt?.includes("促销")) style = "促销爆款";
+            else if (it.prompt?.includes("简约")) style = "简约高级";
+            setSignageForm({
+              ...signageForm,
+              shopName: nameM?.[1] || signageForm.shopName,
+              slogan: sloganM?.[1] || signageForm.slogan,
+              industry,
+              style,
+              platform: matchedPlat?.key || (it.w && it.h ? "custom" : signageForm.platform),
+              size: matchedPlat?.sizeName || (it.w && it.h ? "自定义" : signageForm.size),
+              customW: it.w ? String(it.w) : signageForm.customW,
+              customH: it.h ? String(it.h) : signageForm.customH,
+              fromCase: !!it.prompt,
+              extraDesc: it.prompt || "",
+            });
+            toast(`已套用「${it.name}」，可在左侧调整后点击「立即生成店招」`);
+          }}
+          onPickCate={(it) => {
+            const matchedPlat =
+              it.w === 1920 && it.h === 150
+                ? platformByKey("tb_banner")
+                : it.w === 950 && it.h === 120
+                  ? platformByKey("tb_pc")
+                  : it.w === 750 && it.h === 200
+                    ? platformByKey("tb_wireless")
+                    : undefined;
+            setSignageForm({
+              ...signageForm,
+              platform: matchedPlat?.key || (it.w && it.h ? "custom" : signageForm.platform),
+              size: matchedPlat?.sizeName || (it.w && it.h ? "自定义" : signageForm.size),
+              customW: it.w ? String(it.w) : signageForm.customW,
+              customH: it.h ? String(it.h) : signageForm.customH,
+            });
+          }}
+        />
+        {signageLogoLibOpen && (
+          <LibraryPickerModal
+            onClose={() => setSignageLogoLibOpen(false)}
+            onPick={(img, name) => {
+              setSignageForm({ ...signageForm, logoImg: img, logoLabel: name });
+              setSignageLogoLibOpen(false);
+              toast(`已从仓库选用「${name}」作为 Logo`);
+            }}
+          />
+        )}
+        {signageRefLibOpen && (
+          <LibraryPickerModal
+            onClose={() => setSignageRefLibOpen(false)}
+            onPick={(img, name) => {
+              setSignageForm({ ...signageForm, refImg: img, refLabel: name });
+              setSignageRefLibOpen(false);
+              toast(`已从仓库选用「${name}」作为参考图`);
+            }}
+          />
+        )}
+      </>
+    );
   } else {
     resultArea = (
       <div className="preview-empty">
@@ -1260,8 +2163,7 @@ function eventRatioLabel(ratioName: string, customW = "", customH = ""): string 
     w = Number(customW) || 0;
     h = Number(customH) || 0;
   } else {
-    const all = [...imageRatios, ...posterRatios, ...rollupRatios, ...flyerRatios];
-    const hit = all.find((s) => s.name === ratioName);
+    const hit = allImageSizePresets.find((s) => s.name === ratioName);
     const m = hit?.size.match(/(\d+(?:\.\d+)?)\s*[×x:：]\s*(\d+(?:\.\d+)?)/);
     if (m) { w = Number(m[1]) || 0; h = Number(m[2]) || 0; }
   }
@@ -1278,8 +2180,7 @@ function eventPxLabel(ratioName: string, customW = "", customH = ""): string {
     w = Math.round(Number(customW) || 0);
     h = Math.round(Number(customH) || 0);
   } else {
-    const all = [...imageRatios, ...posterRatios, ...rollupRatios, ...flyerRatios];
-    const hit = all.find((s) => s.name === ratioName);
+    const hit = allImageSizePresets.find((s) => s.name === ratioName);
     const m = hit?.size.match(/(\d+(?:\.\d+)?)\s*[×x:：]\s*(\d+(?:\.\d+)?)/);
     if (m) { w = Math.round(Number(m[1]) || 0); h = Math.round(Number(m[2]) || 0); }
   }
@@ -1296,8 +2197,7 @@ function eventRatioToSize(ratioName: string, customW = "", customH = ""): string
     h = Number(customH) || 0;
   } else {
     // 在所有尺寸组里找到该项，取其 size 字段的两个数字作为宽:高比
-    const all = [...imageRatios, ...posterRatios, ...rollupRatios, ...flyerRatios];
-    const hit = all.find((s) => s.name === ratioName);
+    const hit = allImageSizePresets.find((s) => s.name === ratioName);
     const m = hit?.size.match(/(\d+(?:\.\d+)?)\s*[×x:：]\s*(\d+(?:\.\d+)?)/);
     if (m) {
       w = Number(m[1]) || 0;
@@ -1311,6 +2211,48 @@ function eventRatioToSize(ratioName: string, customW = "", customH = ""): string
   const scale = Math.sqrt(MIN_PIXELS / (w * h));
   const round8 = (n: number) => Math.ceil((n * scale) / 8) * 8;
   return `${round8(w)}x${round8(h)}`;
+}
+
+/** 将商品图 + 场景图并排合成一张参考图（先转 data URL，避免跨域污染 canvas） */
+async function composeFusionReference(urls: string[]): Promise<string> {
+  const load = (src: string) =>
+    new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("image_load_failed"));
+      img.src = src;
+    });
+  try {
+    const dataUrls = await Promise.all(urls.map((u) => imgToDataUrl(u)));
+    if (dataUrls.some((u) => !u)) return "";
+    const imgs = await Promise.all(dataUrls.map((u) => load(u)));
+    const count = imgs.length;
+    const w = 1536;
+    const h = 1024;
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext("2d");
+    if (!ctx) return "";
+    ctx.fillStyle = "#f7f7f7";
+    ctx.fillRect(0, 0, w, h);
+    const gap = 28;
+    const pad = 36;
+    const cellW = Math.floor((w - pad * 2 - gap * (count - 1)) / count);
+    const cellH = h - pad * 2;
+    imgs.forEach((img, i) => {
+      if (!img.width || !img.height) return;
+      const scale = Math.min(cellW / img.width, cellH / img.height);
+      const dw = img.width * scale;
+      const dh = img.height * scale;
+      const x = pad + i * (cellW + gap) + (cellW - dw) / 2;
+      const y = pad + (cellH - dh) / 2;
+      ctx.drawImage(img, x, y, dw, dh);
+    });
+    return c.toDataURL("image/jpeg", 0.92);
+  } catch {
+    return "";
+  }
 }
 
 function initDefault(type: ImageType): DefaultImageState {

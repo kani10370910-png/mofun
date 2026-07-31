@@ -12,10 +12,12 @@ export function PaintStyleModal({
   current,
   onClose,
   onPick,
+  styles = paintStyles,
 }: {
   current: string;
   onClose: () => void;
   onPick: (styleName: string) => void;
+  styles?: typeof paintStyles;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -42,7 +44,7 @@ export function PaintStyleModal({
           </button>
         </div>
         <div className="ps-grid">
-          {paintStyles.map((s) => (
+          {styles.map((s) => (
             <button
               key={s.key}
               className={`ps-card ${s.name === current ? "on" : ""}`}
@@ -54,9 +56,9 @@ export function PaintStyleModal({
               <div className={`ps-thumb ${s.grad}`}>
                 {s.img ? (
                   <AutoBgImg className="ps-img" src={asset(s.img)} alt={s.name} />
-                ) : (
+                ) : s.emoji ? (
                   <span className="ps-emoji">{s.emoji}</span>
-                )}
+                ) : null}
               </div>
               <div className="ps-name">{s.name}</div>
             </button>

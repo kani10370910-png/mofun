@@ -17,6 +17,19 @@ const TYPE_ENTRY: Record<string, { view: string; sub: string }> = {
   content: { view: "content", sub: "social" },
   video: { view: "video", sub: "oneline" },
 };
+/** 品牌设计子类 → /image?sub= */
+const IMAGE_SUB_ENTRY: Record<string, string> = {
+  海报: "event",
+  长图: "event",
+  菜单: "event",
+  易拉宝: "event",
+  宣传单: "event",
+  商拍: "product",
+  logo: "logo",
+  IP设计: "ip",
+  AI字体: "font",
+  店招设计: "signage",
+};
 
 type TypeKey = "all" | "content" | "image" | "video";
 
@@ -43,8 +56,9 @@ export function TemplateView() {
 
   function applyTpl(t: Template) {
     const entry = TYPE_ENTRY[t.type] ?? TYPE_ENTRY.image;
+    const subKey = t.type === "image" ? (IMAGE_SUB_ENTRY[t.sub] ?? entry.sub) : entry.sub;
     toast(`已套用模版「${t.name}」，进入编辑`);
-    window.setTimeout(() => router.push(`/${entry.view}?sub=${entry.sub}`), 700);
+    window.setTimeout(() => router.push(`/${entry.view}?sub=${subKey}`), 700);
   }
 
   const card = (t: Template) => (

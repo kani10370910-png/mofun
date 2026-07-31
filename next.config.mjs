@@ -18,6 +18,24 @@ const nextConfig = {
   basePath: basePath || undefined,
   // 把 basePath 暴露给客户端，供手写 <img> 的图片路径拼前缀（见 src/lib/asset.ts）
   env: { NEXT_PUBLIC_BASE_PATH: basePath },
+  // 跨源隔离头：让 onnxruntime-web 用 SharedArrayBuffer 多线程（RVM 抠像提速）。
+  // 注意：静态导出(EXPORT=1)不生成响应头，生产需在 nginx 配同样两个头（见 scripts/DEPLOY 说明）。
+  // COEP 用 credentialless，避免破坏跨源图片/视频加载。
+  ...(process.env.EXPORT === "1"
+    ? {}
+    : {
+        async headers() {
+          return [
+            {
+              source: "/:path*",
+              headers: [
+                { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+                { key: "Cross-Origin-Embedder-Policy", value: "credentialless" },
+              ],
+            },
+          ];
+        },
+      }),
 };
 
 export default nextConfig;

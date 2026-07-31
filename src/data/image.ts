@@ -33,9 +33,11 @@ export const imageTypes: ImageType[] = [
     { name: "宣传单", size: "21 × 29.7 cm", ico: "szA4" },
   ] },
   { key: "product", ico: "📷", name: "商拍", grad: "thumb-grad-1", sizes: [
-    { name: "白底商品图", size: "1000 × 1000 px", ico: "szSquare" },
-    { name: "产品场景图", size: "1920 × 1080 px", ico: "szLandscape" },
-    { name: "竖版细节图", size: "1080 × 1440 px", ico: "szPortrait" },
+    { name: "白底主图", size: "800 × 800 px", ico: "szSquare" },
+    { name: "产地场景", size: "1920 × 1080 px", ico: "szLandscape" },
+    { name: "生活场景", size: "1080 × 1440 px", ico: "szPortrait" },
+    { name: "细节特写", size: "1080 × 1440 px", ico: "szPortrait" },
+    { name: "礼盒套图", size: "1080 × 1080 px", ico: "szSquare" },
   ] },
   { key: "logo", ico: "✴️", name: "logo", grad: "thumb-grad-3", sizes: [
     { name: "标准 LOGO", size: "1024 × 1024 px", ico: "szSquare" },
@@ -51,8 +53,12 @@ export const imageTypes: ImageType[] = [
     { name: "方形字图", size: "1080 × 1080 px", ico: "szSquare" },
   ] },
   { key: "signage", ico: "🏪", name: "店招设计", grad: "thumb-grad-5", sizes: [
-    { name: "线上店招", size: "1920 × 150 px", ico: "szLandscape" },
-    { name: "实体门头", size: "300 × 80 cm", ico: "szLandscape" },
+    { name: "淘宝通栏1920×150", size: "1920 × 150 px", ico: "szLandscape" },
+    { name: "淘宝PC950×120", size: "950 × 120 px", ico: "szLandscape" },
+    { name: "无线750×200", size: "750 × 200 px", ico: "szLandscape" },
+    { name: "天猫通栏1920×150", size: "1920 × 150 px", ico: "szLandscape" },
+    { name: "京东通栏1920×150", size: "1920 × 150 px", ico: "szLandscape" },
+    { name: "自定义", size: "自定义宽高", ico: "szLandscape" },
   ] },
 ];
 
@@ -144,6 +150,67 @@ export const editPresets: { name: string; prompt: string }[] = [
   { name: "提取线稿", prompt: "将图片转为黑白线稿图" },
   { name: "生成相似图", prompt: "生成相似图" },
   { name: "改图片尺寸", prompt: "将图片扩展为XX:XX的尺寸" },
+];
+
+/* ---------- 商拍·图生图预设（农旅高频：换白底 / 换产地场景置前） ---------- */
+export const productEditPresets: { name: string; prompt: string }[] = [
+  { name: "不使用预设", prompt: "" },
+  { name: "换白底", prompt: "将商品抠出并置于纯白背景，主体居中，四边留白均匀，柔和棚拍光，干净无杂质，电商主图质感" },
+  { name: "换产地场景", prompt: "保留商品主体外观不变，将背景替换为真实农旅产地场景（茶园/竹林/稻田/果园择一贴合品类），自然光，光影与投影方向一致，不夸大成色" },
+  { name: "生成相似图", prompt: "生成相似图" },
+  { name: "变清晰", prompt: "将这张图片变清晰" },
+  { name: "细节修复", prompt: "细节修复" },
+  { name: "去除文字", prompt: "去除图片中的所有文字" },
+  { name: "去水印", prompt: "去除画面中的水印" },
+  { name: "换风格", prompt: "将图片改为XX风格" },
+  { name: "改图片尺寸", prompt: "将图片扩展为XX:XX的尺寸" },
+  { name: "删除元素", prompt: "删除XX内容" },
+  { name: "增加元素", prompt: "在图片的XX位置增加一个XX内容" },
+];
+
+/* ---------- 商拍·电商/场景/细节/长图尺寸组 ---------- */
+export const productSquareRatios: SizePreset[] = [
+  { name: "自定义", size: "自定义宽高", ico: "szSquare" },
+  { name: "电商主图1:1", size: "800 × 800 px", ico: "szSquare" },
+  { name: "方版1:1", size: "1080 × 1080 px", ico: "szSquare" },
+  { name: "竖版3:4", size: "1080 × 1440 px", ico: "szPortrait" },
+  { name: "竖版9:16", size: "1080 × 1920 px", ico: "szPortrait" },
+  { name: "横版16:9", size: "1920 × 1080 px", ico: "szLandscape" },
+  { name: "横版4:3", size: "1440 × 1080 px", ico: "szLandscape" },
+];
+
+export const productSceneRatios: SizePreset[] = [
+  { name: "自定义", size: "自定义宽高", ico: "szLandscape" },
+  { name: "横版16:9", size: "1920 × 1080 px", ico: "szLandscape" },
+  { name: "竖版3:4", size: "1080 × 1440 px", ico: "szPortrait" },
+  { name: "方版1:1", size: "1080 × 1080 px", ico: "szSquare" },
+  { name: "竖版9:16", size: "1080 × 1920 px", ico: "szPortrait" },
+  { name: "横版4:3", size: "1440 × 1080 px", ico: "szLandscape" },
+];
+
+export const productDetailRatios: SizePreset[] = [
+  { name: "自定义", size: "自定义宽高", ico: "szPortrait" },
+  { name: "竖版3:4", size: "1080 × 1440 px", ico: "szPortrait" },
+  { name: "方版1:1", size: "1080 × 1080 px", ico: "szSquare" },
+  { name: "竖版9:16", size: "1080 × 1920 px", ico: "szPortrait" },
+];
+
+export const productLongRatios: SizePreset[] = [
+  { name: "自定义", size: "自定义宽高", ico: "szLong" },
+  { name: "标准长图", size: "800 × 2000 px", ico: "szLong" },
+  { name: "电商长图", size: "750 × 1500 px", ico: "szLong" },
+  { name: "竖版9:16", size: "1080 × 1920 px", ico: "szPortrait" },
+];
+
+/* ---------- 商拍·画面风格 ---------- */
+export const productStyles: PaintStyle[] = [
+  { key: "auto", name: "智能匹配", emoji: "", grad: "thumb-grad-4", prompt: "" },
+  { key: "studio", name: "商业棚拍", emoji: "", grad: "thumb-grad-1", prompt: "商业棚拍质感，柔光箱打光，干净投影，电商主图级清晰度" },
+  { key: "origin", name: "产地自然光", emoji: "", grad: "thumb-grad-3", prompt: "户外自然光，真实产地氛围，不过度美颜，材质真实" },
+  { key: "wood", name: "原木质感", emoji: "", grad: "thumb-grad-6", prompt: "原木桌面、竹编与粗陶点缀，温润质朴，农旅伴手礼调性" },
+  { key: "feast", name: "餐桌氛围", emoji: "", grad: "thumb-grad-5", prompt: "餐桌生活场景，餐布碗碟点缀，烟火气与食欲感" },
+  { key: "gift", name: "节日礼盒", emoji: "", grad: "thumb-grad-2", prompt: "节日礼盒氛围，礼品感强，点缀克制不堆砌" },
+  { key: "photo", name: "写实摄影", emoji: "", grad: "thumb-grad-4", prompt: "写实摄影风格，高细节真实材质，去塑料感与过度平滑" },
 ];
 
 /* ---------- 图生图：编辑模型（活动图生图用） ---------- */
@@ -722,31 +789,42 @@ export const activeGalleryItems: ActiveGalleryItem[] = [
   { sub: "海报", name: "全自动扫拖洗扫地机器人促销海", grad: "thumb-grad-3", img: "/poster-samples/20260302145711922703x3mjy4.jpg", w: 1080, h: 1080, prompt: "全自动扫拖洗扫地机器人促销海报设计，整体为浅米白+暖棕主色调，搭配现代家居场景，专业智能家电电商风格。核心内容与布局： 1. 背景：浅米色竖纹墙面+浅木色台面，营造现代家居氛围； 2. 核心视觉区： - 顶部：大号黑色粗体字“全自动扫拖洗！这台扫地机承包全屋清洁”，下方浅米色圆角标签标注“自动集尘 | 热水洗拖 | 精准避障”； - 左侧：三个深棕色圆角标签，依次标注“实力工厂”“超长待机”“纯铜电机”； - 中央：参考图主图产品； 3. 底部促销栏： - 左侧：浅米色块“促销活动价”+超大号黑色“¥2199”； - 右侧：深棕色通栏，白色粗体字“限时付定立减100元”； 整体画面层次分明，色彩以浅米白+暖棕为主，突出“全自动扫拖洗、承包全屋清洁”的核心卖点，促销信息醒目清晰，符合智能家电的专业现代调性。" },
 ];
 
-/* ---------- 商拍：参考灵感案例（按子类筛选，结构同活动；占位 emoji，真图后补 img） ---------- */
+/* ---------- 商拍：参考灵感（模型预生成图在 public/productcase/） ---------- */
 export const productGalleryItems: ActiveGalleryItem[] = [
-  { emoji: "🫙", sub: "白底商品图", name: "蜂蜜白底主图", grad: "thumb-grad-1" },
-  { emoji: "🍵", sub: "白底商品图", name: "茶叶礼盒白底图", grad: "thumb-grad-5" },
-  { emoji: "🍶", sub: "白底商品图", name: "土特产酱料白底图", grad: "thumb-grad-3" },
-  { emoji: "🧴", sub: "白底商品图", name: "护肤瓶身白底图", grad: "thumb-grad-2" },
-  { emoji: "🏞️", sub: "产品场景图", name: "高山茶园场景图", grad: "thumb-grad-3" },
-  { emoji: "🍱", sub: "产品场景图", name: "农家美食桌景图", grad: "thumb-grad-6" },
-  { emoji: "🪵", sub: "产品场景图", name: "原木质感氛围图", grad: "thumb-grad-4" },
-  { emoji: "🛍️", sub: "产品场景图", name: "节日礼盒摆拍图", grad: "thumb-grad-1" },
-  { emoji: "🔍", sub: "竖版细节图", name: "纹理特写细节图", grad: "thumb-grad-2" },
-  { emoji: "💧", sub: "竖版细节图", name: "饮品质感细节图", grad: "thumb-grad-5" },
-  { emoji: "🌾", sub: "竖版细节图", name: "原料成分细节图", grad: "thumb-grad-3" },
+  { sub: "白底主图", name: "茶罐白底主图", grad: "thumb-grad-1", img: "/productcase/tea-white.png", w: 1080, h: 1080, prompt: "铁罐装绿茶商品白底主图，主体居中，标签清晰，柔和棚拍光，四周留白均匀，电商过审风格，写实摄影" },
+  { sub: "产地场景", name: "高山茶园场景图", grad: "thumb-grad-3", img: "/productcase/tea-garden.png", w: 1080, h: 1080, prompt: "茶叶罐置于高山茶园木台前景，背景茶垄与薄雾，清晨自然光，商品主体清晰，真实产地氛围，不夸张不失真" },
+  { sub: "生活场景", name: "民宿窗台氛围图", grad: "thumb-grad-4", img: "/productcase/tea-homestay.png", w: 1080, h: 1080, prompt: "商品放置于原木民宿窗台，窗外山景虚化，暖色自然光，生活化但突出商品主体，写实商业摄影" },
 ];
 
-/* ---------- 店招设计：参考灵感案例（按子类筛选，结构同活动；占位 emoji，真图后补 img） ---------- */
+/* ---------- 店招设计：参考灵感（样张在 public/signagecase/） ---------- */
 export const signageGalleryItems: ActiveGalleryItem[] = [
-  { emoji: "🏪", sub: "线上店招", name: "茶饮品牌线上店招", grad: "thumb-grad-1" },
-  { emoji: "🛒", sub: "线上店招", name: "土特产旗舰店招", grad: "thumb-grad-5" },
-  { emoji: "🎍", sub: "线上店招", name: "新中式生鲜店招", grad: "thumb-grad-3" },
-  { emoji: "🍜", sub: "线上店招", name: "面馆外卖店招", grad: "thumb-grad-2" },
-  { emoji: "🏮", sub: "实体门头", name: "国风茶馆门头", grad: "thumb-grad-6" },
-  { emoji: "☕", sub: "实体门头", name: "社区咖啡门头", grad: "thumb-grad-4" },
-  { emoji: "🥢", sub: "实体门头", name: "中式餐馆门头", grad: "thumb-grad-1" },
-  { emoji: "🌿", sub: "实体门头", name: "农家乐招牌门头", grad: "thumb-grad-3" },
+  {
+    sub: "线上店招",
+    name: "茶馆旗舰通栏",
+    grad: "thumb-grad-1",
+    img: "/signagecase/signage-tea.png",
+    w: 1920,
+    h: 150,
+    prompt: "横版电商店招，淘宝通栏比例，店铺名「云间茶舍」大字居中清晰，副文案「明前芽茶 · 产地直发」，行业茶叶，新中式风格，左右茶叶点缀不挡店名，适合淘宝页头",
+  },
+  {
+    sub: "线上店招",
+    name: "土特产旗舰店招",
+    grad: "thumb-grad-5",
+    img: "/signagecase/signage-specialty.png",
+    w: 1920,
+    h: 150,
+    prompt: "横版电商店招，淘宝通栏比例，店铺名「山里货优选」大字居中，副文案「县域特产 · 助农直供」，特产生鲜，清新产地风格，适合电商店头",
+  },
+  {
+    sub: "线上店招",
+    name: "农家乐通栏店招",
+    grad: "thumb-grad-3",
+    img: "/signagecase/signage-farm.png",
+    w: 1920,
+    h: 150,
+    prompt: "横版电商店招，淘宝通栏比例，店铺名「稻香农家乐」大字居中，副文案「田园食堂 · 预约有座」，餐饮农家乐，简约高级，适合淘宝页头",
+  },
 ];
 
 /* ---------- IP 创新设计：参考灵感案例 ----------

@@ -1,15 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { useGenerateStream } from "@/lib/useGenerateStream";
 
 /* IP 故事弹窗：
    - 左侧展示当前 IP 图片
-   - 右侧「IP故事」（上栏）：打开时据创意描述/颜色/尺寸自动生成一版 IP 故事（不识别图片，可编辑）
-   - 「补充信息」：用户可填项目/公司/行业关键词
-   - 「生成IP故事」：结合上栏故事 + 补充信息生成「重生版」，在下方单独展示（上栏初版保留） */
+   - 右侧三段：① IP描述（可编辑，据此生成故事）② 补充信息（项目/公司/行业关键词）③ 历史记录（每次生成的故事累积保留）
+   - 底部「生成IP故事」，生成过一次后变「重新生成」 */
 export function IpStoryModal({
   img,
   name,
@@ -26,51 +25,19 @@ export function IpStoryModal({
   rawDesc?: string; // 用户原始创意描述（据此生成故事）
   colors?: string[]; // 偏好颜色
   ratioName?: string; // 画面尺寸/比例名
-  preDesc?: string; // 出图后后台已预加载好的首版 IP 故事（有则直接用，无需现场生成）
+  preDesc?: string; // 出图后后台已预加载好的首版 IP 故事（有则作为历史记录首条）
   onClose: () => void;
 }) {
   const toast = useToast();
-  // 上栏初版 IP 故事（自动生成，可编辑）
-  const [initStory, setInitStory] = useState(preDesc?.trim() || "");
-  const [supplement, setSupplement] = useState("");
-  // 下方「重生版」故事（结合补充信息）
-  const [story, setStory] = useState("");
-  const [initLoading, setInitLoading] = useState(false);
-
-  const storyGen = useGenerateStream(); // 下方重生版
-  const initGen = useGenerateStream(); // 上栏初版（现场兜底）
-
   // 统一的形象依据
   const formDesc = (rawDesc && rawDesc.trim()) || (baseDesc && baseDesc.trim()) || "";
 
-  // 打开即拿到上栏「初版 IP 故事」：优先用后台预加载结果；没有才现场生成
-  const startedRef = useRef(false);
-  useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
-    if (preDesc && preDesc.trim()) return; // 已有预加载初版，直接用
-    let alive = true;
-    (async () => {
-      setInitLoading(true);
-      const full = await initGen.generate(
-        {
-          scene: "ip-story",
-          ipName: name,
-          description: formDesc,
-          preferredColors: colors,
-          canvasSize: ratioName,
-        },
-        (f) => alive && setInitStory(f),
-      );
-      if (alive && initGen.state.error) toast(initGen.state.error, "warn");
-      if (alive && full.trim()) setInitStory(full.trim());
-      if (alive) setInitLoading(false);
-    })();
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const [ipDesc, setIpDesc] = useState(formDesc); // ① IP描述（可编辑）
+  const [supplement, setSupplement] = useState(""); // ② 补充信息
+  const [history, setHistory] = useState<string[]>(preDesc?.trim() ? [preDesc.trim()] : []); // ③ 历史记录
+  const [current, setCurrent] = useState(""); // 当前流式生成中的故事
+
+  const storyGen = useGenerateStream();
 
   // Esc 关闭
   useEffect(() => {
@@ -81,31 +48,33 @@ export function IpStoryModal({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // 点「生成IP故事」：以上栏故事为基础 + 补充信息，生成重生版展示在下方
+  // 点「生成IP故事 / 重新生成」：据 IP描述 + 补充信息生成，完成后压入历史记录
   async function handleGenStory() {
     if (storyGen.state.loading) return;
-    if (!initStory.trim()) {
-      toast("请先等待或填写上方 IP 故事！", "warn");
+    if (!ipDesc.trim()) {
+      toast("请先填写 IP 描述！", "warn");
       return;
     }
-    setStory("");
+    setCurrent("");
     const full = await storyGen.generate(
       {
         scene: "ip-story",
         ipName: name,
-        // 以上栏故事 + 原始形象描述为依据，避免跑偏
-        description: `${initStory.trim()}\n\n（形象参考：${formDesc}）`,
+        description: ipDesc.trim(),
         supplement: supplement.trim(),
         preferredColors: colors,
         canvasSize: ratioName,
       },
-      (f) => setStory(f),
+      (f) => setCurrent(f),
     );
     if (storyGen.state.error) {
       toast(storyGen.state.error, "warn");
       return;
     }
-    if (full.trim()) setStory(full.trim());
+    if (full.trim()) {
+      setHistory((prev) => [full.trim(), ...prev]);
+      setCurrent("");
+    }
   }
 
   function copyText(text: string) {
@@ -114,7 +83,6 @@ export function IpStoryModal({
     toast("已复制 IP 故事");
   }
 
-  const initBusy = initLoading || initGen.state.loading;
   const storyLoading = storyGen.state.loading;
 
   return (
@@ -138,32 +106,20 @@ export function IpStoryModal({
             )}
           </div>
 
-          {/* 右：IP 故事（初版）+ 补充信息 + 重生版 */}
+          {/* 右：IP描述 + 补充信息 + 历史记录 */}
           <div className="ipstory-form">
+            {/* ① IP描述 */}
             <div className="ipstory-field">
-              <div className="ipstory-label">
-                <span className="ipstory-label-l">
-                  IP故事
-                  {initBusy && (
-                    <span className="ipstory-mini-load">
-                      <Icon name="refresh" size={13} className="ico-spin" /> 生成中
-                    </span>
-                  )}
-                </span>
-                {!initBusy && initStory && (
-                  <button className="ipstory-copy" onClick={() => copyText(initStory)} title="复制故事">
-                    <Icon name="copy" size={13} /> 复制
-                  </button>
-                )}
-              </div>
+              <div className="ipstory-label">IP描述</div>
               <textarea
-                className="ipstory-desc ipstory-story"
-                value={initStory}
-                onChange={(e) => setInitStory(e.target.value)}
-                placeholder={initBusy ? "正在生成 IP 故事…" : "IP 故事将显示在这里，可编辑"}
+                className="ipstory-desc"
+                value={ipDesc}
+                onChange={(e) => setIpDesc(e.target.value)}
+                placeholder="描述这个 IP 形象，如：火锅"
               />
             </div>
 
+            {/* ② 补充信息 */}
             <div className="ipstory-field">
               <div className="ipstory-label">补充信息</div>
               <input
@@ -174,35 +130,47 @@ export function IpStoryModal({
               />
             </div>
 
-            {/* 重生版 IP 故事：结合补充信息生成，下方单独展示 */}
-            {(story || storyLoading) && (
-              <div className="ipstory-field ipstory-result">
-                <div className="ipstory-label">
-                  <span className="ipstory-label-l">结合补充信息的 IP 故事</span>
-                  {!storyLoading && story && (
-                    <button className="ipstory-copy" onClick={() => copyText(story)} title="复制故事">
-                      <Icon name="copy" size={13} /> 复制
-                    </button>
-                  )}
-                </div>
-                <div className="ipstory-text">
-                  {story}
-                  {storyLoading && <span className="ipstory-caret" />}
-                </div>
+            {/* ③ 历史记录 */}
+            <div className="ipstory-field ipstory-result">
+              <div className="ipstory-label">历史记录</div>
+              <div className="ipstory-history">
+                {storyLoading && (
+                  <div className="ipstory-hist-item">
+                    <div className="ipstory-hist-hd">
+                      <span className="ipstory-hist-name">
+                        <Icon name="refresh" size={13} className="ico-spin" /> 生成中
+                      </span>
+                    </div>
+                    <div className="ipstory-text">
+                      {current}
+                      <span className="ipstory-caret" />
+                    </div>
+                  </div>
+                )}
+                {history.map((h, i) => (
+                  <div key={i} className="ipstory-hist-item">
+                    <div className="ipstory-hist-hd">
+                      <span className="ipstory-hist-name">故事 {history.length - i}</span>
+                      <button className="ipstory-copy" onClick={() => copyText(h)} title="复制故事">
+                        <Icon name="copy" size={13} /> 复制
+                      </button>
+                    </div>
+                    <div className="ipstory-text">{h}</div>
+                  </div>
+                ))}
+                {!storyLoading && history.length === 0 && (
+                  <div className="ipstory-hist-empty">点下方「生成IP故事」，生成的故事会保留在这里</div>
+                )}
               </div>
-            )}
+            </div>
 
-            <button
-              className="ipstory-go"
-              onClick={handleGenStory}
-              disabled={storyLoading || initBusy}
-            >
+            <button className="ipstory-go" onClick={handleGenStory} disabled={storyLoading}>
               {storyLoading ? (
                 <span className="ipstory-go-load">
                   <Icon name="refresh" size={15} className="ico-spin" /> 生成中
                 </span>
-              ) : story ? (
-                "重新生成IP故事"
+              ) : history.length > 0 ? (
+                "重新生成"
               ) : (
                 "生成IP故事"
               )}

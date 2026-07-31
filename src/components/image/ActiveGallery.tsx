@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { activeGalleryItems } from "@/data/image";
@@ -61,6 +61,37 @@ function groupRuns(rows: EventRunRow[]): [string, EventRunRow[]][] {
   return order.map((l) => [l, map.get(l)!]);
 }
 
+const CASE_IMG_CACHE_KEY = "mofun-case-imgs-v1";
+
+function loadCaseImgCache(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(CASE_IMG_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveCaseImgCache(map: Record<string, string>) {
+  try {
+    localStorage.setItem(CASE_IMG_CACHE_KEY, JSON.stringify(map));
+  } catch { /* 存储满则跳过 */ }
+}
+
+async function generateCaseImage(prompt: string, w?: number, h?: number): Promise<string> {
+  const size = w && h ? `${Math.max(w, 1024)}x${Math.max(h, 1024)}` : "2048x2048";
+  const r = await fetch("/api/image", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    signal: AbortSignal.timeout(120_000),
+    body: JSON.stringify({ prompt, size }),
+  });
+  const j = (await r.json()) as { images?: string[]; error?: string };
+  if (!r.ok) throw new Error(j.error || "生成失败");
+  return j.images?.[0] || "";
+}
+
 /* 通用右侧画廊（活动 / 商拍 / 店招共用）：生成历史（进度卡 + 真图）+ 参考灵感。
    - source：参考灵感案例数据源（默认活动案例）
    - tab/setTab：受控 tab（父级在点「立即生成」时切到生成历史）
@@ -69,6 +100,8 @@ function groupRuns(rows: EventRunRow[]): [string, EventRunRow[]][] {
 export function ActiveGallery({
   sub,
   source,
+  caseStyle,
+  autoGenerateCases,
   tab,
   setTab,
   runRows = [],
@@ -77,9 +110,12 @@ export function ActiveGallery({
   onCopyRun,
   onUseCase,
   onPickCate,
+  resultEdit = true,
 }: {
   sub: string;
   source?: ActiveGalleryItem[];
+  caseStyle?: "default" | "ip";
+  autoGenerateCases?: boolean; // 参考灵感缺图时按 prompt 调文生图（商拍）
   tab?: "history" | "cases";
   setTab?: (t: "history" | "cases") => void;
   runRows?: EventRunRow[];
@@ -88,6 +124,7 @@ export function ActiveGallery({
   onCopyRun?: (prompt: string) => void;
   onUseCase?: (it: ActiveGalleryItem) => void; // 套用模版：回填画面描述 + 成图类型 + 尺寸
   onPickCate?: (it: ActiveGalleryItem) => void; // 点卡片：左侧成图类型 + 尺寸跳到该卡（不填描述）
+  resultEdit?: boolean; // 生成历史结果卡是否显示编辑/深度编辑（商拍关闭）
 }) {
   const toast = useToast();
   const [innerTab, setInnerTab] = useState<"history" | "cases">("history");
@@ -107,6 +144,48 @@ export function ActiveGallery({
   const all = source ?? activeGalleryItems;
   const items = sub ? all.filter((it) => it.sub === sub) : all;
   const hasHistory = runRows.length > 0;
+  const [caseImgs, setCaseImgs] = useState<Record<string, string>>(() => loadCaseImgCache());
+  const [caseLoading, setCaseLoading] = useState<Set<string>>(() => new Set());
+  const caseAttempted = useRef<Set<string>>(new Set());
+  const caseImgsRef = useRef(caseImgs);
+  caseImgsRef.current = caseImgs;
+  const itemNames = items.map((it) => it.name).join("|");
+
+  // 商拍参考灵感：无静态图时按 prompt 串行调文生图，结果缓存到 localStorage
+  useEffect(() => {
+    if (!autoGenerateCases || curTab !== "cases") return;
+    let cancelled = false;
+
+    (async () => {
+      for (const it of items) {
+        if (cancelled) break;
+        if (!it.prompt || it.img || caseImgsRef.current[it.name] || caseAttempted.current.has(it.name)) continue;
+        caseAttempted.current.add(it.name);
+        setCaseLoading((prev) => new Set(prev).add(it.name));
+        try {
+          const url = await generateCaseImage(it.prompt, it.w, it.h);
+          if (cancelled || !url) {
+            caseAttempted.current.delete(it.name);
+            continue;
+          }
+          setCaseImgs((prev) => {
+            const next = { ...prev, [it.name]: url };
+            saveCaseImgCache(next);
+            return next;
+          });
+        } catch {
+          caseAttempted.current.delete(it.name);
+        }
+        setCaseLoading((prev) => {
+          const next = new Set(prev);
+          next.delete(it.name);
+          return next;
+        });
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [autoGenerateCases, curTab, itemNames, items]);
 
   return (
     <>
@@ -153,6 +232,7 @@ export function ActiveGallery({
                     onToggleFav={toggleFav}
                     onCopy={() => onCopyRun?.(row.prompt)}
                     onDelete={() => setPendingDel(row.id)}
+                    resultEdit={resultEdit}
                   />
                 ))}
               </div>
@@ -161,23 +241,31 @@ export function ActiveGallery({
         )
       ) : items.length > 0 ? (
         <div className="ag-grid">
-          {items.map((it) => (
+          {items.map((it) => {
+            const caseImg = it.img || caseImgs[it.name];
+            const loading = caseLoading.has(it.name);
+            return (
             <div
-              className="ag-card"
+              className={caseStyle === "ip" ? "ag-card ag-card-ip" : "ag-card"}
               key={it.name}
               onClick={() => onPickCate?.(it)} // 点卡片：左侧成图类型 + 尺寸跳到该卡
               style={onPickCate ? { cursor: "pointer" } : undefined}
             >
               <div className={`ag-thumb ${it.grad}`}>
-                <span className="ag-sub">{it.sub}</span>
-                {it.img ? (
+                {caseStyle !== "ip" && <span className="ag-sub">{it.sub}</span>}
+                {caseImg ? (
                   // 海报样张：按宽铺满直接展示（不走 AutoBgImg 智能裁切，那是给 logo 文字缩略用的）；
                   // 超高部分由 .ag-img 的 object-position 在 hover 时从上滚到下展示全图
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img className="ag-img" src={assetUrl(it.img)} alt={it.name} loading="lazy" />
-                ) : (
+                  <img className="ag-img" src={assetUrl(caseImg)} alt={it.name} loading="lazy" />
+                ) : loading ? (
+                  <span className="ag-case-loading">
+                    <Icon name="sparkle" size={28} />
+                    <em>AI 生成中…</em>
+                  </span>
+                ) : it.emoji ? (
                   <span className="ag-emoji">{it.emoji}</span>
-                )}
+                ) : null}
                 <div className="case-hover">
                   <button
                     className="btn btn-primary btn-sm"
@@ -195,9 +283,16 @@ export function ActiveGallery({
                   </button>
                 </div>
               </div>
-              <div className="ag-name">{it.name}</div>
+              {caseStyle === "ip" ? (
+                <div className="ag-ip-meta">
+                  <div className="ag-ip-name">{it.name}</div>
+                  <div className="ag-ip-sub">{it.sub}</div>
+                </div>
+              ) : (
+                <div className="ag-name">{it.name}</div>
+              )}
             </div>
-          ))}
+          );})}
         </div>
       ) : (
         <div className="preview-empty">
@@ -229,6 +324,7 @@ function EventRunRowView({
   onToggleFav,
   onCopy,
   onDelete,
+  resultEdit = true,
 }: {
   row: EventRunRow;
   highlight?: boolean;
@@ -237,6 +333,7 @@ function EventRunRowView({
   onToggleFav: (key: string) => void;
   onCopy: () => void;
   onDelete: () => void;
+  resultEdit?: boolean;
 }) {
   const loading = row.pct < 100;
   const [phaseIdx, setPhaseIdx] = useState(0);
@@ -292,6 +389,7 @@ function EventRunRowView({
               name={row.prompt}
               fav={favs.has(key)}
               onToggleFav={() => onToggleFav(key)}
+              resultEdit={resultEdit}
             />
           )
         )}
@@ -307,12 +405,14 @@ function EventResultCard({
   name,
   fav,
   onToggleFav,
+  resultEdit = true,
 }: {
   img?: string;
   grad: string;
   name: string;
   fav?: boolean;
   onToggleFav?: () => void;
+  resultEdit?: boolean;
 }) {
   const toast = useToast();
   const [editOpen, setEditOpen] = useState(false); // 编辑器
@@ -388,11 +488,13 @@ function EventResultCard({
           </button>
         </div>
       )}
-      {/* hover 居中：编辑 / 深度编辑（点按钮不触发放大预览） */}
-      <div className="lh-hover lh-hover-center">
-        <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); setEditOpen(true); }}>编辑</button>
-        <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); setDeepOpen(true); }}>深度编辑</button>
-      </div>
+      {/* hover 居中：编辑 / 深度编辑（活动模块；商拍不提供） */}
+      {resultEdit && (
+        <div className="lh-hover lh-hover-center">
+          <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); setEditOpen(true); }}>编辑</button>
+          <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); setDeepOpen(true); }}>深度编辑</button>
+        </div>
+      )}
       {/* 收藏 + 另存为（通用组件）：下载作为额外图标，排在另存为左边 */}
       <ResultCardActions
         asset={card}
@@ -414,8 +516,8 @@ function EventResultCard({
         <img className="lh-mark-logo" src={assetUrl("/brand-logo.png")} alt="魔方智绘" />
         由 AI 生成
       </span>
-      {editOpen && <ImageEditModal img={img} name={name} onClose={() => setEditOpen(false)} />}
-      {deepOpen && <DeepEditModal img={img} name={name} onClose={() => setDeepOpen(false)} />}
+      {resultEdit && editOpen && <ImageEditModal img={img} name={name} onClose={() => setEditOpen(false)} />}
+      {resultEdit && deepOpen && <DeepEditModal img={img} name={name} onClose={() => setDeepOpen(false)} />}
       {/* 点击图片放大预览：点遮罩或关闭按钮收起 */}
       {zoom && (
         <div className="img-zoom-mask" onClick={(e) => { e.stopPropagation(); setZoom(false); }}>

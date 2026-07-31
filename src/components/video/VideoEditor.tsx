@@ -18,6 +18,7 @@ import type { VideoType } from "@/lib/types";
 import { Studio } from "./Studio";
 import { StudioHome } from "./StudioHome";
 import { OnelineVideo } from "./OnelineVideo";
+import { AvatarEditor } from "./AvatarEditor";
 
 const iconOf = (k: string): IconName => VID_ICON[k] ?? "video";
 const MOTION = (v: number) => (v < 33 ? "轻微" : v < 67 ? "适中" : "强烈");
@@ -109,6 +110,17 @@ export function VideoEditor({
           <OnelineVideo reeditNonce={initialReedit} />
         </div>
       </div>
+    );
+  }
+
+  // 数字人模特：完整 4 步流程编辑器（选形象 → 写文案 → 声音设置 → 合成预览）
+  if (current === "avatar") {
+    return (
+      <AvatarEditor
+        railItems={railItems}
+        iconOf={iconOf}
+        onPickType={switchType}
+      />
     );
   }
 

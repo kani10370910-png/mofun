@@ -4,7 +4,7 @@ import { Icon } from "@/components/ui/Icon";
 import type { ContentScene } from "@/lib/types";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 
-/* ---------------- 通用文案表单（公众号帮写 / 品牌推广） ---------------- */
+/* ---------------- 通用文案表单（品牌推广） ---------------- */
 export interface DefaultFormState {
   input: string;
   tone: string;
@@ -21,24 +21,17 @@ export function ContentDefaultPanel({
   scene,
   state,
   setState,
-  onOutline,
   onGenerate,
   loading,
 }: {
   scene: ContentScene;
   state: DefaultFormState;
   setState: (s: DefaultFormState) => void;
-  onOutline?: () => void;
   onGenerate: () => void;
   loading: boolean;
 }) {
   const set = <K extends keyof DefaultFormState>(k: K, v: DefaultFormState[K]) =>
     setState({ ...state, [k]: v });
-
-  const lenHint =
-    scene.key === "official"
-      ? "公众号长文：约 1500-2000 字，先出提纲确认再写全文"
-      : `约 80-150 字，适配「${scene.title}」`;
 
   return (
     <>
@@ -90,7 +83,7 @@ export function ContentDefaultPanel({
             <span className="cl-unit">字左右</span>
           </div>
         )}
-        <div className="field-hint">{lenHint}</div>
+        <div className="field-hint">约 80-150 字，适配「{scene.title}」</div>
       </div>
       <div className="field">
         <div className="ws-label">套用品牌资产</div>
@@ -102,22 +95,149 @@ export function ContentDefaultPanel({
       </div>
       </div>
       <div className="ws-foot">
-        {scene.key === "official" && (
-          <button
-            className="btn btn-soft btn-block"
-            style={{ marginBottom: 10 }}
-            disabled={loading}
-            onClick={onOutline}
-          >
-            <Icon name="outline" size={16} /> 先生成提纲
-          </button>
-        )}
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
           <Icon name="sparkle" size={16} /> {loading ? "生成中…" : `生成${scene.title.replace("发", "")}文案`}
         </button>
         <p className="empty-note" style={{ textAlign: "center" }}>
           生成结果可二次编辑、润色 / 续写 / 改写、存入个人仓库
         </p>
+      </div>
+    </>
+  );
+}
+
+/* ---------------- 公众号帮写（按截图一次生成） ---------------- */
+export const OFFICIAL_LENGTHS = ["600-800字", "800-1200字", "1200-2000字", "2000字以上"] as const;
+export const OFFICIAL_STYLES = ["政企风", "娱乐风", "短剧风", "情感文", "干货科普", "自定义"] as const;
+
+export interface OfficialFormState {
+  title: string;
+  keywords: string;
+  outline: string;
+  length: (typeof OFFICIAL_LENGTHS)[number];
+  style: (typeof OFFICIAL_STYLES)[number];
+  customStyle: string;
+}
+
+export function initOfficialForm(seedTitle = ""): OfficialFormState {
+  return {
+    title: seedTitle,
+    keywords: "",
+    outline: "",
+    length: "600-800字",
+    style: "干货科普",
+    customStyle: "",
+  };
+}
+
+export function OfficialAccountPanel({
+  state,
+  setState,
+  onGenerate,
+  loading,
+}: {
+  state: OfficialFormState;
+  setState: (s: OfficialFormState) => void;
+  onGenerate: () => void;
+  loading: boolean;
+}) {
+  const set = <K extends keyof OfficialFormState>(k: K, v: OfficialFormState[K]) =>
+    setState({ ...state, [k]: v });
+
+  return (
+    <>
+      <div className="ws-scroll">
+        <div className="field">
+          <div className="ws-section-title">文章基础信息</div>
+        </div>
+
+        <div className="field">
+          <div className="ws-label">
+            文章标题 <span className="req">*</span>
+          </div>
+          <input
+            type="text"
+            value={state.title}
+            onChange={(e) => set("title", e.target.value)}
+            placeholder="例如：2025年农业数字化转型白皮书发布"
+            maxLength={80}
+          />
+        </div>
+
+        <div className="field">
+          <div className="ws-label">
+            核心关键词 <span className="req">*</span>
+          </div>
+          <input
+            type="text"
+            value={state.keywords}
+            onChange={(e) => set("keywords", e.target.value)}
+            placeholder="例如：数字化改革，乡村振兴，智慧农业"
+            maxLength={120}
+          />
+        </div>
+
+        <div className="field">
+          <div className="ws-label">
+            内容大纲 <span className="opt">（选填）</span>
+          </div>
+          <ClearableTextarea
+            value={state.outline}
+            onChange={(e) => set("outline", e.target.value)}
+            onClear={() => set("outline", "")}
+            placeholder="请输入文章结构大纲，如：1. 背景介绍 2. 核心举措 3. 未来展望…"
+          />
+        </div>
+
+        <div className="field">
+          <div className="ws-section-title">风格与篇幅</div>
+        </div>
+
+        <div className="field">
+          <div className="ws-label">字数范围</div>
+          <div className="chip-row">
+            {OFFICIAL_LENGTHS.map((l) => (
+              <span
+                key={l}
+                className={state.length === l ? "sel-chip on" : "sel-chip"}
+                onClick={() => set("length", l)}
+              >
+                {l}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="ws-label">文案风格</div>
+          <div className="chip-row">
+            {OFFICIAL_STYLES.map((s) => (
+              <span
+                key={s}
+                className={state.style === s ? "sel-chip on" : "sel-chip"}
+                onClick={() => set("style", s)}
+              >
+                {s}
+              </span>
+            ))}
+          </div>
+          {state.style === "自定义" && (
+            <input
+              type="text"
+              style={{ marginTop: 8 }}
+              value={state.customStyle}
+              onChange={(e) => set("customStyle", e.target.value)}
+              placeholder="描述期望的文案风格，如：纪实叙事、温和科普…"
+              maxLength={80}
+            />
+          )}
+        </div>
+      </div>
+
+      <div className="ws-foot">
+        <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
+          <Icon name="sparkle" size={16} /> {loading ? "生成中…" : "生成公众号文章"}
+        </button>
       </div>
     </>
   );
@@ -130,14 +250,23 @@ export interface SocialFormState {
   audience: string;
   advantage: string;
   platforms: string[];
-  outlines: Record<string, { title: string; subtitle: string; keywords: string }>;
 }
 
-const AUDIENCES = ["婴幼儿", "青少年", "孕妇", "宝妈", "银发族", "白领职场", "健身运动", "学生群体", "户外爱好者", "自定义"];
-const PLATFORMS = [
-  { name: "微信朋友圈", cls: "plat-wechat", ico: "💬" },
-  { name: "小红书", cls: "plat-xhs", ico: "📕" },
+const SOCIAL_AUDIENCES = ["婴幼儿", "青少年", "孕妇", "宝妈", "银发族", "白领职场", "健身运动", "学生群体", "户外爱好者", "自定义"];
+const SOCIAL_PLATFORMS = [
+  { name: "微信朋友圈", cls: "plat-wechat" },
+  { name: "小红书", cls: "plat-xhs" },
 ];
+
+export function initSocialForm(product = ""): SocialFormState {
+  return {
+    product,
+    brand: "",
+    audience: "宝妈",
+    advantage: "",
+    platforms: ["微信朋友圈"],
+  };
+}
 
 export function ContentSocialPanel({
   state,
@@ -160,66 +289,66 @@ export function ContentSocialPanel({
   return (
     <>
       <div className="ws-scroll">
-      <div className="field">
-        <div className="ws-label">
-          产品名 <span className="req">*</span>
-          <span className="opt">（必填）</span>
+        <div className="field">
+          <div className="ws-label">
+            产品名 <span className="req">*</span>
+            <span className="opt">（必填）</span>
+          </div>
+          <input
+            type="text"
+            value={state.product}
+            onChange={(e) => set("product", e.target.value)}
+            placeholder="例如：萧山杜家杨梅 / 萝卜干"
+          />
         </div>
-        <input
-          type="text"
-          value={state.product}
-          onChange={(e) => set("product", e.target.value)}
-          placeholder="例如：萧山杜家杨梅 / 萝卜干"
-        />
-      </div>
-      <div className="field">
-        <div className="ws-label">
-          品牌名 <span className="opt">（选填）</span>
+        <div className="field">
+          <div className="ws-label">
+            品牌名 <span className="opt">（选填）</span>
+          </div>
+          <input
+            type="text"
+            value={state.brand}
+            onChange={(e) => set("brand", e.target.value)}
+            placeholder="例如：极鲜生 / 杨梅叶气"
+          />
         </div>
-        <input
-          type="text"
-          value={state.brand}
-          onChange={(e) => set("brand", e.target.value)}
-          placeholder="例如：极鲜生 / 杨梅叶气"
-        />
-      </div>
-      <div className="field">
-        <div className="ws-label">
-          目标人群 <span className="req">*</span>
-          <span className="opt">（必选）</span>
+        <div className="field">
+          <div className="ws-label">
+            目标人群 <span className="req">*</span>
+            <span className="opt">（必选）</span>
+          </div>
+          <select value={state.audience} onChange={(e) => set("audience", e.target.value)}>
+            {SOCIAL_AUDIENCES.map((a) => (
+              <option key={a}>{a}</option>
+            ))}
+          </select>
         </div>
-        <select value={state.audience} onChange={(e) => set("audience", e.target.value)}>
-          {AUDIENCES.map((a) => (
-            <option key={a}>{a}</option>
-          ))}
-        </select>
-      </div>
-      <div className="field">
-        <div className="ws-label">
-          产品优势 <span className="opt">（选填）</span>
+        <div className="field">
+          <div className="ws-label">
+            产品优势 <span className="opt">（选填）</span>
+          </div>
+          <input
+            type="text"
+            value={state.advantage}
+            onChange={(e) => set("advantage", e.target.value)}
+            placeholder="例如：产品直采，全程冷链，0 添加…"
+          />
         </div>
-        <input
-          type="text"
-          value={state.advantage}
-          onChange={(e) => set("advantage", e.target.value)}
-          placeholder="例如：产品直采，全程冷链，0 添加…"
-        />
-      </div>
-      <div className="field">
-        <div className="ws-label">推广平台选择</div>
-        <div className="plat-row">
-          {PLATFORMS.map((p) => (
-            <button
-              key={p.name}
-              type="button"
-              className={`plat-chip ${p.cls} ${state.platforms.includes(p.name) ? "on" : ""}`}
-              onClick={() => togglePlat(p.name)}
-            >
-              <span className="plat-ico">{p.ico}</span> {p.name}
-            </button>
-          ))}
+        <div className="field">
+          <div className="ws-label">推广平台选择</div>
+          <div className="plat-row">
+            {SOCIAL_PLATFORMS.map((p) => (
+              <button
+                key={p.name}
+                type="button"
+                className={`plat-chip ${p.cls} ${state.platforms.includes(p.name) ? "on" : ""}`}
+                onClick={() => togglePlat(p.name)}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
@@ -228,6 +357,225 @@ export function ContentSocialPanel({
         <p className="empty-note" style={{ textAlign: "center" }}>
           生成结果可二次编辑、润色 / 续写 / 改写、存入个人仓库
         </p>
+      </div>
+    </>
+  );
+}
+
+/* ---------------- 品牌推广（多平台策划案） ---------------- */
+export interface BrandOutline {
+  title: string;
+  subtitle: string;
+  keywords: string;
+}
+
+export interface BrandPromotionFormState {
+  /** 品牌名称及产品类型 */
+  product: string;
+  brand: string;
+  /** 目标市场/人群（自由填写） */
+  audience: string;
+  /** 产品核心优势 */
+  advantage: string;
+  /** 营销目标（选填） */
+  goal: string;
+  platforms: string[];
+  outlines: Record<string, BrandOutline>;
+  /** 当前展开的大纲平台 */
+  outlineOpen?: string;
+}
+
+export const BRAND_MARKETING_PLATFORMS = [
+  { name: "微信朋友圈", key: "wechat", cls: "plat-wechat", hint: "" },
+  { name: "小红书", key: "xhs", cls: "plat-xhs", hint: "" },
+  { name: "抖音", key: "douyin", cls: "plat-douyin", hint: "" },
+  { name: "微信公众号", key: "official", cls: "plat-official", hint: "" },
+] as const;
+
+const emptyBrandOutline = (): BrandOutline => ({ title: "", subtitle: "", keywords: "" });
+
+export function initBrandPromotionForm(product = ""): BrandPromotionFormState {
+  return {
+    product,
+    brand: "",
+    audience: "",
+    advantage: "",
+    goal: "",
+    platforms: ["微信朋友圈", "小红书", "抖音", "微信公众号"],
+    outlines: {},
+    outlineOpen: undefined,
+  };
+}
+
+export function BrandPromotionPanel({
+  state,
+  setState,
+  onGenerate,
+  loading,
+}: {
+  state: BrandPromotionFormState;
+  setState: (s: BrandPromotionFormState) => void;
+  onGenerate: () => void;
+  loading: boolean;
+}) {
+  const set = <K extends keyof BrandPromotionFormState>(k: K, v: BrandPromotionFormState[K]) =>
+    setState({ ...state, [k]: v });
+
+  const togglePlat = (name: string) => {
+    const on = state.platforms.includes(name);
+    const platforms = on ? state.platforms.filter((p) => p !== name) : [...state.platforms, name];
+    const next: BrandPromotionFormState = { ...state, platforms };
+    if (on && state.outlineOpen === name) next.outlineOpen = undefined;
+    setState(next);
+  };
+
+  const patchOutline = (plat: string, patch: Partial<BrandOutline>) => {
+    const cur = state.outlines[plat] || emptyBrandOutline();
+    setState({
+      ...state,
+      outlines: { ...state.outlines, [plat]: { ...cur, ...patch } },
+    });
+  };
+
+  const selectedPlats = BRAND_MARKETING_PLATFORMS.filter((p) => state.platforms.includes(p.name));
+
+  return (
+    <>
+      <div className="ws-scroll">
+        <div className="field">
+          <div className="ws-section-title">品牌基础信息</div>
+        </div>
+
+        <div className="field">
+          <div className="ws-label">
+            品牌名称及产品类型 <span className="req">*</span>
+          </div>
+          <input
+            type="text"
+            value={state.product}
+            onChange={(e) => set("product", e.target.value)}
+            placeholder="例如：极鲜生 南美白对虾"
+          />
+        </div>
+
+        <div className="field">
+          <div className="ws-label">
+            目标市场/人群 <span className="req">*</span>
+          </div>
+          <input
+            type="text"
+            value={state.audience}
+            onChange={(e) => set("audience", e.target.value)}
+            placeholder="例如：一二线城市白领，追求健康饮食"
+          />
+        </div>
+
+        <div className="field">
+          <div className="ws-label">
+            产品核心优势 <span className="req">*</span>
+          </div>
+          <ClearableTextarea
+            value={state.advantage}
+            onChange={(e) => set("advantage", e.target.value)}
+            onClear={() => set("advantage", "")}
+            placeholder="例如：产地直采，全程冷链，0添加…"
+          />
+        </div>
+
+        <div className="field">
+          <div className="ws-label">
+            营销目标 <span className="opt">（选填）</span>
+          </div>
+          <input
+            type="text"
+            value={state.goal}
+            onChange={(e) => set("goal", e.target.value)}
+            placeholder="例如：提升品牌知名度，促进新品销量"
+          />
+        </div>
+
+        <div className="field">
+          <div className="ws-section-title">推广平台选择</div>
+        </div>
+
+        <div className="field">
+          <div className="plat-grid">
+            {BRAND_MARKETING_PLATFORMS.map((p) => {
+              const on = state.platforms.includes(p.name);
+              return (
+                <button
+                  key={p.name}
+                  type="button"
+                  className={`plat-chip ${p.cls} ${on ? "on" : ""}`}
+                  onClick={() => togglePlat(p.name)}
+                >
+                  <span className="plat-chip-main">{p.name}</span>
+                  {p.hint ? <span className="plat-hint">{p.hint}</span> : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {selectedPlats.length > 0 && (
+          <>
+            <div className="field">
+              <div className="ws-section-title">
+                内容大纲 <span className="opt">（可选）</span>
+              </div>
+            </div>
+            <div className="field">
+              {selectedPlats.map((p) => {
+                const open = state.outlineOpen === p.name;
+                const o = state.outlines[p.name] || emptyBrandOutline();
+                return (
+                  <div key={p.name} className={`outline-adv adv ${open ? "open" : ""}`}>
+                    <button
+                      type="button"
+                      className="adv-head"
+                      onClick={() => set("outlineOpen", open ? undefined : p.name)}
+                    >
+                      <span>{p.name} 大纲设置</span>
+                      <span className="adv-arrow">›</span>
+                    </button>
+                    <div className="adv-body">
+                      <div className="field" style={{ marginBottom: 8 }}>
+                        <input
+                          type="text"
+                          value={o.title}
+                          onChange={(e) => patchOutline(p.name, { title: e.target.value })}
+                          placeholder="主标题/主题"
+                        />
+                      </div>
+                      <div className="field" style={{ marginBottom: 8 }}>
+                        <input
+                          type="text"
+                          value={o.subtitle}
+                          onChange={(e) => patchOutline(p.name, { subtitle: e.target.value })}
+                          placeholder="副标题/切入点"
+                        />
+                      </div>
+                      <div className="field" style={{ marginBottom: 0 }}>
+                        <input
+                          type="text"
+                          value={o.keywords}
+                          onChange={(e) => patchOutline(p.name, { keywords: e.target.value })}
+                          placeholder="关键词 (逗号分隔)"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="ws-foot">
+        <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
+          <Icon name="sparkle" size={16} /> {loading ? "生成中…" : "生成品牌策划方案"}
+        </button>
       </div>
     </>
   );

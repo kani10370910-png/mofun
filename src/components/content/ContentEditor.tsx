@@ -1,27 +1,75 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { EditorRail } from "@/components/ui/EditorRail";
 import { useToast } from "@/components/ui/Toast";
 import { useGenerateStream } from "@/lib/useGenerateStream";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
-import { contentScenes } from "@/data/content";
+import { contentScenes, planHistory } from "@/data/content";
 import { CONTENT_ICON } from "@/data/icons";
 import type { IconName } from "@/data/icons";
 import type { ContentSceneKey, GenerateRequest } from "@/lib/types";
 import {
-  ContentDefaultPanel,
+  BrandPromotionPanel,
   ContentSocialPanel,
-  type DefaultFormState,
+  OfficialAccountPanel,
+  initBrandPromotionForm,
+  initOfficialForm,
+  initSocialForm,
+  type BrandPromotionFormState,
+  type OfficialFormState,
   type SocialFormState,
 } from "./ContentForms";
 import { ContentResult } from "./ContentResult";
+import { OfficialResult } from "./OfficialResult";
 import { SocialPlanResult, parseSocialPlan, type ParsedSocialPlan } from "./SocialPlanResult";
+import {
+  addOfficialArticle,
+  loadOfficialArticles,
+  saveOfficialArticles,
+  type OfficialArticle,
+} from "@/lib/officialArticlesStorage";
 
 const iconOf = (k: string): IconName => CONTENT_ICON[k] ?? "content";
+
+function buildPlanFallback(opts: {
+  product: string;
+  advantage?: string;
+  audience?: string;
+  platforms: string[];
+  raw: string;
+}): ParsedSocialPlan {
+  const lines = (opts.raw || "")
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const shortLines = lines.filter((s) => s.length <= 32);
+  const titles = (shortLines.length ? shortLines : lines).slice(0, 3);
+  const tags = Array.from(new Set((opts.raw.match(/#[^\s#，。！？!?,]{2,18}/g) || []).slice(0, 5)));
+  const body = lines.join("\n");
+  const highlights: { tag: string; text: string }[] = [];
+  if (opts.advantage?.trim()) highlights.push({ tag: "产品卖点", text: opts.advantage.trim() });
+  if (opts.audience?.trim()) highlights.push({ tag: "目标人群", text: `适配${opts.audience.trim()}场景传播` });
+  if (highlights.length === 0) highlights.push({ tag: "核心传播", text: "突出产地、口感与购买理由，提升转化。" });
+
+  const posts: ParsedSocialPlan["posts"] = {};
+  if (opts.platforms.includes("微信朋友圈")) posts.wechat = { body: body || "朋友圈文案生成中，请重试一次。" };
+  if (opts.platforms.includes("小红书"))
+    posts.xhs = { title: titles[0] || `${opts.product}种草推荐`, body: body || `${opts.product}值得入手`, tags };
+  if (opts.platforms.includes("抖音"))
+    posts.douyin = { title: titles[0] || `${opts.product}爆款脚本`, body: body || `${opts.product}口播脚本`, tags };
+  if (opts.platforms.includes("微信公众号"))
+    posts.official = { title: titles[0] || `${opts.product}推广稿`, body: body || `${opts.product}推广内容` };
+
+  return {
+    product: opts.product,
+    titles: titles.length ? titles : [`${opts.product}推广策划`, `${opts.product}传播文案`, `${opts.product}种草方向`],
+    highlights,
+    posts,
+  };
+}
 
 export function ContentEditor({
   initialSub,
@@ -32,156 +80,291 @@ export function ContentEditor({
   initialInput?: string;
   initialProduct?: string;
 }) {
-  const router = useRouter();
   const toast = useToast();
   const { state, generate, stop, reset } = useGenerateStream();
   const { addWork } = useLibrary();
-
-  // 文案生成完成后默认存入「我的作品」
-  function saveContentWork(text: string, label: string) {
-    if (!text.trim()) return;
-    const name = (text.trim().replace(/\s+/g, "").slice(0, 12) || label) + "…";
-    addWork({
-      emoji: scene.key === "social" ? "📕" : "📰",
-      grad: "thumb-grad-6",
-      kind: "文案",
-      name,
-      sub: `内容创作 · ${scene.title}`,
-      time: nowStamp(),
-      edit: { sub: active, input: defForm.input },
-    });
-    toast("文案已生成并存入「我的作品」");
-  }
 
   const [active, setActive] = useState<ContentSceneKey>(
     (contentScenes.find((s) => s.key === initialSub)?.key as ContentSceneKey) ?? contentScenes[0].key
   );
   const scene = contentScenes.find((s) => s.key === active) ?? contentScenes[0];
 
-  // 各场景表单状态
-  const [defForm, setDefForm] = useState<DefaultFormState>({
-    input: (initialSub !== "social" && initialInput) || "安吉明前白茶上市，海拔800米高山云雾茶园，氨基酸高、鲜爽回甘，限量预订、产地直发",
-    tone: "亲切口语",
-    length: active === "official" ? "标准" : "精简",
-    customLen: "120",
-    brandAsset: "安吉白茶 · 产业品牌（已定稿）",
-  });
-  const [socialForm, setSocialForm] = useState<SocialFormState>({
-    product: initialProduct || "",
-    brand: "",
-    audience: "宝妈",
-    advantage: "",
-    platforms: ["微信朋友圈"],
-    outlines: {},
-  });
+  const [officialForm, setOfficialForm] = useState<OfficialFormState>(() =>
+    initOfficialForm(initialSub === "official" ? initialInput || "" : "")
+  );
+  const [socialForm, setSocialForm] = useState<SocialFormState>(() =>
+    initSocialForm(initialSub === "social" ? initialProduct || "" : initialProduct || "")
+  );
+  const [brandForm, setBrandForm] = useState<BrandPromotionFormState>(() =>
+    initBrandPromotionForm(initialSub === "brand" ? initialProduct || "" : "")
+  );
 
-  // 结果区状态
-  const [mode, setMode] = useState<"none" | "text" | "outline" | "social">("none");
-  const [lastOutline, setLastOutline] = useState(""); // 提纲全文，供「生成全文」用
+  const [mode, setMode] = useState<"none" | "official" | "social" | "brand">("none");
+  const [topTab, setTopTab] = useState<"history" | "inspiration">("history");
   const [socialPlan, setSocialPlan] = useState<ParsedSocialPlan | null>(null);
-  const [socialFallback, setSocialFallback] = useState(""); // 解析失败时的纯文本
+  const [socialFallback, setSocialFallback] = useState("");
+  const [posterLoading, setPosterLoading] = useState(false);
+  const [officialArticles, setOfficialArticles] = useState<OfficialArticle[]>(() =>
+    typeof window === "undefined" ? [] : loadOfficialArticles()
+  );
+  const [viewedOfficial, setViewedOfficial] = useState<OfficialArticle | null>(null);
 
   function switchScene(key: string) {
     setActive(key as ContentSceneKey);
+    setTopTab("history");
     setMode("none");
     setSocialPlan(null);
     setSocialFallback("");
+    setViewedOfficial(null);
     reset();
-    if (key !== "social") {
-      setDefForm((f) => ({ ...f, length: key === "official" ? "标准" : "精简" }));
-    }
   }
 
-  function buildDefaultReq(extra?: Partial<GenerateRequest>): GenerateRequest {
-    const length = defForm.length === "自定义" ? defForm.customLen : defForm.length;
+  function buildBrandReq(extra?: Partial<GenerateRequest>): GenerateRequest {
+    const outlineParts = brandForm.platforms
+      .map((name) => {
+        const o = brandForm.outlines[name];
+        if (!o) return "";
+        const bits = [o.title && `主标题：${o.title}`, o.subtitle && `副标题：${o.subtitle}`, o.keywords && `关键词：${o.keywords}`]
+          .filter(Boolean)
+          .join("；");
+        return bits ? `【${name}】${bits}` : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+
     return {
-      scene: active,
-      tone: defForm.tone,
-      length,
-      brandAsset: defForm.brandAsset,
-      input: defForm.input,
+      scene: "brand",
+      product: brandForm.product.trim(),
+      brand: brandForm.brand.trim(),
+      audience: brandForm.audience.trim(),
+      advantage: brandForm.advantage.trim(),
+      platforms: brandForm.platforms,
+      outline: outlineParts || undefined,
+      input: brandForm.goal.trim() || undefined,
       ...extra,
     };
   }
 
-  // 普通文案（brand / official-full）
-  async function genText(extra?: Partial<GenerateRequest>) {
-    if (!defForm.input.trim()) {
-      toast("请输入「写什么」！", "warn");
+  async function genBrand() {
+    if (!brandForm.product.trim()) {
+      toast("请填写品牌名称及产品类型！", "warn");
       return;
     }
-    setMode("text");
-    const full = await generate(buildDefaultReq(extra));
-    saveContentWork(full, scene.title);
-  }
-
-  // 公众号：先生成提纲
-  async function genOutline() {
-    if (!defForm.input.trim()) {
-      toast("请输入「写什么」！", "warn");
+    if (!brandForm.audience.trim()) {
+      toast("请填写目标市场/人群！", "warn");
       return;
     }
-    setMode("outline");
-    setLastOutline("");
-    const full = await generate(buildDefaultReq({ mode: "outline" }));
-    setLastOutline(full);
+    if (!brandForm.advantage.trim()) {
+      toast("请填写产品核心优势！", "warn");
+      return;
+    }
+    if (brandForm.platforms.length === 0) {
+      toast("请至少选择一个推广平台！", "warn");
+      return;
+    }
+    setMode("brand");
+    setSocialPlan(null);
+    setSocialFallback("");
+
+    const full = await generate(buildBrandReq());
+    const parsed = parseSocialPlan(full, brandForm.product);
+    if (parsed) setSocialPlan(parsed);
+    else setSocialPlan(buildPlanFallback({
+      product: brandForm.product.trim(),
+      advantage: brandForm.advantage,
+      audience: brandForm.audience,
+      platforms: brandForm.platforms,
+      raw: full,
+    }));
+    setSocialFallback(full);
+    if (full.trim()) {
+      addWork({
+        emoji: "✨",
+        grad: "thumb-grad-6",
+        kind: "文案",
+        name: `${brandForm.product.trim().slice(0, 12) || "品牌推广"} · 策划方案`,
+        sub: "内容创作 · 品牌推广",
+        time: nowStamp(),
+        edit: { sub: "brand", product: brandForm.product, brand: brandForm.brand, advantage: brandForm.advantage },
+      });
+      toast("策划方案已生成并存入「我的作品」");
+    }
   }
 
-  // 公众号：按提纲生成全文
-  async function genFull() {
-    setMode("text");
-    const full = await generate(buildDefaultReq({ mode: "full", outline: lastOutline }));
-    saveContentWork(full, scene.title);
+  async function genOfficial() {
+    if (!officialForm.title.trim()) {
+      toast("请填写文章标题！", "warn");
+      return;
+    }
+    if (!officialForm.keywords.trim()) {
+      toast("请填写核心关键词！", "warn");
+      return;
+    }
+    if (officialForm.style === "自定义" && !officialForm.customStyle.trim()) {
+      toast("请填写自定义风格说明！", "warn");
+      return;
+    }
+    setMode("official");
+    setViewedOfficial(null);
+    const tone =
+      officialForm.style === "自定义"
+        ? "自定义"
+        : officialForm.style;
+    const req: GenerateRequest = {
+      scene: "official",
+      title: officialForm.title.trim(),
+      keywords: officialForm.keywords.trim(),
+      outline: officialForm.outline.trim() || undefined,
+      length: officialForm.length,
+      tone,
+      styleHint: officialForm.style === "自定义" ? officialForm.customStyle.trim() : undefined,
+      input: `${officialForm.title.trim()}｜${officialForm.keywords.trim()}`,
+    };
+    const full = await generate(req);
+    if (!full.trim()) return;
+    const row: OfficialArticle = {
+      id: "oa-" + Date.now(),
+      title: officialForm.title.trim(),
+      keywords: officialForm.keywords.trim(),
+      text: full,
+      time: nowStamp(),
+      length: officialForm.length,
+      style: officialForm.style,
+    };
+    setOfficialArticles(addOfficialArticle(row));
+    addWork({
+      emoji: "📰",
+      grad: "thumb-grad-6",
+      kind: "文案",
+      name: `${row.title.slice(0, 12)}${row.title.length > 12 ? "…" : ""}`,
+      sub: "内容创作 · 公众号帮写",
+      time: row.time,
+      edit: { sub: "official", input: row.title },
+    });
+    toast("文章已生成并存入「我的作品」");
   }
 
-  // 社媒推文：结构化策划案
   async function genSocial() {
     if (!socialForm.product.trim()) {
-      toast("请输入产品名！", "warn");
+      toast("请填写产品名！", "warn");
+      return;
+    }
+    if (!socialForm.audience.trim()) {
+      toast("请选择目标人群！", "warn");
+      return;
+    }
+    if (socialForm.platforms.length === 0) {
+      toast("请至少选择一个推广平台！", "warn");
       return;
     }
     setMode("social");
     setSocialPlan(null);
     setSocialFallback("");
+
     const req: GenerateRequest = {
       scene: "social",
-      product: socialForm.product,
-      brand: socialForm.brand,
-      audience: socialForm.audience,
-      advantage: socialForm.advantage,
+      product: socialForm.product.trim(),
+      brand: socialForm.brand.trim(),
+      audience: socialForm.audience.trim(),
+      advantage: socialForm.advantage.trim(),
       platforms: socialForm.platforms,
+      input: socialForm.product.trim(),
     };
     const full = await generate(req);
     const parsed = parseSocialPlan(full, socialForm.product);
     if (parsed) setSocialPlan(parsed);
-    else setSocialFallback(full); // 回退纯文本
+    else
+      setSocialPlan(
+        buildPlanFallback({
+          product: socialForm.product.trim(),
+          advantage: socialForm.advantage,
+          audience: socialForm.audience,
+          platforms: socialForm.platforms,
+          raw: full,
+        }),
+      );
+    setSocialFallback(full);
     if (full.trim()) {
       addWork({
         emoji: "📕",
         grad: "thumb-grad-2",
         kind: "文案",
-        name: `${socialForm.product.trim() || "社媒推文"} · 推广文案`,
-        sub: `内容创作 · ${scene.title}`,
+        name: `${socialForm.product.trim().slice(0, 12) || "社媒推文"} · 推广文案`,
+        sub: "内容创作 · 社媒推文",
         time: nowStamp(),
         edit: { sub: "social", product: socialForm.product, brand: socialForm.brand, advantage: socialForm.advantage },
       });
-      toast("文案已生成并存入「我的作品」");
+      toast("推广文案已生成并存入「我的作品」");
+    }
+  }
+
+  async function genPosterByModel(picked: { title: string; highlights: string[] }) {
+    if (posterLoading) return;
+    const isBrandMode = mode === "brand";
+    const product = (isBrandMode ? brandForm.product : socialForm.product).trim() || socialPlan?.product || "产品";
+    const brand = (isBrandMode ? brandForm.brand : socialForm.brand).trim();
+    const audience = (isBrandMode ? brandForm.audience : socialForm.audience).trim();
+    const advantage = (isBrandMode ? brandForm.advantage : socialForm.advantage).trim();
+    const prompt =
+      `电商营销海报设计，主题：${product}${brand ? `，品牌：${brand}` : ""}。` +
+      `主标题：${picked.title}。` +
+      (picked.highlights.length ? `亮点：${picked.highlights.join("；")}。` : "") +
+      (audience ? `目标人群：${audience}。` : "") +
+      (advantage ? `产品优势：${advantage}。` : "") +
+      "版式要求：竖版海报，主标题大字清晰可读，信息层级明确，视觉聚焦产品卖点，商业广告风格，高清细节，无乱码。";
+
+    setPosterLoading(true);
+    try {
+      const r = await fetch("/api/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          size: "2048x2048",
+          n: 1,
+        }),
+      });
+      const j = (await r.json().catch(() => ({}))) as { images?: string[]; error?: string };
+      const img = j.images?.[0];
+      if (!r.ok || !img) {
+        toast(j.error || "海报生成失败，请稍后重试", "warn");
+        throw new Error("poster-generate-failed");
+      }
+      addWork({
+        emoji: "图",
+        grad: "thumb-grad-5",
+        kind: "图片",
+        name: `${product.slice(0, 12)}${product.length > 12 ? "…" : ""} · 推广海报`,
+        sub: "内容创作 · 社媒推文",
+        img,
+        time: nowStamp(),
+      });
+      toast("推广海报已生成，可在下方预览，并已存入「仓库」");
+      return img;
+    } finally {
+      setPosterLoading(false);
     }
   }
 
   const panel =
     active === "social" ? (
       <ContentSocialPanel state={socialForm} setState={setSocialForm} onGenerate={genSocial} loading={state.loading} />
-    ) : (
-      <ContentDefaultPanel
-        scene={scene}
-        state={defForm}
-        setState={setDefForm}
-        onOutline={genOutline}
-        onGenerate={() => genText()}
+    ) : active === "official" ? (
+      <OfficialAccountPanel
+        state={officialForm}
+        setState={setOfficialForm}
+        onGenerate={genOfficial}
         loading={state.loading}
       />
+    ) : (
+      <BrandPromotionPanel state={brandForm} setState={setBrandForm} onGenerate={genBrand} loading={state.loading} />
     );
+
+  const showPlan = mode === "social" || mode === "brand";
+  const officialText = viewedOfficial?.text ?? (mode === "official" ? state.text : "");
+  const officialLoading = mode === "official" && state.loading && !viewedOfficial;
+  const officialTitle = viewedOfficial?.title ?? officialForm.title;
+  const socialInspiration = planHistory.slice(0, 8);
 
   return (
     <div className="page">
@@ -191,13 +374,117 @@ export function ContentEditor({
           <div className="ws-panel sticky">{panel}</div>
 
           <div id="cResult">
-            {state.error ? (
+            <div className="rtop-tabs">
+              <button type="button" className={topTab === "history" ? "rtop-tab on" : "rtop-tab"} onClick={() => setTopTab("history")}>
+                生成历史
+              </button>
+              <button
+                type="button"
+                className={topTab === "inspiration" ? "rtop-tab on" : "rtop-tab"}
+                onClick={() => setTopTab("inspiration")}
+              >
+                参考灵感
+              </button>
+            </div>
+            {topTab === "inspiration" ? (
+              active === "social" ? (
+                <div className="ph-grid">
+                  {socialInspiration.map((row) => (
+                    <button
+                      type="button"
+                      key={`${row.name}-${row.date}`}
+                      className="ph-card"
+                      onClick={() => {
+                        setSocialForm((prev) => ({
+                          ...prev,
+                          product: row.name,
+                          platforms: row.platforms,
+                        }));
+                        setTopTab("history");
+                        setMode("none");
+                        toast(`已套用「${row.name}」灵感，可直接点击生成`);
+                      }}
+                    >
+                      <div className="ph-title">{row.name} 文案策划</div>
+                      <div className="ph-plats">
+                        {row.platforms.map((p) => (
+                          <span key={p} className={`ph-plat ${p.includes("小红书") ? "xhs" : "wechat"}`}>
+                            {p}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="ph-block">
+                        <div className="ph-label">营销主标题</div>
+                        <div className="ph-fade">
+                          {row.titles.map((t, i) => (
+                            <div key={i} className="ph-line">
+                              一{t}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="ph-block">
+                        <div className="ph-label">神仙级大赏</div>
+                        <div className="ph-fade">
+                          {row.highlights.map((h, i) => (
+                            <div key={i} className="ph-line-sub">
+                              {h.tag} / {h.text}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="ph-foot">{row.by} | {row.date}</div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="preview-empty" style={{ minHeight: 320 }}>
+                  <div>
+                    <div className="pe-ico">
+                      <Icon name="sparkle" size={46} />
+                    </div>
+                    该功能参考灵感建设中
+                    <br />
+                    <span style={{ fontSize: 13, color: "var(--c-muted)" }}>先切到「社媒推文」可查看灵感卡片示例</span>
+                  </div>
+                </div>
+              )
+            ) : state.error && active !== "official" ? (
               <div className="preview-empty" style={{ minHeight: 300 }}>
                 <div>
                   <div className="pe-ico">⚠️</div>
                   {state.error}
                 </div>
               </div>
+            ) : active === "official" ? (
+              <>
+                {state.error && (
+                  <div className="empty-note" style={{ color: "#c45c26", marginBottom: 10 }}>
+                    {state.error}
+                  </div>
+                )}
+                <OfficialResult
+                  text={officialText}
+                  loading={officialLoading}
+                  title={officialTitle}
+                  history={officialArticles}
+                  onPickHistory={(row) => {
+                    setViewedOfficial(row);
+                    setMode("official");
+                    setOfficialForm((f) => ({
+                      ...f,
+                      title: row.title,
+                      keywords: row.keywords,
+                    }));
+                  }}
+                  onDeleteHistory={(id) => {
+                    const next = officialArticles.filter((r) => r.id !== id);
+                    setOfficialArticles(next);
+                    saveOfficialArticles(next);
+                    if (viewedOfficial?.id === id) setViewedOfficial(null);
+                  }}
+                />
+              </>
             ) : mode === "none" ? (
               <div className="preview-empty">
                 <div>
@@ -209,9 +496,13 @@ export function ContentEditor({
                   AI 将按「{scene.tag}」格式产出
                 </div>
               </div>
-            ) : mode === "social" ? (
+            ) : showPlan ? (
               socialPlan ? (
-                <SocialPlanResult plan={socialPlan} onMakePoster={() => toast("已生成推广海报（演示）")} />
+                <SocialPlanResult
+                  plan={socialPlan}
+                  onMakePoster={genPosterByModel}
+                  posterLoading={posterLoading}
+                />
               ) : socialFallback && !state.loading ? (
                 <ContentResult scene={scene} text={socialFallback} loading={false} />
               ) : (
@@ -220,22 +511,11 @@ export function ContentEditor({
                     <div className="pe-ico">
                       <span className="gen-cursor" />
                     </div>
-                    正在生成推广策划案…
+                    {mode === "brand" ? "正在生成品牌策划方案…" : "正在生成推广文案…"}
                   </div>
                 </div>
               )
-            ) : mode === "outline" ? (
-              <ContentResult
-                scene={scene}
-                text={state.text}
-                loading={state.loading}
-                isOutline
-                onReOutline={genOutline}
-                onToFull={genFull}
-              />
-            ) : (
-              <ContentResult scene={scene} text={state.text} loading={state.loading} />
-            )}
+            ) : null}
 
             {state.loading && (
               <div style={{ textAlign: "center", marginTop: 12 }}>

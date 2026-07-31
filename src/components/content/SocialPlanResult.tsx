@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
-import { planHistory } from "@/data/content";
 
 export interface ParsedSocialPlan {
   product: string;
@@ -12,6 +11,8 @@ export interface ParsedSocialPlan {
   posts: {
     xhs?: { title?: string; body: string; tags?: string[] };
     wechat?: { body: string };
+    douyin?: { title?: string; body: string; tags?: string[] };
+    official?: { title?: string; body: string };
   };
 }
 
@@ -43,12 +44,27 @@ export function parseSocialPlan(raw: string, product: string): ParsedSocialPlan 
 export function SocialPlanResult({
   plan,
   onMakePoster,
+  posterLoading = false,
 }: {
   plan: ParsedSocialPlan;
-  onMakePoster: () => void;
+  onMakePoster: (picked: { title: string; highlights: string[] }) => Promise<string | void> | string | void;
+  posterLoading?: boolean;
 }) {
   const toast = useToast();
-  const [tab, setTab] = useState<"plan" | "history">("plan");
+  const [posterOpen, setPosterOpen] = useState(false);
+  const [imageOpen, setImageOpen] = useState(false);
+  const [posterUrl, setPosterUrl] = useState("");
+  const [titlePick, setTitlePick] = useState(0);
+  const [hlPicks, setHlPicks] = useState<number[]>(() => (plan.highlights[0] ? [0] : []));
+  const [imagePick, setImagePick] = useState(0);
+  const pickedHlText = useMemo(
+    () =>
+      hlPicks
+        .map((i) => plan.highlights[i])
+        .filter(Boolean)
+        .map((h) => `${h.tag} ${h.text}`),
+    [hlPicks, plan.highlights],
+  );
 
   const copy = (text: string) => {
     if (navigator.clipboard) {
@@ -56,70 +72,40 @@ export function SocialPlanResult({
       toast("已复制文案");
     }
   };
+  const toggleHlPick = (idx: number) => {
+    setHlPicks((prev) => (prev.includes(idx) ? prev.filter((n) => n !== idx) : [...prev, idx]));
+  };
+  const confirmMakePoster = async () => {
+    const title = plan.titles[titlePick] || plan.titles[0] || `${plan.product} 推广海报`;
+    try {
+      const url = await Promise.resolve(onMakePoster({ title, highlights: pickedHlText }));
+      if (typeof url === "string" && url) setPosterUrl(url);
+      setPosterOpen(false);
+    } catch {
+      // 失败时保留弹窗，便于重试
+    }
+  };
 
   const x = plan.posts.xhs;
   const w = plan.posts.wechat;
+  const d = plan.posts.douyin;
+  const o = plan.posts.official;
+  const hasPosts = !!(x || w || d || o);
+  const imageCandidates = [
+    w ? { key: "wechat", label: "微信朋友圈", text: w.body } : null,
+    x ? { key: "xhs", label: "小红书", text: `${x.title ?? ""}\n${x.body}`.trim() } : null,
+    d ? { key: "douyin", label: "抖音", text: `${d.title ?? ""}\n${d.body}`.trim() } : null,
+    o ? { key: "official", label: "微信公众号", text: `${o.title ?? ""}\n${o.body}`.trim() } : null,
+  ].filter(Boolean) as Array<{ key: string; label: string; text: string }>;
 
   return (
     <>
-      <div className="plan-tabs">
-        <span className={tab === "plan" ? "plan-tab on" : "plan-tab"} onClick={() => setTab("plan")}>
-          文案策划
-        </span>
-        <span className={tab === "history" ? "plan-tab on" : "plan-tab"} onClick={() => setTab("history")}>
-          策划记录
-        </span>
-      </div>
-
-      {tab === "history" ? (
-        <div id="historyView">
-          <div className="grid grid-3">
-            {planHistory.map((h) => (
-              <div className="ph-card" key={h.name}>
-                <div className="ph-title">{h.name} 文案策划</div>
-                <div className="ph-plats">
-                  {h.platforms.map((p) => (
-                    <span key={p} className={`ph-plat ${p === "小红书" ? "xhs" : "wechat"}`}>
-                      {p}
-                    </span>
-                  ))}
-                </div>
-                <div className="ph-block">
-                  <div className="ph-label">营销主标题：</div>
-                  <div className="ph-fade">
-                    {h.titles.map((t, i) => (
-                      <div className="ph-line" key={i}>
-                        {t}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="ph-block">
-                  <div className="ph-label">营销亮点：</div>
-                  <div className="ph-fade">
-                    {h.highlights.map((hl, i) => (
-                      <div className="ph-line" key={i}>
-                        {hl.tag}
-                        <br />
-                        <span className="ph-line-sub">{hl.text}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="ph-foot">
-                  {h.by} · {h.date}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div id="planView">
+      <div id="planView">
           <div className="plan-section">
             <div className="plan-sec-head">
-              <h3 className="plan-title-bar">{plan.product || "产品"} 推广策划案</h3>
-              <button className="btn btn-primary btn-sm" onClick={onMakePoster}>
-                生成推广海报
+              <h3 className="plan-title-bar">{plan.product || "产品"} 品牌策划方案</h3>
+              <button className="btn btn-primary btn-sm" onClick={() => setPosterOpen(true)} disabled={posterLoading}>
+                {posterLoading ? "生成中…" : "生成推广海报"}
               </button>
             </div>
 
@@ -159,16 +145,64 @@ export function SocialPlanResult({
                 </div>
               </>
             )}
+
+            {(posterUrl || posterLoading) && (
+              <>
+                <div className="plan-sub">推广海报</div>
+                <div className="poster-preview">
+                  {posterLoading && !posterUrl ? (
+                    <div className="poster-preview-loading">海报生成中…</div>
+                  ) : (
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={posterUrl} alt={`${plan.product}推广海报`} />
+                      <div className="poster-preview-acts">
+                        <a className="btn btn-ghost btn-sm" href={posterUrl} download={`${plan.product || "推广海报"}.png`} target="_blank" rel="noreferrer">
+                          <Icon name="download" size={14} /> 下载海报
+                        </a>
+                        <span className="poster-preview-tip">已同步存入「仓库 → 我的作品」</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
-          {(x || w) && (
+          {hasPosts && (
             <div className="plan-section">
               <div className="plan-sec-head">
                 <h3 className="plan-title-bar">平台推广文案</h3>
-                <button className="btn btn-primary btn-sm" onClick={() => toast("已生成配图（演示）")}>
+                <button className="btn btn-primary btn-sm" onClick={() => setImageOpen(true)}>
                   生成配图
                 </button>
               </div>
+
+              {w && (
+                <>
+                  <div className="plan-sub wechat">微信朋友圈推广文案</div>
+                  <div className="post-card post-wechat">
+                    <div className="post-head">
+                      <div className="post-user">
+                        <span className="post-avatar" aria-hidden>
+                          <Icon name="wechat" size={16} />
+                        </span>
+                        <span className="post-name">品牌主理人</span>
+                        <span className="post-badge wechat">微信</span>
+                      </div>
+                      <button className="btn btn-ghost btn-sm" onClick={() => copy(w.body)}>
+                        <Icon name="copy" size={15} /> 复制文案
+                      </button>
+                    </div>
+                    <div className="post-body" style={{ whiteSpace: "pre-wrap" }}>
+                      {w.body}
+                    </div>
+                    <div className="post-foot">
+                      <span className="post-corner wechat">微信</span>
+                    </div>
+                  </div>
+                </>
+              )}
 
               {x && (
                 <>
@@ -176,7 +210,9 @@ export function SocialPlanResult({
                   <div className="post-card post-xhs">
                     <div className="post-head">
                       <div className="post-user">
-                        <span className="post-avatar">🧑</span>
+                        <span className="post-avatar" aria-hidden>
+                          <Icon name="xhs" size={16} />
+                        </span>
                         <span className="post-name">小红书种草号</span>
                         <span className="post-badge xhs">小红书</span>
                       </div>
@@ -207,31 +243,199 @@ export function SocialPlanResult({
                 </>
               )}
 
-              {w && (
+              {d && (
                 <>
-                  <div className="plan-sub wechat">微信朋友圈推广文案</div>
-                  <div className="post-card post-wechat">
+                  <div className="plan-sub douyin">抖音推广文案</div>
+                  <div className="post-card post-douyin">
                     <div className="post-head">
                       <div className="post-user">
-                        <span className="post-avatar">🧑‍💼</span>
-                        <span className="post-name">品牌主理人</span>
-                        <span className="post-badge wechat">微信</span>
+                        <span className="post-avatar" aria-hidden>
+                          <Icon name="douyin" size={16} />
+                        </span>
+                        <span className="post-name">短视频账号</span>
+                        <span className="post-badge douyin">抖音</span>
                       </div>
-                      <button className="btn btn-ghost btn-sm" onClick={() => copy(w.body)}>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => copy(`${d.title ?? ""}\n${d.body}\n${(d.tags ?? []).join(" ")}`)}
+                      >
                         <Icon name="copy" size={15} /> 复制文案
                       </button>
                     </div>
+                    {d.title && <div className="post-title">{d.title}</div>}
                     <div className="post-body" style={{ whiteSpace: "pre-wrap" }}>
-                      {w.body}
+                      {d.body}
+                    </div>
+                    {d.tags && d.tags.length > 0 && (
+                      <div className="post-tags">
+                        {d.tags.map((t) => (
+                          <span className="post-tag" key={t}>
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="post-foot">
+                      <span className="post-corner douyin">抖音</span>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {o && (
+                <>
+                  <div className="plan-sub official">微信公众号推广文案</div>
+                  <div className="post-card post-official">
+                    <div className="post-head">
+                      <div className="post-user">
+                        <span className="post-avatar" aria-hidden>
+                          <Icon name="official" size={16} />
+                        </span>
+                        <span className="post-name">公众号编辑</span>
+                        <span className="post-badge official">公众号</span>
+                      </div>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => copy(`${o.title ?? ""}\n${o.body}`)}
+                      >
+                        <Icon name="copy" size={15} /> 复制文案
+                      </button>
+                    </div>
+                    {o.title && <div className="post-title">{o.title}</div>}
+                    <div className="post-body" style={{ whiteSpace: "pre-wrap" }}>
+                      {o.body}
                     </div>
                     <div className="post-foot">
-                      <span className="post-corner wechat">微信</span>
+                      <span className="post-corner official">公众号</span>
                     </div>
                   </div>
                 </>
               )}
             </div>
           )}
+        </div>
+      {posterOpen && (
+        <div className="vp-mask" onClick={() => setPosterOpen(false)}>
+          <div className="pp-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="pp-head">
+              <div>
+                <div className="pp-title">配置推广海报</div>
+                <div className="pp-sub">精选文案与亮点，打造高转化海报</div>
+              </div>
+              <button type="button" className="pp-x" onClick={() => setPosterOpen(false)} aria-label="关闭">
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+
+            <div className="pp-block">
+              <div className="pp-row-head">
+                <span>选择营销主标题</span>
+                <em>单选</em>
+              </div>
+              <div className="pp-list">
+                {plan.titles.map((t, i) => (
+                  <button key={i} type="button" className={titlePick === i ? "pp-item on" : "pp-item"} onClick={() => setTitlePick(i)}>
+                    <span className="pp-text">{t}</span>
+                    <span className={titlePick === i ? "pp-check on" : "pp-check"}>{titlePick === i ? "●" : ""}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="pp-block">
+              <div className="pp-row-head">
+                <span>选择营销亮点</span>
+                <em>可多选</em>
+              </div>
+              <div className="pp-grid">
+                {plan.highlights.map((h, i) => {
+                  const on = hlPicks.includes(i);
+                  return (
+                    <button key={i} type="button" className={on ? "pp-item on" : "pp-item"} onClick={() => toggleHlPick(i)}>
+                      <span className="pp-text">
+                        {h.tag}
+                        {h.text ? `，${h.text}` : ""}
+                      </span>
+                      <span className={on ? "pp-check on" : "pp-check"}>{on ? "●" : ""}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="pp-foot">
+              <div className="pp-note">已选标题 x1，亮点 x{hlPicks.length}</div>
+              <div className="pp-actions">
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPosterOpen(false)}>
+                  取消
+                </button>
+                <button type="button" className="btn btn-primary btn-sm" onClick={confirmMakePoster} disabled={posterLoading}>
+                  <Icon name="sparkle" size={14} /> {posterLoading ? "生成中…" : "生成推广海报"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {imageOpen && (
+        <div className="vp-mask" onClick={() => setImageOpen(false)}>
+          <div className="pp-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="pp-head">
+              <div>
+                <div className="pp-title">配置推广配图</div>
+                <div className="pp-sub">先选择用于出图的文案平台，再开始生成</div>
+              </div>
+              <button type="button" className="pp-x" onClick={() => setImageOpen(false)} aria-label="关闭">
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+
+            <div className="pp-block">
+              <div className="pp-row-head">
+                <span>选择文案来源</span>
+                <em>单选</em>
+              </div>
+              <div className="pp-list">
+                {imageCandidates.map((c, i) => (
+                  <button
+                    key={c.key}
+                    type="button"
+                    className={imagePick === i ? "pp-item on" : "pp-item"}
+                    onClick={() => setImagePick(i)}
+                  >
+                    <span className="pp-text">{c.label}</span>
+                    <span className={imagePick === i ? "pp-check on" : "pp-check"}>{imagePick === i ? "●" : ""}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="pp-block" style={{ paddingTop: 0 }}>
+              <div className="pp-row-head">
+                <span>文案预览</span>
+              </div>
+              <div className="pp-preview">{imageCandidates[imagePick]?.text || "暂无可用文案"}</div>
+            </div>
+
+            <div className="pp-foot">
+              <div className="pp-note">已选来源：{imageCandidates[imagePick]?.label || "-"}</div>
+              <div className="pp-actions">
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setImageOpen(false)}>
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => {
+                    toast(`已生成配图（演示）：${imageCandidates[imagePick]?.label || "默认文案"}`);
+                    setImageOpen(false);
+                  }}
+                >
+                  <Icon name="image" size={14} /> 生成配图
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </>

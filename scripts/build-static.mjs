@@ -40,12 +40,13 @@ process.on("SIGINT", () => {
   process.exit(130);
 });
 
-const env = { ...process.env, EXPORT: "1", BASE_PATH: process.env.BASE_PATH || "" };
+// NEXT_PUBLIC_DEMO=1：静态导出无 /api 后端，数字人模特模块用本地假数据兜底（见 src/lib/demo.ts）
+const env = { ...process.env, EXPORT: "1", BASE_PATH: process.env.BASE_PATH || "", NEXT_PUBLIC_DEMO: "1" };
 // 直接调用本地 next 可执行文件，避免 alpine/sh 下 npx + shell 的参数与查找问题
 const isWin = process.platform === "win32";
 const nextBin = join(root, "node_modules", ".bin", isWin ? "next.cmd" : "next");
 const cmd = existsSync(nextBin) ? nextBin : "next";
-const res = spawnSync(cmd, ["build"], { stdio: "inherit", env, shell: isWin });
+const res = spawnSync(cmd, ["build", "--webpack"], { stdio: "inherit", env, shell: isWin });
 
 restore();
 if (res.error) {

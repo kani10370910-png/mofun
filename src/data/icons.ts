@@ -150,6 +150,18 @@ export const ICON_PATHS = {
   pinBottom: '<path d="M9 20h6"/><path d="M10 20l-.5-7-3-2V9.5h11V11l-3 2-.5 7"/><path d="M12 9.5V3"/>',
   // 三个点（更多操作）
   dots: '<circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18" cy="12" r="1.4"/>',
+  // 账号体系
+  user: '<circle cx="12" cy="8" r="3.5"/><path d="M5.5 20c1.8-3.5 4.2-5 6.5-5s4.7 1.5 6.5 5"/>',
+  building:
+    '<path d="M4 20h16"/><path d="M6 20V6.5A1.5 1.5 0 0 1 7.5 5h9A1.5 1.5 0 0 1 18 6.5V20"/><path d="M10 9h.01M14 9h.01M10 13h.01M14 13h.01M10 17h.01M14 17h.01"/>',
+  logout:
+    '<path d="M10 5H6.5A2.5 2.5 0 0 0 4 7.5v9A2.5 2.5 0 0 0 6.5 19H10"/><path d="M14 8l4 4-4 4"/><path d="M18 12H9"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 8 8 5 8-5"/>',
+  phone:
+    '<path d="M7.5 3.5h3l1.2 3.2-1.8 1.2a11 11 0 0 0 4.8 4.8l1.2-1.8 3.2 1.2v3A2 2 0 0 1 17 17a13 13 0 0 1-13-13 2 2 0 0 1 1.8-2Z"/>',
+  headset:
+    '<path d="M4.5 13.5v-2a7.5 7.5 0 0 1 15 0v2"/><path d="M4.5 13.5a2 2 0 0 0-2 2v1a2 2 0 0 0 2 2H6v-5H4.5Z"/><path d="M19.5 13.5a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2H18v-5h1.5Z"/><path d="M12 19.5a2.5 2.5 0 0 0 2.5-2.5H16a4 4 0 0 1-8 0h1.5A2.5 2.5 0 0 0 12 19.5Z"/>',
+  bell: '<path d="M7 9a5 5 0 0 1 10 0c0 5 2 6.5 2 6.5H5S7 14 7 9Z"/><path d="M10.5 18.5a1.5 1.5 0 0 0 3 0"/>',
 } as const;
 
 export type IconName = keyof typeof ICON_PATHS;

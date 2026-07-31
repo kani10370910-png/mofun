@@ -14,11 +14,10 @@ export const cases: CaseItem[] = [
 
 /* ---------- 首页：意图快捷入口 ---------- */
 export const intents: Intent[] = [
-  { text: "帮安吉白茶写一条<b>社媒推文</b>", view: "content", sub: "social" },
-  { text: "做一张茶文化节<b>活动主视觉</b>", view: "image", sub: "event" },
-  { text: "用<b>一句话成片</b>做条产品视频", view: "video", sub: "oneline" },
-  { text: "写一篇竹博园<b>公众号</b>长文", view: "content", sub: "official" },
-  { text: "设计一个品牌<b>logo</b>", view: "image", sub: "logo" },
+  { text: "萧山萝卜干包装设计", view: "image", sub: "product" },
+  { text: "参考图中建筑设计LOGO", view: "image", sub: "logo" },
+  { text: "设计一张中国风格的海报", view: "image", sub: "event" },
+  { text: "设计一个可爱的 IP", view: "image", sub: "ip" },
 ];
 
 /* 引擎识别意图（演示：根据关键词映射到模块的具体类型） */

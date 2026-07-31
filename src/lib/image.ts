@@ -21,11 +21,19 @@ export async function imgToDataUrl(src: string): Promise<string> {
   if (!src) return "";
   if (src.startsWith("data:")) return src;
   try {
+    // blob: 同源直读；http(s): 经代理防盗链；站内绝对路径（/productcase/...）直接 fetch，勿误走代理
     const fetchUrl = src.startsWith("blob:")
       ? src
-      : `/api/proxy-image?url=${encodeURIComponent(src)}`;
-    const blob = await (await fetch(fetchUrl)).blob();
-    if (!blob.type.startsWith("image/")) return "";
+      : /^https?:\/\//.test(src)
+        ? `/api/proxy-image?url=${encodeURIComponent(src)}`
+        : src;
+    const res = await fetch(fetchUrl);
+    if (!res.ok) return "";
+    const blob = await res.blob();
+    if (!blob.type.startsWith("image/") && !blob.type.startsWith("application/octet-stream")) {
+      // 部分静态服不回 image/*，仍尝试按图读
+      if (!blob.size) return "";
+    }
     return await new Promise<string>((resolve) => {
       const fr = new FileReader();
       fr.onload = () => resolve(typeof fr.result === "string" ? fr.result : "");

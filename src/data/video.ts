@@ -43,9 +43,8 @@ export const studioShotSizes = ["远景", "全景", "中景", "近景", "特写"
 export const studioSteps: StudioStep[] = [
   { key: "script", no: 1, name: "脚本编辑", desc: "填写或 AI 生成视频脚本 / 文案" },
   { key: "assets", no: 2, name: "角色场景道具", desc: "设定出镜角色、场景与关键道具" },
-  { key: "storyboard", no: 3, name: "分镜脚本", desc: "拆分镜头：画面 + 旁白 + 时长" },
-  { key: "clips", no: 4, name: "分镜视频", desc: "逐镜生成视频片段" },
-  { key: "preview", no: 5, name: "视频预览", desc: "合成预览、配乐字幕、导出成片" },
+  { key: "storyboard", no: 3, name: "分镜制作", desc: "拆分镜 + 逐镜生成视频（脚本与视频同屏编辑）" },
+  { key: "preview", no: 4, name: "视频预览", desc: "合成预览、配乐字幕、导出成片" },
 ];
 
 /* ---------- 视频生成：两种入口 + 四类成片流程 ---------- */
@@ -56,8 +55,8 @@ export const videoEntries: VideoEntry[] = [
 
 export const videoTypes: VideoType[] = [
   { key: "oneline", ico: "⚡", name: "一句话成片", flow: ["输入一句话", "AI 拆分镜", "一键成片"] },
+  { key: "studio", ico: "🎬", name: "制作大片", flow: ["脚本分镜", "逐镜生成", "合成成片"] },
   { key: "avatar", ico: "🧑‍💼", name: "数字人模特", flow: ["选数字人形象", "输入口播文案", "驱动合成"] },
-  { key: "studio", ico: "🎬", name: "制作大片", flow: ["剧本分镜", "逐镜生成", "合成成片"] },
 ];
 
 /* ---------- 一句话视频（F10-01）：县域垂直场景模板库 ----------

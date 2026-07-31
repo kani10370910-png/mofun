@@ -1,37 +1,19 @@
 import { NextRequest } from "next/server";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { volcVisualRequest } from "@/lib/volcSign";
+import { tosUploadPublic } from "@/lib/tosUpload";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 500; // s2v 生成含排队常需数分钟，留足轮询窗口
+export const maxDuration = 800; // 数字人生成含排队常需数分钟（OmniHuman 免费试用并发1 可达 7-10min），留足轮询窗口
 
 /* ============================================================
-   对口型（音频驱动人像说话）· 阿里云百炼 Wan2.2-S2V
+   对口型（音频驱动人像说话）· 火山即梦 OmniHuman1.5
    输入：一张人像图 + 一段音频 → 输出：该人物对口型说话的视频。
    注意：这是「图 + 音频 → 会说话的视频」，不是给已有视频改口型；
         画面是由静态人像图驱动生成的，适合对白特写镜头。
-
-   管线（全在服务端完成，无需自建图床）：
-   1) 申请临时上传凭证  GET /api/v1/uploads?action=getPolicy&model=wan2.2-s2v
-   2) 把图/音频 POST 到返回的 OSS，拿到 oss:// 地址
-   3) 提交异步任务       POST /api/v1/services/aigc/image2video/video-synthesis
-   4) 轮询任务           GET  /api/v1/tasks/{task_id} 直到 SUCCEEDED
-   5) 返回 video_url
-
-   密钥：DASHSCOPE_API_KEY（在 .env.local 配，服务端读取，不外泄）
    ============================================================ */
-
-const DASHSCOPE = "https://dashscope.aliyuncs.com";
-const MODEL = process.env.LIPSYNC_MODEL || "wan2.2-s2v";
-
-type UploadPolicy = {
-  policy: string;
-  signature: string;
-  upload_dir: string;
-  upload_host: string;
-  oss_access_key_id: string;
-  x_oss_object_acl: string;
-  x_oss_forbid_overwrite: string;
-};
 
 // 解析 data URI / 纯 base64 → { buffer, contentType, ext }
 function decodeMedia(input: string, fallbackType: string, fallbackExt: string) {
@@ -42,165 +24,126 @@ function decodeMedia(input: string, fallbackType: string, fallbackExt: string) {
   return { buffer: Buffer.from(b64, "base64"), contentType, ext };
 }
 
-// 申请一次上传凭证（同一 model 的图/音频可复用同一凭证）
-async function getUploadPolicy(apiKey: string): Promise<UploadPolicy> {
-  const res = await fetch(
-    `${DASHSCOPE}/api/v1/uploads?action=getPolicy&model=${encodeURIComponent(MODEL)}`,
-    { headers: { Authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(30_000) },
-  );
-  const json = (await res.json()) as { data?: UploadPolicy; message?: string };
-  if (!res.ok || !json.data) {
-    throw new Error(`获取上传凭证失败(${res.status})：${json.message || "未知错误"}`);
+/* ── 火山即梦 OmniHuman1.5（视觉智能 · AK/SK 签名）─────────────────────────
+   提交 CVSubmitTask（req_key=jimeng_realman_avatar_picture_omni_v15）→ 轮询 CVGetResult → video_url。
+   计费 1 元/秒、并发 1；音频 <60s（建议 ≤15s）；分辨率 1080P(默认)/720P；prompt ≤300 字。
+   需在控制台开通 OmniHuman1.5，并配 VOLC_ACCESS_KEY / VOLC_SECRET_KEY。 */
+const OMNI_REQ_KEY = process.env.OMNIHUMAN_REQ_KEY || "jimeng_realman_avatar_picture_omni_v15";
+const OMNI_VERSION = "2022-08-31";
+
+function omniKeysMissing(): Response | null {
+  if (!process.env.VOLC_ACCESS_KEY || !process.env.VOLC_SECRET_KEY) {
+    return Response.json({ error: "缺少 VOLC_ACCESS_KEY / VOLC_SECRET_KEY，请在 .env.local 配置火山引擎 Access Key（控制台→API 访问密钥→Access Key）" }, { status: 503 });
   }
-  return json.data;
+  return null;
 }
 
-// 把一段媒体上传到百炼临时 OSS，返回 oss:// 地址
-async function uploadToOss(
-  policy: UploadPolicy,
-  buffer: Buffer,
-  filename: string,
-  contentType: string,
-): Promise<string> {
-  const key = `${policy.upload_dir}/${filename}`;
-  const form = new FormData();
-  form.append("OSSAccessKeyId", policy.oss_access_key_id);
-  form.append("Signature", policy.signature);
-  form.append("policy", policy.policy);
-  form.append("key", key);
-  form.append("x-oss-object-acl", policy.x_oss_object_acl);
-  form.append("x-oss-forbid-overwrite", policy.x_oss_forbid_overwrite);
-  form.append("success_action_status", "200");
-  form.append("Content-Type", contentType);
-  form.append("file", new Blob([new Uint8Array(buffer)], { type: contentType }), filename);
+// 内网穿透公网基址（cloudflared/ngrok 给的 https 地址，如 https://xxx.trycloudflare.com）。
+// 设了它 → 素材落盘到 public/omni-tmp 并用它拼公网 url（本地/自托管免 TOS）；没设 → 回退火山 TOS。
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+const OMNI_TMP_DIR = path.join(process.cwd(), "public", "omni-tmp");
 
-  const res = await fetch(policy.upload_host, {
-    method: "POST",
-    body: form,
-    signal: AbortSignal.timeout(120_000),
-  });
-  if (res.status !== 200) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`上传媒体失败(${res.status})：${t.slice(0, 300)}`);
+// OmniHuman1.5 CVSubmitTask 硬性要求 image_url / audio_url 为公网可访问地址（无 base64 入参，base64 会被忽略→Input invalid）。
+// 已是公网 http(s) 直接用（如即梦生图原始 url、长文本异步 TTS 返回的 bytetos url）；否则托管成公网 url：
+//   优先 PUBLIC_BASE_URL（内网穿透，写 public/omni-tmp）；否则上传火山 TOS（需账号开通对象存储）。
+async function omniMediaUrl(src: string, kind: "image" | "audio"): Promise<string> {
+  if (/^https?:\/\//i.test(src)) return src;
+  const { buffer, contentType, ext } = decodeMedia(src, kind === "image" ? "image/jpeg" : "audio/mpeg", kind === "image" ? "jpg" : "mp3");
+  const safeExt = kind === "audio" ? (/wav|wave/i.test(ext) ? "wav" : "mp3") : (ext || "jpg");
+  const name = `${kind}-${Date.now()}-${Math.round(Math.random() * 1e6)}.${safeExt}`;
+  if (PUBLIC_BASE_URL) {
+    await fs.mkdir(OMNI_TMP_DIR, { recursive: true });
+    await fs.writeFile(path.join(OMNI_TMP_DIR, name), buffer);
+    return `${PUBLIC_BASE_URL}/omni-tmp/${name}`; // 穿透 → localhost:3000 → Next 静态服务 public/omni-tmp
   }
-  return `oss://${key}`;
+  return tosUploadPublic(buffer, `omni/${name}`, contentType);
 }
 
-// 若输入已是公网 http(s) URL 直接用；否则解码并上传，返回可用地址 + 是否为 oss
-async function resolveMedia(
-  input: string,
-  apiKeyPolicy: UploadPolicy | null,
-  apiKey: string,
-  kind: "image" | "audio",
-): Promise<{ url: string; isOss: boolean; policy: UploadPolicy | null }> {
-  if (/^https?:\/\//.test(input)) return { url: input, isOss: false, policy: apiKeyPolicy };
-  const policy = apiKeyPolicy || (await getUploadPolicy(apiKey));
-  const { buffer, contentType, ext } =
-    kind === "image"
-      ? decodeMedia(input, "image/png", "png")
-      : decodeMedia(input, "audio/mpeg", "mp3");
-  const filename = `${kind}-${buffer.length}.${ext}`;
-  const url = await uploadToOss(policy, buffer, filename, contentType);
-  return { url, isOss: true, policy };
+// 提交任务 → 秒回 { taskId }（不阻塞轮询，抗断由前端轮询 status 完成）
+async function omniSubmit(body: { image?: string; audio?: string; resolution?: string; performance?: string }): Promise<Response> {
+  const miss = omniKeysMissing(); if (miss) return miss;
+  const prompt = (body.performance || "").trim().slice(0, 300);
+  const is1080 = /1080/.test(body.resolution || "");
+  // OmniHuman1.5 CVSubmitTask 只接受公网 URL：image_url / audio_url 均为必选，无 base64 入参。
+  // 已是公网 http(s) 直接用；否则必须先上传到公网可访问地址（下方 omniMediaUrl）。
+  let imageUrl: string, audioUrl: string;
+  try {
+    imageUrl = await omniMediaUrl(body.image!, "image");
+    audioUrl = await omniMediaUrl(body.audio!, "audio");
+  } catch (e) {
+    return Response.json({ error: `图片/音频转公网 URL 失败：${e instanceof Error ? e.message : e}` }, { status: 502 });
+  }
+  const submitBody: Record<string, unknown> = {
+    req_key: OMNI_REQ_KEY,
+    image_url: imageUrl,
+    audio_url: audioUrl,
+    ...(prompt ? { prompt } : {}),
+    output_resolution: is1080 ? 1080 : 720,
+    pe_fast_mode: !is1080, // 官方建议：720P→true、1080P→false
+  };
+  try {
+    const subRes = await volcVisualRequest("CVSubmitTask", OMNI_VERSION, submitBody);
+    const subJson = (await subRes.json().catch(() => ({}))) as { code?: number; message?: string; data?: { task_id?: string } };
+    const taskId = subJson.data?.task_id;
+    if (!subRes.ok || !taskId) {
+      console.error("[lipsync/omnihuman] submit fail", JSON.stringify(subJson).slice(0, 400));
+      return Response.json({ error: `提交数字人任务失败：${subJson.message || subRes.status}` }, { status: 502 });
+    }
+    return Response.json({ taskId });
+  } catch (e) {
+    return Response.json({ error: String(e instanceof Error ? e.message : e) }, { status: 500 });
+  }
+}
+
+// 查询任务状态 → { status: queued|generating|done|failed, videoUrl?, error? }
+async function omniStatus(taskId: string): Promise<Response> {
+  const miss = omniKeysMissing(); if (miss) return miss;
+  try {
+    const qRes = await volcVisualRequest("CVGetResult", OMNI_VERSION, { req_key: OMNI_REQ_KEY, task_id: taskId }).catch(() => null);
+    if (!qRes) return Response.json({ status: "generating" }); // 瞬时网络抖动，让前端继续轮询
+    const qJson = (await qRes.json().catch(() => ({}))) as { code?: number; message?: string; data?: { status?: string; video_url?: string } };
+    const status = (qJson.data?.status || "").toLowerCase();
+    if (qJson.data?.video_url) {
+      console.log("[lipsync/omnihuman] done:", qJson.data.video_url);
+      return Response.json({ status: "done", videoUrl: qJson.data.video_url });
+    }
+    if (/fail|error/.test(status)) {
+      console.error("[lipsync/omnihuman] task failed", JSON.stringify(qJson).slice(0, 400));
+      return Response.json({ status: "failed", error: `数字人生成失败：${qJson.message || status || "未知"}` });
+    }
+    // 火山返回错误信封（有 message、无 data/status）→ 服务侧拒绝（如访问失效、Input invalid），判为失败，避免界面无限“生成中”
+    if (!qJson.data && qJson.message) {
+      console.error("[lipsync/omnihuman] service error:", qJson.message);
+      return Response.json({ status: "failed", error: `数字人服务返回错误：${qJson.message}` });
+    }
+    // in_queue / generating / processing… → 归一为 queued / generating
+    return Response.json({ status: /queue|pending|wait/.test(status) ? "queued" : "generating" });
+  } catch (e) {
+    return Response.json({ status: "generating", note: String(e instanceof Error ? e.message : e) });
+  }
 }
 
 export async function POST(req: NextRequest) {
   const body = (await req.json()) as {
+    action?: "submit" | "status"; // submit=提交任务(秒回 taskId) / status=查询任务
+    taskId?: string;              // action=status 时必填
     image?: string; // 人像图：data URI / base64 / 公网 URL
     audio?: string; // 配音：data URI / base64 / 公网 URL
-    resolution?: string; // "480P" | "720P"
+    resolution?: string; // "480P" | "720P" | "1080P"
+    performance?: string; // 角色表现：动作/情绪/运镜提示词（作 text/prompt 引导）
   };
 
-  const apiKey = process.env.DASHSCOPE_API_KEY || "";
-  if (!apiKey) {
-    return Response.json(
-      { error: "缺少 DASHSCOPE_API_KEY，请在 .env.local 配置阿里云百炼密钥" },
-      { status: 503 },
-    );
+  // 数字人模型：仅使用火山即梦（OmniHuman），不调用 wan2.2。
+  // 查询任务状态（抗断轮询）
+  if (body.action === "status") {
+    if (!body.taskId) return Response.json({ error: "缺少 taskId" }, { status: 400 });
+    return omniStatus(body.taskId);
   }
+
+  // 提交任务
   if (!body.image || !body.audio) {
     return Response.json({ error: "缺少 image 或 audio" }, { status: 400 });
   }
-
-  try {
-    // 1~2) 解析并上传图/音频（复用同一份上传凭证）
-    let policy: UploadPolicy | null = null;
-    const img = await resolveMedia(body.image, policy, apiKey, "image");
-    policy = img.policy;
-    const aud = await resolveMedia(body.audio, policy, apiKey, "audio");
-
-    const usedOss = img.isOss || aud.isOss;
-
-    // 3) 提交异步任务
-    const submitHeaders: Record<string, string> = {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "X-DashScope-Async": "enable",
-    };
-    // 用了 oss:// 临时地址时，必须让服务端解析该资源
-    if (usedOss) submitHeaders["X-DashScope-OssResourceResolve"] = "enable";
-
-    const submitRes = await fetch(
-      `${DASHSCOPE}/api/v1/services/aigc/image2video/video-synthesis`,
-      {
-        method: "POST",
-        headers: submitHeaders,
-        body: JSON.stringify({
-          model: MODEL,
-          input: { image_url: img.url, audio_url: aud.url },
-          parameters: { resolution: body.resolution || "480P" },
-        }),
-        signal: AbortSignal.timeout(60_000),
-      },
-    );
-    const submitJson = (await submitRes.json()) as {
-      output?: { task_id?: string; task_status?: string };
-      message?: string;
-      code?: string;
-    };
-    const taskId = submitJson.output?.task_id;
-    if (!submitRes.ok || !taskId) {
-      return Response.json(
-        { error: `提交对口型任务失败(${submitRes.status})：${submitJson.message || submitJson.code || "未知"}` },
-        { status: 502 },
-      );
-    }
-
-    // 4) 轮询（每 5s，最多 ~7 分钟）
-    const deadline = Date.now() + 7 * 60 * 1000;
-    let videoUrl = "";
-    let lastStatus = "";
-    let failMsg = "";
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 5000));
-      const pollRes = await fetch(`${DASHSCOPE}/api/v1/tasks/${taskId}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(30_000),
-      }).catch(() => null);
-      if (!pollRes) continue;
-      const pj = (await pollRes.json()) as {
-        output?: { task_status?: string; video_url?: string; message?: string; results?: { video_url?: string } };
-        message?: string;
-      };
-      lastStatus = pj.output?.task_status || lastStatus;
-      if (lastStatus === "SUCCEEDED") {
-        videoUrl = pj.output?.video_url || pj.output?.results?.video_url || "";
-        break;
-      }
-      if (lastStatus === "FAILED" || lastStatus === "UNKNOWN") {
-        failMsg = pj.output?.message || pj.message || "任务失败";
-        break;
-      }
-    }
-
-    if (!videoUrl) {
-      return Response.json(
-        { error: failMsg || `对口型生成超时（最后状态：${lastStatus || "无响应"}）` },
-        { status: 504 },
-      );
-    }
-    return Response.json({ videoUrl });
-  } catch (e) {
-    return Response.json({ error: String(e instanceof Error ? e.message : e) }, { status: 500 });
-  }
+  // 仅使用 OmniHuman（火山即梦）出片，失败直接返回错误，不回退 wan2.2。
+  return omniSubmit(body); // 成功秒回 { taskId }，前端轮询 status
 }

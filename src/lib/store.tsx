@@ -55,11 +55,30 @@ function loadKeys(key: string): string[] {
   }
 }
 
+function slimAssetCard(item: AssetCard): AssetCard {
+  const img = item.img;
+  if (typeof img === "string" && (img.startsWith("data:") || img.startsWith("blob:"))) {
+    return { ...item, img: undefined };
+  }
+  return item;
+}
+
+function slimAssets(items: AssetCard[]): AssetCard[] {
+  return items.map(slimAssetCard);
+}
+
 function save(key: string, value: unknown) {
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
   } catch (e) {
     if (e instanceof DOMException && (e.name === "QuotaExceededError" || e.code === 22)) {
+      // 作品库：去掉内嵌 base64 后再试一次
+      if (key === WORKS_KEY && Array.isArray(value)) {
+        try {
+          window.localStorage.setItem(key, JSON.stringify(slimAssets(value as AssetCard[])));
+          return;
+        } catch { /* fall through */ }
+      }
       window.dispatchEvent(new CustomEvent("mofun:storage-quota"));
     }
   }
@@ -72,9 +91,12 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const [hiddenMaterials, setHiddenMaterials] = useState<string[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
 
-  // 挂载后从 localStorage 读取（避免 SSR 不一致）
+  // 挂载后从 localStorage 读取（避免 SSR 不一致）；顺带剔除历史里内嵌的大 base64 图
   useEffect(() => {
-    setWorks(load(WORKS_KEY));
+    const rawWorks = load(WORKS_KEY);
+    const worksSlim = slimAssets(rawWorks);
+    setWorks(worksSlim);
+    if (JSON.stringify(rawWorks) !== JSON.stringify(worksSlim)) save(WORKS_KEY, worksSlim);
     setMaterials(load(MATERIALS_KEY));
     setHiddenWorks(loadKeys(HIDDEN_WORKS_KEY));
     setHiddenMaterials(loadKeys(HIDDEN_MATERIALS_KEY));
@@ -85,7 +107,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     setWorks((prev) => {
       // 按 名称 + 类型 去重，避免自动保存与手动保存、或重复触发产生重复卡片
       if (prev.some((w) => w.name === item.name && w.kind === item.kind)) return prev;
-      const next = [item, ...prev];
+      const next = [slimAssetCard(item), ...prev];
       save(WORKS_KEY, next);
       return next;
     });

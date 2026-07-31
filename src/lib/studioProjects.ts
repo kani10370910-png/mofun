@@ -136,6 +136,83 @@ export function deleteProject(id: string) {
   saveAll(loadAll().filter((p) => p.id !== id));
 }
 
+/** 只保留满足条件的项目（多条命中时留 ts 最新的一条），返回删除数量。 */
+export function pruneStudioProjectsExcept(
+  keep: (p: StudioProject) => boolean,
+  opts?: { fallbackId?: string },
+): number {
+  const all = loadAll();
+  if (loadFailed || !all.length) return 0;
+  let kept = all.filter(keep);
+  if (!kept.length && opts?.fallbackId) {
+    kept = all.filter((p) => p.id === opts.fallbackId);
+  }
+  if (!kept.length) return 0;
+  if (kept.length > 1) kept = [kept.sort((a, b) => b.ts - a.ts)[0]!];
+  if (kept.length === all.length) return 0;
+  saveAll(kept);
+  try {
+    window.localStorage.setItem(SEEDED_KEY, JSON.stringify(kept.map((p) => p.id)));
+  } catch { /* ignore */ }
+  return all.length - kept.length;
+}
+
+// 已注入过的预置项目 id 集合：注入一次即记账，之后即使用户删除也不再重复注入（尊重用户删除）。
+const SEEDED_KEY = "mofun.studio.seededIds";
+const SEED_VER_KEY = "mofun.studio.seedVersion";
+function loadSeededIds(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(SEEDED_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 预置「案例/示例」项目：把随包发布的种子项目幂等写入本地项目库。
+    - 常规：每个种子按 id 只注入一次（记账在 mofun.studio.seededIds），用户删除后不再重复注入（尊重用户删除）。
+    - 版本升级：当 version 与本地记录不同（种子内容有更新）时，对每个种子做一次「覆盖式」重注入，
+      修复旧占位/过期数据，并把记账与版本号刷新为当前 version（此后回到常规幂等行为）。 */
+export function ensureStudioSeeds(seeds: StudioProject[], version?: string) {
+  if (typeof window === "undefined" || !seeds.length) return;
+  const all = loadAll();
+  if (loadFailed) return; // 读失败时不动本地库，避免连锁覆写
+
+  const storedVer = (() => {
+    try { return window.localStorage.getItem(SEED_VER_KEY) || ""; } catch { return ""; }
+  })();
+  const versionBumped = !!version && storedVer !== version;
+
+  const seeded = new Set(loadSeededIds());
+  const byId = new Map(all.map((p) => [p.id, p]));
+  let changed = false;
+
+  for (const s of seeds) {
+    const slim = { ...s, state: trimState(s.state) };
+    if (versionBumped) {
+      // 版本升级：覆盖已有同 id 项目（自愈旧占位/过期外链），没有则新增
+      const idx = all.findIndex((p) => p.id === s.id);
+      if (idx >= 0) all[idx] = slim; else all.push(slim);
+      seeded.add(s.id);
+      changed = true;
+    } else {
+      if (seeded.has(s.id)) continue; // 已注入过（含用户其后删除的）→ 跳过
+      seeded.add(s.id);
+      changed = true;
+      if (!byId.has(s.id)) all.push(slim);
+    }
+  }
+  if (!changed && storedVer === (version || storedVer)) return;
+  saveAll(all);
+  try {
+    window.localStorage.setItem(SEEDED_KEY, JSON.stringify([...seeded]));
+    if (version) window.localStorage.setItem(SEED_VER_KEY, version);
+  } catch {
+    /* 隐私模式禁用 storage 时忽略 */
+  }
+}
+
 /** 切换某项目的收藏状态，返回切换后的值（项目不存在返回 false）。 */
 export function toggleProjectFav(id: string): boolean {
   const all = loadAll();
