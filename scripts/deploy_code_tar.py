@@ -37,7 +37,7 @@ print("上传完成，服务器端叠加解压（保留图片）…", flush=True
 # 关键：不 rm -rf，直接把代码包覆盖解压到目录上，已有图片原样保留。
 # 解压后给每个路由目录补 index.html(= 扁平预渲染页)：Next 静态导出产出 video.html + 空的 video/ 目录(仅RSC)，
 # nginx 会把 /video 301 到 /video/ 而该目录无 index → 403。补上后深链 /video/ 正确返回预渲染页。
-ROUTES = "video content image research storage template"
+ROUTES = "video content image research storage template account login enterprise"
 fix_routes = f"for r in {ROUTES}; do [ -f {REMOTE_DIR}/$r.html ] && cp -f {REMOTE_DIR}/$r.html {REMOTE_DIR}/$r/index.html; done"
 cmd = (f"mkdir -p {REMOTE_DIR} && tar -xzf {TAR_REMOTE} -C {REMOTE_DIR} && rm -f {TAR_REMOTE} && "
        f"{fix_routes} && "
