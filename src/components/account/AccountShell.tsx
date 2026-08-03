@@ -1,77 +1,126 @@
 "use client";
 
-import { useEffect } from "react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
+import { AvatarUpload } from "@/components/account/AvatarUpload";
 import { useAuth } from "@/lib/AuthContext";
+import { useToast } from "@/components/ui/Toast";
 import type { IconName } from "@/data/icons";
 
-type NavKey = "account" | "enterprise" | "ai" | "team";
+export type AccountTab = "org" | "personal" | "members" | "creations";
+
+const TABS: { key: AccountTab; label: string; ico: IconName }[] = [
+  { key: "org", label: "组织信息", ico: "building" },
+  { key: "personal", label: "个人信息", ico: "user" },
+  { key: "members", label: "成员管理", ico: "user" },
+  { key: "creations", label: "创作管理", ico: "image" },
+];
 
 export function AccountShell({
-  title,
-  companyLine,
-  active,
   children,
+  active,
+  onTabChange,
+  onContact,
 }: {
-  title: string;
-  companyLine?: string;
-  active: NavKey;
   children: React.ReactNode;
+  active: AccountTab;
+  onTabChange: (tab: AccountTab) => void;
+  onContact: () => void;
 }) {
   const router = useRouter();
-  const pathname = usePathname();
-  const { user, ready } = useAuth();
+  const toast = useToast();
+  const { user, ready, openLogin, updateUser } = useAuth();
 
   useEffect(() => {
-    if (ready && !user) {
-      router.replace(`/login?next=${encodeURIComponent(pathname || "/")}`);
+    if (!ready) return;
+    if (!user) {
+      openLogin("enterprise");
+      router.replace("/");
     }
-  }, [ready, user, router, pathname]);
+  }, [ready, user, router, openLogin]);
 
-  const company = companyLine || (user ? `${user.company}（${user.companyId}）` : "");
-  const entOpen = ["enterprise", "team", "ai"].includes(active);
-
-  const item = (key: NavKey, href: string, label: string, ico: IconName, nested = false) => (
-    <Link href={href} className={`acc-nav-item ${nested ? "nested" : ""} ${active === key ? "on" : ""}`}>
-      <Icon name={ico} size={16} />
-      <span>{label}</span>
-    </Link>
-  );
+  const orgName = user?.orgName || user?.company || "企业账户";
+  const avatarText = (user?.nickname || orgName).slice(0, 1);
 
   return (
-    <div className="acc-page">
-      <header className="acc-top">
-        <button type="button" className="acc-back" onClick={() => router.push("/")}>
-          <Icon name="chevron" size={16} className="acc-back-ico" /> 返回首页
-        </button>
-        <h1 className="acc-title">{title}</h1>
-        {company ? (
-          <div className="acc-company">
-            <Icon name="building" size={15} />
-            <span>{company}</span>
-            <span className="acc-company-avatar">企</span>
-          </div>
-        ) : (
-          <div />
-        )}
-      </header>
-
-      <div className="acc-body">
-        <aside className="acc-side">
-          <div className="acc-side-label">菜单</div>
-          {item("account", "/account", "个人中心", "user")}
-          <div className={`acc-nav-group ${entOpen ? "open" : ""}`}>
-            {item("enterprise", "/enterprise?tab=team", "企业管理", "building")}
-            <div className="acc-nav-sub">
-              {item("ai", "/enterprise?tab=ai", "AI 权益", "sparkle", true)}
-              {item("team", "/enterprise?tab=team", "团队成员管理", "user", true)}
+    <div className="am-page">
+      <aside className="am-side">
+        <div className="am-side-head">
+          <AvatarUpload
+            className="am-side-avatar"
+            src={user?.avatarUrl}
+            fallback={avatarText}
+            onUploaded={(url) => {
+              updateUser({ avatarUrl: url });
+              toast("头像已更新");
+            }}
+            onError={(m) => toast(m, "warn")}
+          />
+          <div className="am-side-meta">
+            <div className="am-side-name-row">
+              <span className="am-side-name">{orgName}</span>
+              <button type="button" className="am-exit" onClick={() => router.push("/")}>
+                <Icon name="chevron" size={14} className="am-exit-ico" /> 退出管理
+              </button>
             </div>
+            <span className="am-plan-badge">
+              <Icon name="sparkle" size={11} /> {user?.planLabel || "企业版"}
+            </span>
           </div>
-        </aside>
-        <section className="acc-main">{user ? children : null}</section>
-      </div>
+        </div>
+
+        <nav className="am-nav">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              className={active === t.key ? "am-nav-item on" : "am-nav-item"}
+              onClick={() => onTabChange(t.key)}
+            >
+              <Icon name={t.ico} size={16} />
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        <button type="button" className="am-cs-btn" onClick={onContact}>
+          <Icon name="headset" size={16} /> 点击联系企业客服
+        </button>
+      </aside>
+
+      <main className="am-main">{user ? children : null}</main>
     </div>
   );
+}
+
+export function useAccountTab(): [AccountTab, (t: AccountTab) => void] {
+  const router = useRouter();
+  const sp = useSearchParams();
+  const raw = sp.get("tab") || "org";
+  const initial: AccountTab =
+    raw === "personal" || raw === "members" || raw === "creations" || raw === "org"
+      ? raw
+      : raw === "team"
+        ? "members"
+        : "org";
+  const [tab, setTab] = useState<AccountTab>(initial);
+
+  useEffect(() => {
+    const next =
+      raw === "personal" || raw === "members" || raw === "creations" || raw === "org"
+        ? raw
+        : raw === "team"
+          ? "members"
+          : "org";
+    setTab(next);
+  }, [raw]);
+
+  const change = (t: AccountTab) => {
+    setTab(t);
+    const q = t === "org" ? "/account" : `/account?tab=${t}`;
+    router.replace(q);
+  };
+
+  return [tab, change];
 }

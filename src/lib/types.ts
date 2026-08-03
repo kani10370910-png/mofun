@@ -29,6 +29,8 @@ export interface CaseItem {
   region: string;
   author: string;
   grad: Grad;
+  /** 对应模版库名称，套用时回填灵感 */
+  tpl?: string;
 }
 
 export interface Intent {
@@ -59,6 +61,39 @@ export interface Template {
   hot: boolean;
   uses: string;
   grad: Grad;
+  /** 封面：功能页参考灵感 / public/active 真实样张，有则优先于 emoji */
+  img?: string;
+  /** 套用时回填到对应工作台表单的灵感内容 */
+  fill?: TemplateFill;
+}
+
+/** 模版 → 功能页表单回填（对齐各模块「参考灵感」字段） */
+export interface TemplateFill {
+  /** 画面描述 / 创意描述 / 一句话 / 口播等主输入 */
+  input?: string;
+  /** 社媒/品牌·产品名 */
+  product?: string;
+  brand?: string;
+  /** 店招副文案 */
+  slogan?: string;
+  audience?: string;
+  advantage?: string;
+  /** 公众号标题 / 关键词 */
+  title?: string;
+  keywords?: string;
+  /** 社媒平台，逗号分隔 */
+  platforms?: string;
+  /** Logo 风格 */
+  style?: string;
+  /** AI 字体 */
+  text?: string;
+  effect?: string;
+  dir?: string;
+  /** 活动成图类型：海报/长图/菜单/易拉宝/宣传单 */
+  eventSub?: string;
+  /** IP 偏好色，逗号分隔 hex */
+  colors?: string;
+  ratio?: string;
 }
 
 /* ---------- 文案策划 ---------- */
@@ -383,7 +418,7 @@ export type GenStages = Record<"content" | "image" | "video", string[]>;
 
 /* ---------- 文案生成 API ---------- */
 export interface GenerateRequest {
-  scene: ContentSceneKey | "research-brand" | "research-industry" | "research-hotsale" | "ip" | "ip-propose" | "ip-story-desc" | "ip-story" | "t2i-associate" | "t2i-event" | "t2i-product" | "studio-script" | "studio-script-pro" | "studio-assets" | "studio-asset-desc" | "studio-char-info" | "studio-idea" | "studio-summary" | "studio-shots" | "studio-safe-rewrite" | "studio-style-match" | "studio-speakers" | "studio-voice-match" | "studio-shot-elements" | "studio-shot-elements-fill" | "avatar-script";
+  scene: ContentSceneKey | "research-brand" | "research-industry" | "research-hotsale" | "ip" | "ip-propose" | "ip-story-desc" | "ip-story" | "t2i-associate" | "t2i-event" | "t2i-product" | "studio-script" | "studio-script-pro" | "studio-assets" | "studio-asset-desc" | "studio-char-info" | "studio-idea" | "studio-summary" | "studio-shots" | "studio-safe-rewrite" | "studio-style-match" | "studio-speakers" | "studio-voice-match" | "studio-shot-elements" | "studio-shot-elements-fill" | "avatar-script" | "agent-chat";
   mode?: "outline" | "full";
   styleHint?: string; // 制作大片：项目「视频风格」描述词，注入文本扩写使全片文字基调与画面风格一致（智能匹配为空）
   useKB?: boolean; // 制作大片：是否使用「魔方智绘知识库」——结合账号所在县域的特色信息生成脚本

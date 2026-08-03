@@ -5,10 +5,14 @@ import { Icon } from "@/components/ui/Icon";
 import { EditorRail } from "@/components/ui/EditorRail";
 import { useToast } from "@/components/ui/Toast";
 import { useGenerateStream } from "@/lib/useGenerateStream";
-import { researchTypes } from "@/data/research";
+import { researchTypes, researchInspirations, type ResearchInspiration } from "@/data/research";
 import { RESEARCH_ICON } from "@/data/icons";
 import type { IconName } from "@/data/icons";
 import type { GenerateRequest } from "@/lib/types";
+import {
+  INDUSTRY_FOCUS_OPTIONS,
+  type IndustryResearchFocus,
+} from "@/lib/agent/skills/prompts/industryResearch";
 
 type ReportCard = {
   id: string;
@@ -79,7 +83,9 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
   );
   const [topic, setTopic] = useState("");
   const [timeScope, setTimeScope] = useState("近一年数据 (默认)");
+  const [industryFocus, setIndustryFocus] = useState<IndustryResearchFocus>("full-report");
   const [selectedReport, setSelectedReport] = useState<ReportCard | null>(null);
+  const [selectedInspiration, setSelectedInspiration] = useState<ResearchInspiration | null>(null);
   const [generatedText, setGeneratedText] = useState("");
   const [topTab, setTopTab] = useState<"history" | "inspiration">("history");
   const [recentByMode, setRecentByMode] = useState<RecentByMode>(() => loadRecentByMode());
@@ -93,6 +99,7 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
   const reports = isHotsale ? HOT_REPORTS : isIndustry ? INDUSTRY_REPORTS : REPORTS;
   const modeKey: ResearchModeKey = isHotsale ? "hotsale" : isIndustry ? "industry" : "brand";
   const recentKeywords = recentByMode[modeKey] ?? [];
+  const inspirations = researchInspirations.filter((row) => row.mode === modeKey);
 
   function buildResearchReq(): GenerateRequest {
     const scene: GenerateRequest["scene"] = isHotsale
@@ -100,11 +107,17 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
       : isIndustry
         ? "research-industry"
         : "research-brand";
+    const focusMeta = INDUSTRY_FOCUS_OPTIONS.find((o) => o.key === industryFocus);
     return {
       scene,
       input: topic.trim(),
       length: timeScope,
       keywords: type.name,
+      ...(isIndustry
+        ? {
+            styleHint: focusMeta?.label || "完整投资分析报告",
+          }
+        : {}),
     };
   }
 
@@ -141,10 +154,32 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
     setGeneratedText("");
   }
 
+  function pickInspiration(row: ResearchInspiration) {
+    setSelectedInspiration(row);
+  }
+
+  function applyInspiration(row: ResearchInspiration) {
+    setTopic(row.topic);
+    if (row.focus) setIndustryFocus(row.focus);
+    setSelectedInspiration(null);
+    setTopTab("history");
+    toast(`已套用「${row.topic}」灵感，可直接开始智能调研`);
+  }
+
   return (
     <div className="page">
       <div className="editor-layout">
-        <EditorRail items={researchTypes} activeKey={active} iconOf={iconOf} onPick={setActive} />
+          <EditorRail
+            items={researchTypes}
+            activeKey={active}
+            iconOf={iconOf}
+            onPick={(k) => {
+              setActive(k);
+              setSelectedInspiration(null);
+              setSelectedReport(null);
+              setGeneratedText("");
+            }}
+          />
         <div className="workspace rs-workspace">
           <aside className="rs-left">
             <div className="rs-form">
@@ -157,7 +192,7 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
                   isHotsale
                     ? "输入商品名称，例如：西湖龙井明前茶..."
                     : isIndustry
-                      ? "输入产业方向，例如：预制菜冷链产业..."
+                      ? "输入产业方向，例如：预制菜冷链产业 / 县域白茶全产业链..."
                     : "请输入品牌/产品名称，例如：萧山青梅…"
                 }
               />
@@ -169,6 +204,27 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
                 <option>近三年趋势</option>
                 <option>近五年深度</option>
               </select>
+
+              {isIndustry && (
+                <>
+                  <div className="rs-label" style={{ marginTop: 14 }}>
+                    报告类型
+                  </div>
+                  <select
+                    value={industryFocus}
+                    onChange={(e) => setIndustryFocus(e.target.value as IndustryResearchFocus)}
+                  >
+                    {INDUSTRY_FOCUS_OPTIONS.map((o) => (
+                      <option key={o.key} value={o.key}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div style={{ marginTop: 6, fontSize: 12, color: "var(--c-muted)", lineHeight: 1.45 }}>
+                    {INDUSTRY_FOCUS_OPTIONS.find((o) => o.key === industryFocus)?.hint}
+                  </div>
+                </>
+              )}
 
               <div className="rs-label" style={{ marginTop: 14 }}>
                 最近搜索
@@ -192,28 +248,102 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
 
           <section id="cResult" className="rs-right">
             <div className="rtop-tabs">
-              <button type="button" className={topTab === "history" ? "rtop-tab on" : "rtop-tab"} onClick={() => setTopTab("history")}>
+              <button
+                type="button"
+                className={topTab === "history" ? "rtop-tab on" : "rtop-tab"}
+                onClick={() => {
+                  setTopTab("history");
+                  setSelectedInspiration(null);
+                }}
+              >
                 生成历史
               </button>
               <button
                 type="button"
                 className={topTab === "inspiration" ? "rtop-tab on" : "rtop-tab"}
-                onClick={() => setTopTab("inspiration")}
+                onClick={() => {
+                  setTopTab("inspiration");
+                  setSelectedReport(null);
+                  setGeneratedText("");
+                }}
               >
                 参考灵感
               </button>
             </div>
             {topTab === "inspiration" ? (
-              <div className="preview-empty" style={{ minHeight: 320 }}>
-                <div>
-                  <div className="pe-ico">
-                    <Icon name="sparkle" size={46} />
+              selectedInspiration ? (
+                <>
+                  <div className="rs-detail-head">
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      type="button"
+                      onClick={() => setSelectedInspiration(null)}
+                    >
+                      <Icon name="chevron" size={14} /> 返回灵感列表
+                    </button>
+                    <div className="rs-export">
+                      <button
+                        className="btn btn-primary btn-sm"
+                        type="button"
+                        onClick={() => applyInspiration(selectedInspiration)}
+                      >
+                        <Icon name="sparkle" size={14} /> 套用灵感
+                      </button>
+                    </div>
                   </div>
-                  参考灵感建设中
-                  <br />
-                  <span style={{ fontSize: 13, color: "var(--c-muted)" }}>后续将展示行业爆款案例、调研模板与方法论</span>
+                  <div className="rs-detail-body">
+                    <h2>{selectedInspiration.title}</h2>
+                    <p style={{ color: "var(--c-muted)", fontSize: 13, marginBottom: 16 }}>
+                      {selectedInspiration.summary}
+                    </p>
+                    <div className="rs-generated">{selectedInspiration.body}</div>
+                  </div>
+                </>
+              ) : inspirations.length ? (
+                <div className="rs-grid">
+                  {inspirations.map((row) => (
+                    <article key={row.id} className="rs-card" onClick={() => pickInspiration(row)}>
+                      <div className="rs-card-top">
+                        <span
+                          className={`rs-tag ${
+                            row.tag === "产业调研" ? "industry" : row.tag === "爆款分析" ? "hot" : "brand"
+                          }`}
+                        >
+                          {row.tag}
+                        </span>
+                        <time>{row.date}</time>
+                      </div>
+                      <h4>{row.title}</h4>
+                      <p style={{ margin: "8px 0 12px", fontSize: 12, color: "#7a8698", lineHeight: 1.55 }}>
+                        {row.summary}
+                      </p>
+                      <button
+                        type="button"
+                        className="rs-open"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          applyInspiration(row);
+                        }}
+                      >
+                        <Icon name="sparkle" size={14} /> 套用灵感
+                      </button>
+                    </article>
+                  ))}
                 </div>
-              </div>
+              ) : (
+                <div className="preview-empty" style={{ minHeight: 320 }}>
+                  <div>
+                    <div className="pe-ico">
+                      <Icon name="sparkle" size={46} />
+                    </div>
+                    参考灵感建设中
+                    <br />
+                    <span style={{ fontSize: 13, color: "var(--c-muted)" }}>
+                      后续将展示行业案例、调研模板与方法论
+                    </span>
+                  </div>
+                </div>
+              )
             ) : showList ? (
               <>
                 <div className="rs-grid">

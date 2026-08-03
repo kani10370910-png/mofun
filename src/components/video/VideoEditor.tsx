@@ -107,7 +107,7 @@ export function VideoEditor({
       <div className="page">
         <div className="editor-layout">
           <EditorRail items={railItems} activeKey={current} iconOf={iconOf} onPick={switchType} />
-          <OnelineVideo reeditNonce={initialReedit} />
+          <OnelineVideo reeditNonce={initialReedit} initialPrompt={initialInput} />
         </div>
       </div>
     );
@@ -120,6 +120,7 @@ export function VideoEditor({
         railItems={railItems}
         iconOf={iconOf}
         onPickType={switchType}
+        initialScript={initialInput}
       />
     );
   }

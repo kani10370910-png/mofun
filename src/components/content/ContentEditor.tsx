@@ -31,6 +31,7 @@ import {
   saveOfficialArticles,
   type OfficialArticle,
 } from "@/lib/officialArticlesStorage";
+import { stripOfficialMarkdown } from "@/lib/agent/skills/prompts/officialArticle";
 
 const iconOf = (k: string): IconName => CONTENT_ICON[k] ?? "content";
 
@@ -75,10 +76,22 @@ export function ContentEditor({
   initialSub,
   initialInput,
   initialProduct,
+  initialBrand,
+  initialAudience,
+  initialAdvantage,
+  initialKeywords,
+  initialTitle,
+  initialPlatforms,
 }: {
   initialSub?: string;
   initialInput?: string;
   initialProduct?: string;
+  initialBrand?: string;
+  initialAudience?: string;
+  initialAdvantage?: string;
+  initialKeywords?: string;
+  initialTitle?: string;
+  initialPlatforms?: string;
 }) {
   const toast = useToast();
   const { state, generate, stop, reset } = useGenerateStream();
@@ -89,21 +102,44 @@ export function ContentEditor({
   );
   const scene = contentScenes.find((s) => s.key === active) ?? contentScenes[0];
 
-  const [officialForm, setOfficialForm] = useState<OfficialFormState>(() =>
-    initOfficialForm(initialSub === "official" ? initialInput || "" : "")
-  );
-  const [socialForm, setSocialForm] = useState<SocialFormState>(() =>
-    initSocialForm(initialSub === "social" ? initialProduct || "" : initialProduct || "")
-  );
-  const [brandForm, setBrandForm] = useState<BrandPromotionFormState>(() =>
-    initBrandPromotionForm(initialSub === "brand" ? initialProduct || "" : "")
-  );
+  const seedPlats = (initialPlatforms || "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const [officialForm, setOfficialForm] = useState<OfficialFormState>(() => {
+    const f = initOfficialForm(
+      initialSub === "official" ? initialTitle || initialInput || "" : ""
+    );
+    if (initialSub === "official" && initialKeywords) f.keywords = initialKeywords;
+    return f;
+  });
+  const [socialForm, setSocialForm] = useState<SocialFormState>(() => {
+    const f = initSocialForm(initialProduct || "");
+    if (initialBrand) f.brand = initialBrand;
+    if (initialAudience) f.audience = initialAudience;
+    if (initialAdvantage) f.advantage = initialAdvantage;
+    if (seedPlats.length) f.platforms = seedPlats;
+    return f;
+  });
+  const [brandForm, setBrandForm] = useState<BrandPromotionFormState>(() => {
+    const f = initBrandPromotionForm(initialSub === "brand" ? initialProduct || "" : "");
+    if (initialSub === "brand") {
+      if (initialBrand) f.brand = initialBrand;
+      if (initialAudience) f.audience = initialAudience;
+      if (initialAdvantage) f.advantage = initialAdvantage;
+      if (initialInput) f.goal = initialInput;
+      if (seedPlats.length) f.platforms = seedPlats;
+    }
+    return f;
+  });
 
   const [mode, setMode] = useState<"none" | "official" | "social" | "brand">("none");
   const [topTab, setTopTab] = useState<"history" | "inspiration">("history");
   const [socialPlan, setSocialPlan] = useState<ParsedSocialPlan | null>(null);
   const [socialFallback, setSocialFallback] = useState("");
   const [posterLoading, setPosterLoading] = useState(false);
+  const [imageLoading, setImageLoading] = useState(false);
   const [officialArticles, setOfficialArticles] = useState<OfficialArticle[]>(() =>
     typeof window === "undefined" ? [] : loadOfficialArticles()
   );
@@ -220,7 +256,7 @@ export function ContentEditor({
       styleHint: officialForm.style === "自定义" ? officialForm.customStyle.trim() : undefined,
       input: `${officialForm.title.trim()}｜${officialForm.keywords.trim()}`,
     };
-    const full = await generate(req);
+    const full = stripOfficialMarkdown(await generate(req));
     if (!full.trim()) return;
     const row: OfficialArticle = {
       id: "oa-" + Date.now(),
@@ -253,6 +289,10 @@ export function ContentEditor({
       toast("请选择目标人群！", "warn");
       return;
     }
+    if (socialForm.audience === "自定义" && !socialForm.customAudience.trim()) {
+      toast("请填写自定义目标人群描述！", "warn");
+      return;
+    }
     if (socialForm.platforms.length === 0) {
       toast("请至少选择一个推广平台！", "warn");
       return;
@@ -261,13 +301,31 @@ export function ContentEditor({
     setSocialPlan(null);
     setSocialFallback("");
 
+    const outlineParts = socialForm.platforms
+      .map((name) => {
+        const o = socialForm.outlines?.[name];
+        if (!o) return "";
+        const bits = [o.title && `主标题：${o.title}`, o.subtitle && `副标题：${o.subtitle}`, o.keywords && `关键词：${o.keywords}`]
+          .filter(Boolean)
+          .join("；");
+        return bits ? `【${name}】${bits}` : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+
+    const audienceValue =
+      socialForm.audience === "自定义"
+        ? socialForm.customAudience.trim()
+        : socialForm.audience.trim();
+
     const req: GenerateRequest = {
       scene: "social",
       product: socialForm.product.trim(),
       brand: socialForm.brand.trim(),
-      audience: socialForm.audience.trim(),
+      audience: audienceValue,
       advantage: socialForm.advantage.trim(),
       platforms: socialForm.platforms,
+      outline: outlineParts || undefined,
       input: socialForm.product.trim(),
     };
     const full = await generate(req);
@@ -278,7 +336,7 @@ export function ContentEditor({
         buildPlanFallback({
           product: socialForm.product.trim(),
           advantage: socialForm.advantage,
-          audience: socialForm.audience,
+          audience: audienceValue,
           platforms: socialForm.platforms,
           raw: full,
         }),
@@ -303,7 +361,13 @@ export function ContentEditor({
     const isBrandMode = mode === "brand";
     const product = (isBrandMode ? brandForm.product : socialForm.product).trim() || socialPlan?.product || "产品";
     const brand = (isBrandMode ? brandForm.brand : socialForm.brand).trim();
-    const audience = (isBrandMode ? brandForm.audience : socialForm.audience).trim();
+    const audience = (
+      isBrandMode
+        ? brandForm.audience
+        : socialForm.audience === "自定义"
+          ? socialForm.customAudience
+          : socialForm.audience
+    ).trim();
     const advantage = (isBrandMode ? brandForm.advantage : socialForm.advantage).trim();
     const prompt =
       `电商营销海报设计，主题：${product}${brand ? `，品牌：${brand}` : ""}。` +
@@ -346,6 +410,63 @@ export function ContentEditor({
     }
   }
 
+  async function genImageByModel(picked: { platform: string; text: string }) {
+    if (imageLoading) return;
+    const isBrandMode = mode === "brand";
+    const product = (isBrandMode ? brandForm.product : socialForm.product).trim() || socialPlan?.product || "产品";
+    const brand = (isBrandMode ? brandForm.brand : socialForm.brand).trim();
+    const audience = (
+      isBrandMode
+        ? brandForm.audience
+        : socialForm.audience === "自定义"
+          ? socialForm.customAudience
+          : socialForm.audience
+    ).trim();
+    const advantage = (isBrandMode ? brandForm.advantage : socialForm.advantage).trim();
+    const copyBrief = picked.text.replace(/\s+/g, " ").slice(0, 220);
+    const prompt =
+      `农文旅特产社媒配图，真实可感的产品/场景摄影风，主题：${product}` +
+      `${brand ? `，品牌：${brand}` : ""}。` +
+      `发布平台：${picked.platform}。` +
+      (audience ? `目标人群：${audience}。` : "") +
+      (advantage ? `产品卖点：${advantage}。` : "") +
+      `文案氛围参考：${copyBrief}。` +
+      "画面要求：突出产品质感与产地氛围，构图干净，光线自然，适合手机信息流，高清细节；" +
+      "不要大段文字、不要水印、不要乱码字母，可有少量点缀感中文标题字（≤6字）或完全无字。";
+
+    setImageLoading(true);
+    try {
+      const r = await fetch("/api/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          size: "2048x2048",
+          n: 1,
+        }),
+      });
+      const j = (await r.json().catch(() => ({}))) as { images?: string[]; error?: string };
+      const img = j.images?.[0];
+      if (!r.ok || !img) {
+        toast(j.error || "配图生成失败，请稍后重试", "warn");
+        throw new Error("image-generate-failed");
+      }
+      addWork({
+        emoji: "图",
+        grad: "thumb-grad-4",
+        kind: "图片",
+        name: `${product.slice(0, 12)}${product.length > 12 ? "…" : ""} · ${picked.platform}配图`,
+        sub: "内容创作 · 社媒推文",
+        img,
+        time: nowStamp(),
+      });
+      toast("配图已生成，可在文案区下方预览，并已存入「仓库」");
+      return img;
+    } finally {
+      setImageLoading(false);
+    }
+  }
+
   const panel =
     active === "social" ? (
       <ContentSocialPanel state={socialForm} setState={setSocialForm} onGenerate={genSocial} loading={state.loading} />
@@ -361,7 +482,9 @@ export function ContentEditor({
     );
 
   const showPlan = mode === "social" || mode === "brand";
-  const officialText = viewedOfficial?.text ?? (mode === "official" ? state.text : "");
+  const officialText = stripOfficialMarkdown(
+    viewedOfficial?.text ?? (mode === "official" ? state.text : "")
+  );
   const officialLoading = mode === "official" && state.loading && !viewedOfficial;
   const officialTitle = viewedOfficial?.title ?? officialForm.title;
   const socialInspiration = planHistory.slice(0, 8);
@@ -502,6 +625,8 @@ export function ContentEditor({
                   plan={socialPlan}
                   onMakePoster={genPosterByModel}
                   posterLoading={posterLoading}
+                  onMakeImage={genImageByModel}
+                  imageLoading={imageLoading}
                 />
               ) : socialFallback && !state.loading ? (
                 <ContentResult scene={scene} text={socialFallback} loading={false} />

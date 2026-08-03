@@ -3,6 +3,8 @@
    仅在服务端（Route Handler）使用，密钥绝不进前端 bundle。
    ============================================================ */
 import type { GenerateRequest } from "@/lib/types";
+import { buildIndustryResearchMessages } from "@/lib/agent/skills/prompts/industryResearch";
+import { buildOfficialMessages } from "@/lib/agent/skills/prompts/officialArticle";
 
 interface ProviderPreset {
   baseURL: string;
@@ -762,59 +764,9 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
     ? `请贴合品牌资产「${req.brandAsset}」的调性。`
     : "";
 
-  // 公众号帮写：一次生成全文（标题 + 关键词；大纲选填）
+  // 公众号帮写：Skill 提示词（微信友好 Markdown 长文）
   if (req.scene === "official") {
-    // 兼容旧前端：仅生成提纲
-    if (req.mode === "outline") {
-      return [
-        {
-          role: "system",
-          content:
-            "你是资深公众号编辑，服务于「农文旅」（农产品、乡村旅游、地域文化）领域。" +
-            "用户会给出主题，请只输出一份结构清晰的公众号长文提纲（标题 + 若干小节标题与要点），不要写正文。",
-        },
-        {
-          role: "user",
-          content:
-            `主题：${req.title || req.input || "（未填写）"}\n` +
-            (req.keywords ? `关键词：${req.keywords}\n` : "") +
-            `${brandLine}\n请输出提纲，便于用户确认后再扩写全文。`,
-        },
-      ];
-    }
-
-    const title = (req.title || "").trim() || "（未填写标题）";
-    const keywords = (req.keywords || "").trim() || "（未填写）";
-    const outline = (req.outline || "").trim();
-    const styleKey = (req.tone || "").trim();
-    const styleHint =
-      styleKey === "自定义" && req.styleHint
-        ? `文案风格：自定义——${req.styleHint}`
-        : styleKey && TONE_HINT[styleKey]
-          ? `文案风格：${styleKey}——${TONE_HINT[styleKey]}`
-          : "文案风格：干货科普，信息密度高、条理清楚";
-
-    return [
-      {
-        role: "system",
-        content:
-          "你是资深公众号编辑，服务于「农文旅」（农产品、乡村旅游、地域文化、县域产业）领域。" +
-          "请根据用户给出的标题、关键词与可选大纲，一次性写出完整公众号长文。" +
-          "要求：小标题清晰、段落流畅、适合微信排版；可含适当过渡与结尾行动号召；不要输出提纲说明或元评论，直接输出正文。",
-      },
-      {
-        role: "user",
-        content:
-          `文章标题：${title}\n` +
-          `核心关键词：${keywords}\n` +
-          `${styleHint}\n` +
-          `篇幅要求：${lengthHint(req)}\n` +
-          (outline ? `内容大纲（请严格依据展开）：\n${outline}\n` : "内容大纲：未提供，请自行设计合理结构。\n") +
-          `${brandLine}\n` +
-          (req.input && !req.title ? `补充素材：${req.input}\n` : "") +
-          "请直接输出完整公众号文章正文。",
-      },
-    ];
+    return buildOfficialMessages(req);
   }
 
   // 社媒推文（朋友圈/小红书，结构化 JSON）
@@ -845,7 +797,11 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
           `目标人群：${req.audience || "通用人群"}\n` +
           (req.advantage ? `产品优势：${req.advantage}\n` : "") +
           `推广平台：${platforms}\n` +
-          `请据此产出 JSON 社媒推广文案。`,
+          (req.outline ? `各平台内容大纲：\n${req.outline}\n` : "") +
+          `请据此产出 JSON 社媒推广文案。` +
+          (platforms.includes("小红书")
+            ? "小红书须含吸睛标题、正文与话题标签。"
+            : "微信朋友圈侧重口语短文案，可含 emoji。"),
       },
     ];
   }
@@ -914,27 +870,7 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
   }
 
   if (req.scene === "research-industry") {
-    return [
-      {
-        role: "system",
-        content:
-          "你是资深产业研究员，擅长县域农业与文旅产业链分析。请输出专业、可执行的产业调研报告，结论导向。",
-      },
-      {
-        role: "user",
-        content:
-          `产业主题：${req.input || "（未填写）"}\n` +
-          `时间跨度：${req.length || "近一年数据"}\n` +
-          "请按以下结构输出：\n" +
-          "1) 产业现状总览\n" +
-          "2) 产业链结构（上中下游）\n" +
-          "3) 供需与价格走势\n" +
-          "4) 区域对比与核心约束\n" +
-          "5) 政策与外部环境影响\n" +
-          "6) 投资/经营机会与风险\n" +
-          "7) 行动建议（短中期）",
-      },
-    ];
+    return buildIndustryResearchMessages(req);
   }
 
   if (req.scene === "research-hotsale") {
@@ -957,6 +893,30 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
           "5) 竞争商品对比（至少3类）\n" +
           "6) 可复制打法清单\n" +
           "7) 下阶段测试计划（2-4周）",
+      },
+    ];
+  }
+
+  // 小墨首页对话：每一轮先理解用户再回复
+  if (req.scene === "agent-chat") {
+    return [
+      {
+        role: "system",
+        content:
+          "你是「小墨」，魔方智绘的创意总控助手，面向农文旅品牌设计与内容创作。" +
+          "每一次用户交流后，你必须先理解用户本轮说话/点选的真实意图与上下文，再生成回复。" +
+          "你会根据系统提供的项目能力、当前专家、已填槽位、品牌记忆、近期对话与界面结构来回复。" +
+          "语气清晰可执行，像同事协作，不堆砌营销空话。" +
+          "界面选项由前端卡片展示，你只写引导性正文。" +
+          "严禁假装已生成图片/成片（除非系统明确写了已执行出图/提案结果）；严禁输出内部标签（如 phase、槽位 key）。" +
+          "严禁把选项列表里的示例（如品牌名「樱桃」「安吉白茶」）或未确认的品牌记忆，说成用户已经选定；" +
+          "用户未点选品牌时，用「先定个品牌名」这类中性说法，不要擅自喊具体品牌。" +
+          "若上下文含【用户上传的参考图】或【参考图视觉摘要】，必须结合图中特征回复，不能装作没看到。" +
+          "不要把用户消息或编排器提示当成要润色的范文，而是据此组织全新回复。",
+      },
+      {
+        role: "user",
+        content: req.input?.trim() || "请结合项目状态，先理解用户意图，再友好询问用户想先做什么。",
       },
     ];
   }

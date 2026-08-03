@@ -25,6 +25,7 @@ import { buildAvatarCues, matteAuto, imgSrcToBitmap, renderAvatarDemoVideo, laye
 import { DEMO, demoWait, demoOptimizeDesc, DEMO_AVATAR_IMAGES, DEMO_BG_IMAGES, DEMO_VIDEO, demoPick } from "@/lib/demo";
 import { asset as assetUrl } from "@/lib/asset";
 import { getCachedVideo, putCachedVideo } from "@/lib/videoCache";
+import { avatarInspires } from "@/data/videoInspires";
 
 /* ── 工具函数 ── */
 function fileToDataUri(file: File): Promise<string> {
@@ -160,10 +161,7 @@ const PERFORM_PRESETS = [
 const VOLC_EMOTION: Record<string, string> = { 开心: "happy", 伤心: "sad", 生气: "angry", 惊讶: "surprise", 平静: "neutral", 中性: "neutral" };
 
 /* 参考灵感：形象 + 口播范例，一键套用（选形象 + 填文案）*/
-const INSPIRE: { presetId: string; title: string; script: string }[] = [
-  { presetId: "av1", title: "景区导游 · 欢迎词", script: "各位游客朋友大家好！欢迎来到我们的景区，这里山清水秀、四季如画。今天就由我带大家一起领略这片土地的独特魅力，走进自然、感受人文。" },
-];
-
+const INSPIRE = avatarInspires;
 /* 形象绑定的背景配置：背景图/视频 + 画布式变换参数（人物层/背景层各自 scale + 平移 x/y，归一化到画幅）。
    画幅=人像图片原生比例；人物 contain 基准、背景 cover 基准，各自 ×scale 后按 (x,y) 平移。三处渲染共用 layerRect。 */
 interface AvatarBgCfg {
@@ -508,10 +506,12 @@ export function AvatarEditor({
   railItems,
   iconOf,
   onPickType,
+  initialScript,
 }: {
   railItems: RailItem[];
   iconOf: (k: string) => IconName;
   onPickType: (k: string) => void;
+  initialScript?: string;
 }) {
   const toast = useToast();
   const { addWork, works, materials, isFavorite, toggleFavorite } = useLibrary();
@@ -532,7 +532,9 @@ export function AvatarEditor({
   const [previewImg, setPreviewImg] = useState<string | null>(null); // 点缩略图查看完整形象图
 
   /* ① 形象 */
-  const [selectedPreset, setSelectedPreset] = useState<AvatarPreset | null>(null);
+  const [selectedPreset, setSelectedPreset] = useState<AvatarPreset | null>(() =>
+    initialScript?.trim() ? AVATAR_PRESETS.find((x) => x.id === "av1") ?? null : null
+  );
   const [customImg, setCustomImg] = useState<string | null>(null);
   const [customImgName, setCustomImgName] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("全部");
@@ -604,7 +606,7 @@ export function AvatarEditor({
   const composeFile2Ref = useRef<HTMLInputElement>(null);
 
   /* ② 文案 */
-  const [script, setScript] = useState("");
+  const [script, setScript] = useState(() => initialScript?.trim() || "");
 
   /* 角色表现（非必填） */
   const [performance, setPerformance] = useState("");

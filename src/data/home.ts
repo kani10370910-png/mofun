@@ -1,15 +1,15 @@
 import type { CaseItem, Intent, IntentRule } from "@/lib/types";
 
-/* ---------- 首页：区县案例墙 ---------- */
+/* ---------- 首页：区县案例墙（tpl 对齐模版库，套用带回填） ---------- */
 export const cases: CaseItem[] = [
-  { emoji: "🍃", type: "宣传海报", cat: "image", name: "安吉白茶·明前新茶上市", region: "安吉县", author: "县农业农村局", grad: "thumb-grad-1" },
-  { emoji: "🏞️", type: "文旅推介文案", cat: "content", name: "余村绿水青山一日游", region: "安吉县", author: "天荒坪镇", grad: "thumb-grad-5" },
-  { emoji: "🎋", type: "短视频", cat: "video", name: "竹乡安吉·一节一会预热", region: "安吉县", author: "县文广旅体局", grad: "thumb-grad-1" },
-  { emoji: "🏮", type: "节庆海报", cat: "image", name: "畲乡风情节·活动门头", region: "安吉县", author: "报福镇", grad: "thumb-grad-2" },
-  { emoji: "🛍️", type: "电商主图", cat: "image", name: "高山笋干·年货节主图", region: "安吉县", author: "章村镇合作社", grad: "thumb-grad-3" },
-  { emoji: "📊", type: "政务宣传文案", cat: "content", name: "和美乡村建设成果展板", region: "安吉县", author: "县委宣传部", grad: "thumb-grad-6" },
-  { emoji: "🎬", type: "宣传短视频", cat: "video", name: "云上草原·日出露营季", region: "安吉县", author: "山川乡", grad: "thumb-grad-3" },
-  { emoji: "🥬", type: "促销价签", cat: "image", name: "鲜笋直供·限时秒杀价签", region: "安吉县", author: "孝丰镇", grad: "thumb-grad-5" },
+  { emoji: "🍃", type: "宣传海报", cat: "image", name: "安吉白茶·明前新茶上市", region: "安吉县", author: "县农业农村局", grad: "thumb-grad-1", tpl: "明前白茶上市海报" },
+  { emoji: "🏞️", type: "文旅推介文案", cat: "content", name: "余村绿水青山一日游", region: "安吉县", author: "天荒坪镇", grad: "thumb-grad-5", tpl: "竹博园公众号帮写" },
+  { emoji: "🎋", type: "短视频", cat: "video", name: "竹乡安吉·一节一会预热", region: "安吉县", author: "县文广旅体局", grad: "thumb-grad-1", tpl: "竹乡风光一句话成片" },
+  { emoji: "🏮", type: "节庆海报", cat: "image", name: "畲乡风情节·活动门头", region: "安吉县", author: "报福镇", grad: "thumb-grad-2", tpl: "乡村旅游长图" },
+  { emoji: "🛍️", type: "电商主图", cat: "image", name: "高山笋干·年货节主图", region: "安吉县", author: "章村镇合作社", grad: "thumb-grad-3", tpl: "高山笋干电商海报" },
+  { emoji: "📊", type: "政务宣传文案", cat: "content", name: "和美乡村建设成果展板", region: "安吉县", author: "县委宣传部", grad: "thumb-grad-6", tpl: "政策科普社媒推文" },
+  { emoji: "🎬", type: "宣传短视频", cat: "video", name: "云上草原·日出露营季", region: "安吉县", author: "山川乡", grad: "thumb-grad-3", tpl: "竹乡风光一句话成片" },
+  { emoji: "🥬", type: "促销价签", cat: "image", name: "鲜笋直供·限时秒杀价签", region: "安吉县", author: "孝丰镇", grad: "thumb-grad-5", tpl: "鲜笋促销宣传单" },
 ];
 
 /* ---------- 首页：意图快捷入口 ---------- */
@@ -23,7 +23,7 @@ export const intents: Intent[] = [
 /* 引擎识别意图（演示：根据关键词映射到模块的具体类型） */
 export const intentRules: IntentRule[] = [
   // 文案策划（社媒推文/公众号帮写/品牌推广）
-  { kw: ["公众号", "长文"], view: "content", sub: "official", label: "文案策划 · 公众号帮写" },
+  { kw: ["公众号", "长文", "微信排版", "公众号文章"], view: "content", sub: "official", label: "文案策划 · 公众号帮写" },
   { kw: ["品牌", "推广", "卖点", "主张", "slogan"], view: "content", sub: "brand", label: "文案策划 · 品牌推广" },
   { kw: ["朋友圈", "小红书", "笔记", "微博", "话题", "推文", "社媒", "抖音", "口播", "文案"], view: "content", sub: "social", label: "文案策划 · 社媒推文" },
   // 品牌设计（活动[海报/长图/菜单/易拉宝/宣传单] / 商拍 / logo / IP设计 / AI字体 / 店招设计）

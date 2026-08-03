@@ -244,12 +244,23 @@ export function OfficialAccountPanel({
 }
 
 /* ---------------- 社媒推文表单 ---------------- */
+export interface SocialOutline {
+  title: string;
+  subtitle: string;
+  keywords: string;
+}
+
 export interface SocialFormState {
   product: string;
   brand: string;
   audience: string;
+  /** 目标人群选「自定义」时的描述 */
+  customAudience: string;
   advantage: string;
   platforms: string[];
+  /** 各平台内容大纲（可选，对齐品牌推广） */
+  outlines: Record<string, SocialOutline>;
+  outlineOpen?: string;
 }
 
 const SOCIAL_AUDIENCES = ["婴幼儿", "青少年", "孕妇", "宝妈", "银发族", "白领职场", "健身运动", "学生群体", "户外爱好者", "自定义"];
@@ -258,13 +269,18 @@ const SOCIAL_PLATFORMS = [
   { name: "小红书", cls: "plat-xhs" },
 ];
 
+const emptySocialOutline = (): SocialOutline => ({ title: "", subtitle: "", keywords: "" });
+
 export function initSocialForm(product = ""): SocialFormState {
   return {
     product,
     brand: "",
     audience: "宝妈",
+    customAudience: "",
     advantage: "",
     platforms: ["微信朋友圈"],
+    outlines: {},
+    outlineOpen: undefined,
   };
 }
 
@@ -283,8 +299,22 @@ export function ContentSocialPanel({
     setState({ ...state, [k]: v });
 
   const togglePlat = (name: string) => {
-    set("platforms", state.platforms.includes(name) ? state.platforms.filter((p) => p !== name) : [...state.platforms, name]);
+    const on = state.platforms.includes(name);
+    const platforms = on ? state.platforms.filter((p) => p !== name) : [...state.platforms, name];
+    const next: SocialFormState = { ...state, platforms };
+    if (on && state.outlineOpen === name) next.outlineOpen = undefined;
+    setState(next);
   };
+
+  const patchOutline = (plat: string, patch: Partial<SocialOutline>) => {
+    const cur = state.outlines[plat] || emptySocialOutline();
+    setState({
+      ...state,
+      outlines: { ...state.outlines, [plat]: { ...cur, ...patch } },
+    });
+  };
+
+  const selectedPlats = SOCIAL_PLATFORMS.filter((p) => state.platforms.includes(p.name));
 
   return (
     <>
@@ -322,6 +352,15 @@ export function ContentSocialPanel({
               <option key={a}>{a}</option>
             ))}
           </select>
+          {state.audience === "自定义" && (
+            <textarea
+              style={{ marginTop: 8, minHeight: 72, resize: "vertical" }}
+              value={state.customAudience}
+              onChange={(e) => set("customAudience", e.target.value)}
+              placeholder="描述目标人群，例如：25–40 岁都市宝妈，关注辅食安全与产地溯源…"
+              maxLength={200}
+            />
+          )}
         </div>
         <div className="field">
           <div className="ws-label">
@@ -349,6 +388,62 @@ export function ContentSocialPanel({
             ))}
           </div>
         </div>
+
+        {selectedPlats.length > 0 && (
+          <>
+            <div className="field">
+              <div className="ws-section-title">
+                内容大纲 <span className="opt">（可选）</span>
+              </div>
+            </div>
+            <div className="field">
+              {selectedPlats.map((p) => {
+                const open = state.outlineOpen === p.name;
+                const o = state.outlines[p.name] || emptySocialOutline();
+                return (
+                  <div key={p.name} className={`outline-adv adv ${open ? "open" : ""}`}>
+                    <button
+                      type="button"
+                      className="adv-head"
+                      onClick={() => set("outlineOpen", open ? undefined : p.name)}
+                    >
+                      <span>{p.name} 大纲设置</span>
+                      <span className="adv-arrow">›</span>
+                    </button>
+                    {open && (
+                      <div className="adv-body">
+                        <div className="field" style={{ marginBottom: 8 }}>
+                          <input
+                            type="text"
+                            value={o.title}
+                            onChange={(e) => patchOutline(p.name, { title: e.target.value })}
+                            placeholder="主标题/主题"
+                          />
+                        </div>
+                        <div className="field" style={{ marginBottom: 8 }}>
+                          <input
+                            type="text"
+                            value={o.subtitle}
+                            onChange={(e) => patchOutline(p.name, { subtitle: e.target.value })}
+                            placeholder="副标题/切入点"
+                          />
+                        </div>
+                        <div className="field">
+                          <input
+                            type="text"
+                            value={o.keywords}
+                            onChange={(e) => patchOutline(p.name, { keywords: e.target.value })}
+                            placeholder="关键词 (逗号分隔)"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>

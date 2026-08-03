@@ -7,6 +7,8 @@ import { Icon } from "@/components/ui/Icon";
 import { asset } from "@/lib/asset";
 import { useAuth } from "@/lib/AuthContext";
 import {
+  HOME_CHAT_EVENT,
+  HOME_CHAT_EXIT_EVENT,
   HOME_SEASON_EVENT,
   HOME_SEASONS,
   type HomeSeason,
@@ -29,16 +31,18 @@ const NAV: { view: string; href: string; label: string }[] = [
 export function TopBar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, logout, ready } = useAuth();
+  const { user, logout, ready, openLogin } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [seasonOpen, setSeasonOpen] = useState(false);
   const [season, setSeason] = useState<HomeSeason>("summer");
+  const [homeChat, setHomeChat] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const seasonRef = useRef<HTMLDivElement>(null);
-  const isHome = pathname === "/";
+  const isHomePath = pathname === "/";
+  const isHome = isHomePath && !homeChat;
 
   const isActive = (href: string) => {
-    if (href === "/") return pathname === "/";
+    if (href === "/") return pathname === "/" && !homeChat;
     return pathname.startsWith(href);
   };
 
@@ -48,8 +52,15 @@ export function TopBar() {
       const next = (e as CustomEvent<HomeSeason>).detail;
       if (next) setSeason(next);
     };
+    const onChat = (e: Event) => {
+      setHomeChat(Boolean((e as CustomEvent<boolean>).detail));
+    };
     window.addEventListener(HOME_SEASON_EVENT, onSeason);
-    return () => window.removeEventListener(HOME_SEASON_EVENT, onSeason);
+    window.addEventListener(HOME_CHAT_EVENT, onChat);
+    return () => {
+      window.removeEventListener(HOME_SEASON_EVENT, onSeason);
+      window.removeEventListener(HOME_CHAT_EVENT, onChat);
+    };
   }, []);
 
   useEffect(() => {
@@ -72,12 +83,17 @@ export function TopBar() {
     };
   }, [menuOpen, seasonOpen]);
 
-  const displayName = user?.realName || "访客";
-  const avatarText = user?.realName?.slice(0, 1) || "访";
+  const avatarText = (user?.nickname || user?.realName || "企").slice(0, 1);
   const seasonLabel = HOME_SEASONS.find((t) => t.id === season)?.label ?? "葱茏之夏";
 
+  const topbarClass = isHome
+    ? "topbar topbar-home"
+    : isHomePath && homeChat
+      ? "topbar topbar-chat"
+      : "topbar";
+
   return (
-    <header className={isHome ? "topbar topbar-home" : "topbar"}>
+    <header className={topbarClass}>
       <div className="topbar-inner">
         <div className="brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -91,6 +107,11 @@ export function TopBar() {
               key={n.view}
               href={n.href}
               className={isActive(n.href) ? "nav-item active" : "nav-item"}
+              onClick={(e) => {
+                if (n.href !== "/" || !homeChat) return;
+                e.preventDefault();
+                window.dispatchEvent(new CustomEvent(HOME_CHAT_EXIT_EVENT));
+              }}
             >
               <span>{n.label}</span>
             </Link>
@@ -135,27 +156,127 @@ export function TopBar() {
           </div>
 
           <div className="user-card" ref={menuRef}>
-            <button
-              type="button"
-              className={`user-trigger ${menuOpen ? "open" : ""}`}
-              onClick={() => {
-                if (!ready) return;
-                if (!user) {
-                  router.push("/login");
-                  return;
-                }
-                setSeasonOpen(false);
-                setMenuOpen((v) => !v);
-              }}
-            >
-              <div className="avatar">{avatarText}</div>
-              <div className="user-meta">
-                <span className="user-name">{displayName}</span>
-              </div>
-              <Icon name="chevron" size={14} className={`user-caret ${menuOpen ? "up" : ""}`} />
-            </button>
+            {!ready ? null : user ? (
+              <>
+                <button
+                  type="button"
+                  className={`acct-chip ${menuOpen ? "open" : ""}`}
+                  onClick={() => {
+                    setSeasonOpen(false);
+                    setMenuOpen((v) => !v);
+                  }}
+                  aria-expanded={menuOpen}
+                  aria-label="账户菜单"
+                >
+                  <span className="acct-chip-power" title="算力余额">
+                    <Icon name="sparkle" size={14} />
+                    <span>{user.computeBenefit || "∞"}</span>
+                  </span>
+                  <span className="acct-chip-sep" />
+                  <span className="avatar">
+                    {user.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={user.avatarUrl} alt="" />
+                    ) : (
+                      avatarText
+                    )}
+                  </span>
+                </button>
 
-            {isHome && (
+                {menuOpen && (
+                  <div className="acct-popover">
+                    <div className="acct-pop-head">
+                      <div className="avatar lg">
+                        {user.avatarUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={user.avatarUrl} alt="" />
+                        ) : (
+                          avatarText
+                        )}
+                      </div>
+                      <div className="acct-pop-meta">
+                        <div className="acct-pop-name-row">
+                          <span className="acct-pop-name">{user.nickname || user.username}</span>
+                          <span className="acct-plan-badge">
+                            <Icon name="sparkle" size={12} /> {user.planLabel || "企业版"}
+                          </span>
+                        </div>
+                        <div className="acct-pop-sub">{user.planLabel || "企业版"}权益</div>
+                      </div>
+                    </div>
+
+                    <div className="acct-benefit">
+                      <div className="acct-benefit-top">
+                        <span className="acct-benefit-ico">
+                          <Icon name="sparkle" size={16} />
+                        </span>
+                        <div>
+                          <div className="acct-benefit-title">{user.planLabel || "企业版"}权益</div>
+                          <div className="acct-benefit-exp">{user.expiresAt} 到期</div>
+                        </div>
+                      </div>
+                      <div className="acct-balance">
+                        <div className="acct-bal-label">算力余额</div>
+                        <div className="acct-bal-cols">
+                          <div>
+                            <span>权益算力</span>
+                            <b>{user.computeBenefit}</b>
+                          </div>
+                          <div>
+                            <span>赠送算力</span>
+                            <b>{user.computeGift}</b>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="acct-pop-actions">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          router.push("/account");
+                        }}
+                      >
+                        <Icon name="building" size={18} />
+                        <span>管理账户</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          router.push("/account?tab=creations");
+                        }}
+                      >
+                        <Icon name="image" size={18} />
+                        <span>企业资产</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          logout();
+                        }}
+                      >
+                        <Icon name="logout" size={18} />
+                        <span>退出登录</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-primary topbar-login-btn"
+                onClick={() => openLogin("enterprise")}
+              >
+                登录
+              </button>
+            )}
+
+            {isHome && !homeChat && (
               <div className="loc-weather">
                 <span className="lw-loc">
                   <Icon name="pin" size={13} /> 安吉县
@@ -163,47 +284,6 @@ export function TopBar() {
                 <span className="lw-weather">
                   <Icon name="thermo" size={13} /> <span className="lw-temp">28℃</span> 多云
                 </span>
-              </div>
-            )}
-
-            {menuOpen && user && (
-              <div className="user-menu">
-                <div className="user-menu-head">
-                  <div className="user-menu-name">{user.roleTitle}</div>
-                  <div className="user-menu-email">{user.email}</div>
-                </div>
-                <button
-                  type="button"
-                  className="user-menu-item"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    router.push("/account");
-                  }}
-                >
-                  <Icon name="user" size={16} /> 个人中心
-                </button>
-                <button
-                  type="button"
-                  className="user-menu-item"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    router.push("/enterprise?tab=team");
-                  }}
-                >
-                  <Icon name="building" size={16} /> 企业管理
-                </button>
-                <div className="user-menu-sep" />
-                <button
-                  type="button"
-                  className="user-menu-item danger"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    logout();
-                    router.push("/login");
-                  }}
-                >
-                  <Icon name="logout" size={16} /> 退出登录
-                </button>
               </div>
             )}
           </div>

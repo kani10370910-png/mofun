@@ -45,15 +45,21 @@ export function SocialPlanResult({
   plan,
   onMakePoster,
   posterLoading = false,
+  onMakeImage,
+  imageLoading = false,
 }: {
   plan: ParsedSocialPlan;
   onMakePoster: (picked: { title: string; highlights: string[] }) => Promise<string | void> | string | void;
   posterLoading?: boolean;
+  onMakeImage: (picked: { platform: string; text: string }) => Promise<string | void> | string | void;
+  imageLoading?: boolean;
 }) {
   const toast = useToast();
   const [posterOpen, setPosterOpen] = useState(false);
   const [imageOpen, setImageOpen] = useState(false);
   const [posterUrl, setPosterUrl] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [imageLabel, setImageLabel] = useState("");
   const [titlePick, setTitlePick] = useState(0);
   const [hlPicks, setHlPicks] = useState<number[]>(() => (plan.highlights[0] ? [0] : []));
   const [imagePick, setImagePick] = useState(0);
@@ -75,16 +81,6 @@ export function SocialPlanResult({
   const toggleHlPick = (idx: number) => {
     setHlPicks((prev) => (prev.includes(idx) ? prev.filter((n) => n !== idx) : [...prev, idx]));
   };
-  const confirmMakePoster = async () => {
-    const title = plan.titles[titlePick] || plan.titles[0] || `${plan.product} 推广海报`;
-    try {
-      const url = await Promise.resolve(onMakePoster({ title, highlights: pickedHlText }));
-      if (typeof url === "string" && url) setPosterUrl(url);
-      setPosterOpen(false);
-    } catch {
-      // 失败时保留弹窗，便于重试
-    }
-  };
 
   const x = plan.posts.xhs;
   const w = plan.posts.wechat;
@@ -97,6 +93,36 @@ export function SocialPlanResult({
     d ? { key: "douyin", label: "抖音", text: `${d.title ?? ""}\n${d.body}`.trim() } : null,
     o ? { key: "official", label: "微信公众号", text: `${o.title ?? ""}\n${o.body}`.trim() } : null,
   ].filter(Boolean) as Array<{ key: string; label: string; text: string }>;
+
+  const confirmMakePoster = async () => {
+    const title = plan.titles[titlePick] || plan.titles[0] || `${plan.product} 推广海报`;
+    try {
+      const url = await Promise.resolve(onMakePoster({ title, highlights: pickedHlText }));
+      if (typeof url === "string" && url) setPosterUrl(url);
+      setPosterOpen(false);
+    } catch {
+      // 失败时保留弹窗，便于重试
+    }
+  };
+  const confirmMakeImage = async () => {
+    const picked = imageCandidates[imagePick];
+    if (!picked?.text?.trim()) {
+      toast("请先选择有内容的文案来源", "warn");
+      return;
+    }
+    try {
+      const url = await Promise.resolve(
+        onMakeImage({ platform: picked.label, text: picked.text.trim() })
+      );
+      if (typeof url === "string" && url) {
+        setImageUrl(url);
+        setImageLabel(picked.label);
+      }
+      setImageOpen(false);
+    } catch {
+      // 失败时保留弹窗，便于重试
+    }
+  };
 
   return (
     <>
@@ -173,10 +199,42 @@ export function SocialPlanResult({
             <div className="plan-section">
               <div className="plan-sec-head">
                 <h3 className="plan-title-bar">平台推广文案</h3>
-                <button className="btn btn-primary btn-sm" onClick={() => setImageOpen(true)}>
-                  生成配图
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setImageOpen(true)}
+                  disabled={imageLoading || imageCandidates.length === 0}
+                >
+                  {imageLoading ? "生成中…" : "生成配图"}
                 </button>
               </div>
+
+              {(imageUrl || imageLoading) && (
+                <>
+                  <div className="plan-sub">推广配图{imageLabel ? ` · ${imageLabel}` : ""}</div>
+                  <div className="poster-preview">
+                    {imageLoading && !imageUrl ? (
+                      <div className="poster-preview-loading">配图生成中…</div>
+                    ) : (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={imageUrl} alt={`${plan.product}推广配图`} />
+                        <div className="poster-preview-acts">
+                          <a
+                            className="btn btn-ghost btn-sm"
+                            href={imageUrl}
+                            download={`${plan.product || "推广配图"}.png`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <Icon name="download" size={14} /> 下载配图
+                          </a>
+                          <span className="poster-preview-tip">已同步存入「仓库 → 我的作品」</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
 
               {w && (
                 <>
@@ -426,12 +484,10 @@ export function SocialPlanResult({
                 <button
                   type="button"
                   className="btn btn-primary btn-sm"
-                  onClick={() => {
-                    toast(`已生成配图（演示）：${imageCandidates[imagePick]?.label || "默认文案"}`);
-                    setImageOpen(false);
-                  }}
+                  onClick={confirmMakeImage}
+                  disabled={imageLoading || !imageCandidates[imagePick]?.text?.trim()}
                 >
-                  <Icon name="image" size={14} /> 生成配图
+                  <Icon name="image" size={14} /> {imageLoading ? "生成中…" : "生成配图"}
                 </button>
               </div>
             </div>

@@ -223,7 +223,10 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   });
   const [eventForm, setEventForm] = useState<EventImageState>(() => {
     const e = initEvent(type);
-    if (back.input && initialSub === "event") e.input = back.input;
+    if (initialSub === "event") {
+      if (back.input) e.input = back.input;
+      if (back.eventSub) e.sub = back.eventSub;
+    }
     return e;
   });
   const [productForm, setProductForm] = useState<ProductStudioState>(() => {
@@ -233,7 +236,28 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   });
   const [signageForm, setSignageForm] = useState<SignageStudioState>(() => {
     const s = initSignageStudio();
-    if (back.input && initialSub === "signage") s.shopName = back.input;
+    if (initialSub === "signage") {
+      if (back.brand) s.shopName = back.brand;
+      else if (back.input) {
+        const nameM = back.input.match(/店铺名「([^」]+)」/);
+        if (nameM?.[1]) s.shopName = nameM[1];
+      }
+      if (back.slogan) s.slogan = back.slogan;
+      else if (back.input) {
+        const sloganM = back.input.match(/副文案「([^」]+)」/);
+        if (sloganM?.[1]) s.slogan = sloganM[1];
+      }
+      if (back.input) {
+        s.extraDesc = back.input;
+        s.fromCase = true;
+        if (back.input.includes("茶叶")) s.industry = "茶叶";
+        else if (back.input.includes("特产") || back.input.includes("生鲜")) s.industry = "特产生鲜";
+        else if (back.input.includes("农家乐") || back.input.includes("餐饮")) s.industry = "餐饮农家乐";
+        if (back.input.includes("新中式")) s.style = "新中式";
+        else if (back.input.includes("清新产地")) s.style = "清新产地";
+        else if (back.input.includes("简约")) s.style = "简约高级";
+      }
+    }
     return s;
   });
   const [logoForm, setLogoForm] = useState<LogoImageState>(() => ({
@@ -242,12 +266,29 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     input: (initialSub === "logo" && back.input) || "",
   }));
   const [fontForm, setFontForm] = useState<FontImageState>(() => {
-    const cat = (initialSub === "font" && (back.effect ? fontEffects.find((f) => f.name === back.effect)?.cat : undefined)) || "书法体";
+    if (initialSub !== "font") {
+      const cat0 = "书法体" as FontImageState["cat"];
+      return {
+        text: "",
+        dir: "h" as const,
+        cat: cat0,
+        effect: fontEffects.find((f) => f.cat === cat0)?.name || "",
+      };
+    }
+    const tagOrName = back.effect ? String(back.effect) : "";
+    const fontCat = back.style ? String(back.style) : undefined;
+    const matched =
+      (tagOrName && fontEffects.find((f) => f.name === tagOrName)) ||
+      (fontCat && tagOrName && fontEffects.find((f) => f.cat === fontCat && f.name.includes(tagOrName))) ||
+      (tagOrName && fontEffects.find((f) => f.name.includes(tagOrName))) ||
+      (fontCat && fontEffects.find((f) => f.cat === fontCat)) ||
+      undefined;
+    const cat = (matched?.cat || fontCat || "书法体") as FontImageState["cat"];
     return {
-      text: (initialSub === "font" && back.text) || "",
-      dir: initialSub === "font" && back.dir === "竖向" ? "v" : "h",
-      cat: cat as FontImageState["cat"],
-      effect: (initialSub === "font" && back.effect) || fontEffects.find((f) => f.cat === cat)?.name || "",
+      text: back.text ? String(back.text) : "",
+      dir: back.dir === "竖向" ? "v" : "h",
+      cat,
+      effect: matched?.name || fontEffects.find((f) => f.cat === cat)?.name || "",
     };
   });
 
@@ -255,13 +296,32 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   const [hasResult, setHasResult] = useState(false);
   // IP 设计「帮我提案」：在右侧结果区内嵌展示面板；proposeFill 用于把结果回填到左侧创意描述
   const [proposeOpen, setProposeOpen] = useState(false);
-  const [proposeFill, setProposeFill] = useState("");
+  const [proposeFill, setProposeFill] = useState(() =>
+    initialSub === "ip" && back.input ? String(back.input) : ""
+  );
   // IP 设计左侧的设计 tab（create=创新设计 / extend=扩展设计），受控以便复制时自动切换
-  const [ipDesignTab, setIpDesignTab] = useState<"create" | "extend">("create");
+  const [ipDesignTab, setIpDesignTab] = useState<"create" | "extend">(
+    initialSub === "ip" && String(back.mode || "") === "extend" ? "extend" : "create"
+  );
   // 回填序号：每次复制 +1，让 ImageIpPanel 即使内容相同也能重新触发回填
-  const [fillSeq, setFillSeq] = useState(0);
+  const [fillSeq, setFillSeq] = useState(() => (initialSub === "ip" && back.input ? 1 : 0));
   // 「复制到左侧」的完整结构化载荷（颜色/尺寸/参考图等），供左侧逐项还原
-  const [copyFill, setCopyFill] = useState<IpCopyPayload | null>(null);
+  const [copyFill, setCopyFill] = useState<IpCopyPayload | null>(() => {
+    if (initialSub !== "ip") return null;
+    const colors = back.colors
+      ? String(back.colors)
+          .split(",")
+          .map((c) => c.trim())
+          .filter(Boolean)
+      : undefined;
+    if (!back.input && !colors?.length && !back.ratio) return null;
+    return {
+      kind: "create",
+      desc: back.input ? String(back.input) : "",
+      colors,
+      ratioName: back.ratio ? String(back.ratio) : undefined,
+    };
+  });
   // 打开提案面板时，把左侧创意描述的已有内容复制进面板作为初始文本
   const [proposeInit, setProposeInit] = useState("");
 

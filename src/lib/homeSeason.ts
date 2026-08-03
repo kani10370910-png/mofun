@@ -10,6 +10,10 @@ export const HOME_SEASONS: { id: HomeSeason; label: string }[] = [
 
 export const HOME_SEASON_KEY = "mofun_home_season_v1";
 export const HOME_SEASON_EVENT = "mofun-home-season";
+/** 首页进入对话会话态（顶栏仍保留，仅切换视觉） */
+export const HOME_CHAT_EVENT = "mofun-home-chat";
+/** 从对话态回到首页 Hero（顶栏「首页」点击） */
+export const HOME_CHAT_EXIT_EVENT = "mofun-home-chat-exit";
 
 /** 各季节品牌主色（来自用户色板） */
 export const SEASON_THEMES: Record<

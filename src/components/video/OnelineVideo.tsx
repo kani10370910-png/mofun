@@ -26,6 +26,7 @@ import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
 import { VideoStyleModal } from "./VideoStyleModal";
 import { LibraryPickerModal } from "@/components/image/LibraryPickerModal";
 import { ClampText } from "@/components/ui/ClampText";
+import { onelineInspires } from "@/data/videoInspires";
 
 /* F10 一句话视频：文生视频(T2V) / 图生视频(I2V) 双 Tab。
    演示骨架：场景引导词库 + 参数 + 首尾帧 + 内容安全预检/复检 + 进度状态机 + 后处理/审核流。
@@ -132,13 +133,8 @@ function captureFirstFrame(videoUrl: string): Promise<string | null> {
   });
 }
 
-// 参考灵感：6 张安吉文旅具体范例（含真实提示词与样张），供右栏一键套用到提示词。
-// cat/scene 对应真实场景模板，套用后预设 chip 自动高亮。
-const INSPIRE: { cat: string; scene: string; emoji: string; prompt: string; poster: string; videoUrl: string; ratio: string; dur: string; style: string }[] = [
-  { cat: "农业宣传", scene: "农产品推广", emoji: "🌾", prompt: "安吉白茶明前头采，茶农指尖采摘嫩芽，云雾茶山实景，产地直发宣传短视频", poster: "/poster-gen/ins-baicha.jpg", videoUrl: "/demo-videos/hist-baicha.mp4", ratio: "16:9", dur: "6秒", style: "写实" },
-  { cat: "文化旅游", scene: "景区宣传", emoji: "⛰️", prompt: "安吉余村绿水青山，竹海骑行与古村漫步，适合亲子游的生态文旅目的地", poster: "/poster-gen/ins-yucun.jpg", videoUrl: "/demo-videos/hist-yucun.mp4", ratio: "9:16", dur: "10秒", style: "航拍大片" },
-];
-
+// 参考灵感：安吉文旅范例（含真实提示词与样张），供右栏一键套用到提示词。
+const INSPIRE = onelineInspires;
 // "5秒" → 5
 function durSeconds(dur: string): number {
   return parseInt(dur.match(/\d+/)?.[0] ?? "5", 10);
@@ -448,7 +444,7 @@ function buildReeditRun(card: AssetCard, nonce: string): VideoRunRow {
   };
 }
 
-export function OnelineVideo({ reeditNonce }: { reeditNonce?: string }) {
+export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: string; initialPrompt?: string }) {
   const toast = useToast();
   const { addWork, isFavorite, toggleFavorite } = useLibrary();
   const router = useRouter();
@@ -464,7 +460,7 @@ export function OnelineVideo({ reeditNonce }: { reeditNonce?: string }) {
   const [scene, setScene] = useState(""); // 当前选中场景（二级场景名）
   const [presetCleared, setPresetCleared] = useState(false); // 用户主动点过「不使用预设」（默认 false，避免初始就高亮）
   const [sceneCat, setSceneCat] = useState(videoSceneCats[0]); // 场景一级分类筛选
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(() => initialPrompt?.trim() || "");
   const [expanding, setExpanding] = useState(false);
   // —— 图生视频 ——
   const [firstFrame, setFirstFrame] = useState(""); // 首帧图 URL

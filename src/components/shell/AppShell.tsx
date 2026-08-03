@@ -4,7 +4,10 @@ import { useEffect } from "react";
 import { TopBar } from "./TopBar";
 import { SiteBeian } from "./SiteBeian";
 import { ConfirmHost } from "@/components/ui/Confirm";
-import { usePathname } from "next/navigation";
+import { LoginModal } from "@/components/auth/LoginModal";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
+import { useAuth } from "@/lib/AuthContext";
 import {
   HOME_SEASON_EVENT,
   type HomeSeason,
@@ -12,8 +15,23 @@ import {
   readHomeSeason,
 } from "@/lib/homeSeason";
 
+function LoginQueryOpener() {
+  const sp = useSearchParams();
+  const router = useRouter();
+  const { user, ready, openLogin } = useAuth();
+  useEffect(() => {
+    if (!ready || user) return;
+    if (sp.get("login") === "1") {
+      openLogin("enterprise");
+      const next = sp.get("next");
+      router.replace(next && next.startsWith("/") ? next : "/");
+    }
+  }, [ready, user, sp, openLogin, router]);
+  return null;
+}
+
 /* 应用外壳：渲染顶栏 + 主区域。
-   登录 / 个人中心 / 企业管理 使用独立顶栏，隐藏全局 TopBar。*/
+   账户管理台使用独立布局，隐藏全局 TopBar。*/
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/";
   const hideTop =
@@ -37,8 +55,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className={hideTop ? "main main-flush" : "main"} id="main">
         {children}
       </main>
-      {pathname !== "/" && <SiteBeian />}
+      {pathname !== "/" && !pathname.startsWith("/account") && <SiteBeian />}
       <ConfirmHost />
+      <LoginModal />
+      <Suspense fallback={null}>
+        <LoginQueryOpener />
+      </Suspense>
     </>
   );
 }
