@@ -23,6 +23,17 @@ import {
   videoQualities,
   videoModels,
   SETTING_FIELDS,
+  clampModelDuration,
+  modelAllowsQuality,
+  modelDurRange,
+  modelLimitHint,
+  modelNativeAudio,
+  modelQualities,
+  modelSupportsFlf,
+  modelSupportsI2v,
+  qualityToModelRes,
+  resolveVideoModel,
+  videoModelIdOf,
 } from "@/data/video";
 import { useLibrary } from "@/lib/store";
 import { LibraryPicker } from "./LibraryPicker";
@@ -31,6 +42,7 @@ import { BGM_PRESETS, bgmUrl } from "@/data/bgm";
 import { nowStamp } from "@/lib/datetime";
 import type { IconName } from "@/data/icons";
 import type { AssetCard } from "@/lib/types";
+import { imageRequestBody, kbFields, settingsUseRegionEnhance, QWEN_I2I_LOCAL, modelSupportsCountyLora, toUiImageModelName } from "@/lib/regionEnhance";
 import {
   posterFor,
   ratioToCanvas,
@@ -192,12 +204,20 @@ function extractDialogue(text: string): string {
     .join(" ");
 }
 
-// 制作大片逐镜真实生成使用的视频模型（seedance-2.0 系列均有可用通道；默认 doubao 无通道）
-const STUDIO_VIDEO_MODEL = "seedance-2.0-mini"; // Direct 分组可用的兜底模型（旧项目存了已下线的名称时回退到它）
+// 制作大片逐镜真实生成使用的视频模型；旧项目存了已下线名称时回退到列表首项
+const STUDIO_VIDEO_MODEL = videoModelIdOf("Seedance 1.5 Pro");
 
 // 用户在「视频设定」选择的模型名 → 发给 API 的实际模型 ID；未命中时回退到默认可用模型
 function modelIdOf(name?: string): string {
-  return videoModels.find((m) => m.name === name)?.modelId ?? STUDIO_VIDEO_MODEL;
+  return videoModelIdOf(name);
+}
+
+function studioShotDurCap(modelName?: string): number {
+  return modelDurRange(modelName).max;
+}
+
+function studioShotDurFloor(modelName?: string): number {
+  return modelDurRange(modelName).min;
 }
 
 // 支持「首帧 + 参考图」同时使用的模型 ID（可在首帧承接基础上叠加参考图锁脸）。
@@ -211,12 +231,27 @@ function modelSupportsFrameAndRef(name?: string): boolean {
 // 生成参考图（生图 / 改图）可选的图片模型：name 展示，modelId 发给 /api/image。
 // 首项「自动匹配」modelId 为空 → 不传 model，沿用后端 IMAGE_MODEL 默认（保证与其它出图一致、不误传无效 id）。
 const STUDIO_IMAGE_MODELS: { name: string; modelId: string; desc: string }[] = [
-  { name: "Z-Image", modelId: "z-image", desc: "真实感增强" },
-  { name: "Qwen-Image", modelId: "qwen-image", desc: "中文语义理解强" },
-  { name: "Seedream 4.0", modelId: "seedream-4.0", desc: "高细节 · 商业级出图" },
-  { name: "Seedream 4.5", modelId: "seedream-4.5", desc: "细节增强 · 商业级出图" },
-  { name: "Seedream-5.0-lite", modelId: "seedream-5.0-lite", desc: "轻量快速 · 均衡出图" },
+  { name: "Qwen 文生图", modelId: "Qwen-Image-本地-文生图", desc: "可挂县域 Lora" },
+  { name: "Z-Image", modelId: "z-image", desc: "真实感增强（待接入）" },
+  { name: "Seedream 4.0", modelId: "doubao-seedream-4-0-250828", desc: "高细节" },
+  { name: "Seedream 4.5", modelId: "doubao-seedream-4-5-251128", desc: "细节增强" },
+  { name: "Seedream 5.0", modelId: "doubao-seedream-5-0-260128", desc: "最新 Seedream" },
 ];
+
+/** 有参考图时，Qwen 本地通道改走图生图模型名 */
+function studioResolveImageModel(modelId: string, hasImage: boolean): string | undefined {
+  if (!modelId) return undefined;
+  if (hasImage && modelSupportsCountyLora(modelId)) return QWEN_I2I_LOCAL;
+  return modelId;
+}
+
+function studioImageModelEntry(name?: string) {
+  const ui = toUiImageModelName(name) || name || "";
+  return (
+    STUDIO_IMAGE_MODELS.find((m) => m.name === ui || m.name === name || m.modelId === name) ??
+    STUDIO_IMAGE_MODELS[0]
+  );
+}
 
 // ② 生成设置：每类元素的生图清晰度 + 一键生成用的生图模型（存于保留键 __model）
 type AssetGenSetting = { size?: string; model?: string };
@@ -252,6 +287,11 @@ function mapVideoErr(error: unknown, status: number): string {
 const ASSET_EMOJIS = ["🏞️", "👩‍🌾", "🍵", "🌾", "🏮", "🎐", "🛶", "🍂"];
 
 // 读取「新建大片」对话框暂存的视频设定（读后清除，仅新建项目时用；SSR / 隐私模式无 sessionStorage 时回退空）
+function studioKbFields() {
+  const snap = getStudioSnapshot() as { settings?: Record<string, string> } | null;
+  return kbFields(settingsUseRegionEnhance(snap?.settings));
+}
+
 function readNewSettingsDraft(): Record<string, string> {
   try {
     const raw = sessionStorage.getItem("mofun.studio.newSettings");
@@ -663,12 +703,9 @@ async function downloadVideo(videoUrl: string, filename: string) {
   }
 }
 
-// 视频质量档位 → 传给生成模型的分辨率字符串。
-// 模型（seedance-2.0-fast）上限为 1080p，2K/4K 兜底为 1080p 生成，避免网关拒绝导致失败。
-function qualityToRes(q: string): string {
-  if (q.includes("4K") || q.includes("2K") || q.includes("1080")) return "1080p";
-  if (q.includes("480")) return "480p";
-  return "720p";
+// 视频质量档位 → 传给生成模型的分辨率字符串（按当前模型能力降级）
+function qualityToRes(q: string, modelName?: string): string {
+  return qualityToModelRes(q, modelName);
 }
 
 // 视频质量档位 → 消耗额度倍数。实际输出最高 1080p，故 1080P/2K/4K 均按 ×2 计费（不虚高收费）。
@@ -779,11 +816,11 @@ export function Studio({
       stepKey: studioSteps.find((s) => s.key === initialStep)?.key ?? "script",
       script: "", // 新建项目从空开始 → 剧本编辑默认落在第一步「原始创意」，走三步向导
 
-      settings: { 模型: "Seedance 2.0 Mini", 视频比例: "16:9", 视频风格: videoStyles[0].name, 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示", 知识库: "使用", ...readNewSettingsDraft() },
-      totalSec: 15, // 新建默认单镜拉满 15s（模型上限）
+      settings: { 模型: "Seedance 1.5 Pro", 视频比例: "16:9", 视频风格: videoStyles[0].name, 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示", 县域增强: "使用", ...readNewSettingsDraft() },
+      totalSec: 12, // 新建默认单镜拉满当前默认模型上限
       targetShots: 1,
       assets: [] as Asset[], // 新建项目默认无元素 → 展示空态引导，由用户手动添加 / 自动生成
-      shots: redistribute([blankShot(0)], 15),
+      shots: redistribute([blankShot(0)], 12),
       genMode: "text" as GenMode,
       genModeTouched: false, // 用户是否手动选过生成模式；false 时进③按"②是否已生成元素图"自动选（无图→文本、有图→智能多帧）
       subtitles: [] as Subtitle[],
@@ -1269,7 +1306,7 @@ export function Studio({
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ scene: "studio-speakers", input }),
+          body: JSON.stringify({ scene: "studio-speakers", input, ...studioKbFields() }),
         });
         if (!res.ok || !res.body) continue;
         const reader = res.body.getReader();
@@ -1696,7 +1733,7 @@ export function Studio({
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scene: "studio-shot-elements-fill", input }),
+        body: JSON.stringify({ scene: "studio-shot-elements-fill", input, ...studioKbFields() }),
       });
       if (!res.ok || !res.body) return;
       const reader = res.body.getReader();
@@ -1900,7 +1937,7 @@ export function Studio({
       ? `【说话动作】本镜中${speaker ? `角色「${speaker}」` : "画面中出现的人物"}正在自然地开口说话、进行对话，说出台词「${spoken}」，表情与神态与"正在说话"的状态一致自然，不要闭着嘴或背对镜头，画面里不要出现任何字幕或文字`
       : "";
     const prompt = [stylePrefix, continuityNote, subjectLead, `${stripMentions(cur.shotDesc)}${elemText}${editNote}`, speakNote, shotMeta, consistencyNote].filter(Boolean).join("，") + tailRule;
-    const generateAudio = settings.配音 !== "不配音";
+    const generateAudio = settings.配音 !== "不配音" && modelNativeAudio(settings.模型);
 
     // 首帧 = 外部传入的衔接帧（imageOverride）优先，否则本镜自设首帧图（cur.firstFrame）。imageOverride 由 genShot/genAll 按模式给：
     //   首尾帧(keyframe)=首帧图（镜头1 自设首帧 / 第 2 镜起上一镜尾帧图）；文本/智能多帧=上一镜真实视频尾帧。
@@ -1971,10 +2008,11 @@ export function Studio({
       body: JSON.stringify({
         prompt,
         ratio: settings.视频比例,
-        dur: `${cur.dur}秒`,
+        dur: `${clampModelDuration(cur.dur, settings.模型)}秒`,
         model: modelIdOf(settings.模型),
-        resolution: qualityToRes(settings.视频质量),
+        resolution: qualityToRes(settings.视频质量, settings.模型),
         generateAudio,
+        quality: settings.视频质量,
         // 参考音色模式：镜头图/参考图作 reference_image + 参考音频，不带首帧/尾帧；否则维持原有首帧承接逻辑
         ...(!useAudioRef && imageUrl ? { imageUrl } : {}),
         ...(!useAudioRef && tailImageUrl ? { tailImageUrl } : {}),
@@ -2104,7 +2142,7 @@ export function Studio({
       const resp = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scene: "studio-safe-rewrite", input: base }),
+        body: JSON.stringify({ scene: "studio-safe-rewrite", input: base, ...studioKbFields() }),
       });
       if (!resp.ok || !resp.body) {
         const j = (await resp.json().catch(() => ({}))) as { error?: string };
@@ -2262,7 +2300,7 @@ export function Studio({
     const styleLead = `${styleName === "写实" || !styleRaw.trim() ? "真实摄影照片，实拍质感，" : ""}${stylePrompt}。`;
     const styleSuffix = `，整体画面风格：${stylePrompt}`;
     const genModelName = assetGenSettings[ASSET_GEN_MODEL_KEY]?.model ?? STUDIO_IMAGE_MODELS[0].name;
-    const genModelId = STUDIO_IMAGE_MODELS.find((m) => m.name === genModelName)?.modelId || "";
+    const genModelId = studioImageModelEntry(genModelName).modelId;
     let ok = 0;
     let done = 0;
     // 单个元素：优化描述 → 生图 → 回填参考图（setAssets 会话级持久化，卸载后仍能保存）
@@ -2277,7 +2315,7 @@ export function Studio({
         const er = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ scene: "studio-asset-desc", input: expandInput, styleHint: stylePrompt }),
+          body: JSON.stringify({ scene: "studio-asset-desc", input: expandInput, styleHint: stylePrompt, ...studioKbFields() }),
           signal: ctrl.signal,
         });
         if (er.ok && er.body) {
@@ -2305,7 +2343,13 @@ export function Studio({
         const ir = await fetch("/api/image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: `${styleLead}${desc}，${assetKindPrompt(a.kind)}${styleSuffix}`, n: 1, size, ...(genModelId ? { model: genModelId } : {}) }),
+          body: JSON.stringify(imageRequestBody({
+            prompt: `${styleLead}${desc}，${assetKindPrompt(a.kind)}${styleSuffix}`,
+            n: 1,
+            size,
+            model: studioResolveImageModel(genModelId, false),
+            regionEnhance: settingsUseRegionEnhance((getStudioSnapshot() as { settings?: Record<string, string> } | null)?.settings),
+          })),
           signal: ctrl.signal,
         });
         const j = (await ir.json().catch(() => ({}))) as { images?: string[]; error?: string };
@@ -2371,7 +2415,7 @@ export function Studio({
     const styleLead = `${styleName === "写实" || !styleRaw.trim() ? "真实摄影照片，实拍质感，" : ""}${stylePrompt}。`;
     const styleSuffix = `，整体画面风格：${stylePrompt}`;
     const genModelName = assetGenSettings[ASSET_GEN_MODEL_KEY]?.model ?? STUDIO_IMAGE_MODELS[0].name;
-    const genModelId = STUDIO_IMAGE_MODELS.find((m) => m.name === genModelName)?.modelId || "";
+    const genModelId = studioImageModelEntry(genModelName).modelId;
     let ok = 0, done = 0;
     const genOne = async (s: Shot) => {
       const ctrl = new AbortController(); kfAborts.current.add(ctrl);
@@ -2391,7 +2435,14 @@ export function Studio({
         const prompt = `${whoChar}${styleLead}电影级分镜故事板单帧画面，完整场景构图、写实光影、主体清晰，构图贴合本镜「${s.shotSize} · ${s.camera}」。${whoScene}${whoProp}${stripMentions(s.shotDesc)}${styleSuffix}`;
         const ir = await fetch("/api/image", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt, n: 1, size: "2560x1440", ...(genModelId ? { model: genModelId } : {}), ...(refs.length ? { image: refs } : {}) }),
+          body: JSON.stringify(imageRequestBody({
+            prompt,
+            n: 1,
+            size: "2560x1440",
+            model: studioResolveImageModel(genModelId, refs.length > 0),
+            regionEnhance: settingsUseRegionEnhance((getStudioSnapshot() as { settings?: Record<string, string> } | null)?.settings),
+            ...(refs.length ? { image: refs } : {}),
+          })),
           signal: ctrl.signal,
         });
         const j = (await ir.json().catch(() => ({}))) as { images?: string[] };
@@ -3001,6 +3052,17 @@ export function Studio({
           settings={settings}
           onSave={(next) => {
             setSettings((s) => ({ ...s, ...next }));
+            // 新模型若不支持当前生成模式，回退到文本生成
+            if (genMode === "smart" && !modelSupportsI2v(next.模型)) setGenMode("text");
+            if (genMode === "keyframe" && !modelSupportsFlf(next.模型)) setGenMode("text");
+            // 单镜时长超出新模型上限时夹紧
+            const cap = studioShotDurCap(next.模型);
+            const floor = studioShotDurFloor(next.模型);
+            setShots((list) =>
+              list.map((sh) =>
+                sh.dur > cap || sh.dur < floor ? { ...sh, dur: clampModelDuration(sh.dur, next.模型) } : sh,
+              ),
+            );
             setEditProjOpen(false);
             void resolveAutoStyle(); // 若改成了「智能匹配」，据脚本挑一个具体风格并锁定
           }}
@@ -3041,17 +3103,34 @@ function EditProjectModal({
         <div className="sh-dialog-title">编辑项目</div>
         <div className="sh-dialog-label">视频设定</div>
         <div className="sh-dialog-settings">
-          {SETTING_FIELDS.map((f) => (
+          {SETTING_FIELDS.map((f) => {
+            const modelName = draft["模型"] ?? settings["模型"];
+            const opts =
+              f.label === "视频质量"
+                ? f.opts.filter((o) => modelAllowsQuality(o, modelName))
+                : f.opts;
+            return (
             <div className="sh-set-field" key={f.label}>
               <div className="sh-set-label">{f.label}</div>
               <div className="chip-row">
-                {f.opts.map((o) => {
-                  const on = (draft[f.label] ?? f.opts[0]) === o;
+                {opts.map((o) => {
+                  const on = (draft[f.label] ?? opts[0]) === o;
                   return (
                     <span
                       key={o}
                       className={on ? "sel-chip on" : "sel-chip"}
-                      onClick={() => setDraft((s) => ({ ...s, [f.label]: o }))}
+                      onClick={() =>
+                        setDraft((s) => {
+                          const next = { ...s, [f.label]: o };
+                          if (f.label === "模型") {
+                            const q = next["视频质量"] || "720P";
+                            if (!modelAllowsQuality(q, o)) {
+                              next["视频质量"] = modelQualities(o)[0] || "720P";
+                            }
+                          }
+                          return next;
+                        })
+                      }
                     >
                       {o}
                       {f.notes?.[o] && <em className="sel-chip-note">{f.notes[o]}</em>}
@@ -3059,8 +3138,12 @@ function EditProjectModal({
                   );
                 })}
               </div>
+              {f.label === "模型" && (
+                <div className="field-hint" style={{ marginTop: 6 }}>{modelLimitHint(modelName)}</div>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
         <div className="sh-dialog-acts">
           <button className="btn btn-ghost btn-sm" onClick={onClose}>
@@ -3222,7 +3305,7 @@ function ScriptStep({
     const resp = await fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scene, input: inputText, styleHint, useKB }),
+      body: JSON.stringify({ scene, input: inputText, styleHint, ...kbFields(useKB) }),
     });
     if (!resp.ok || !resp.body) {
       const j = (await resp.json().catch(() => ({}))) as { error?: string };
@@ -3596,7 +3679,7 @@ function StudioStepView(props: {
         summary={props.studioSummary}
         setSummary={props.setStudioSummary}
         styleHint={videoStyles.find((v) => v.name === props.settings.视频风格)?.stylePrompt ?? ""}
-        useKB={props.settings.知识库 !== "不使用"}
+        useKB={settingsUseRegionEnhance(props.settings)}
         rebuildShots={props.rebuildShots}
         setSettings={props.setSettings}
         finishRef={props.scriptFinishRef}
@@ -3641,8 +3724,35 @@ function StudioStepView(props: {
         <div className="sp-genmode">
           <span className="sp-setlbl">生成模式</span>
           <span className={props.genMode === "text" ? "sel-chip on" : "sel-chip"} onClick={() => props.setGenMode("text")}>文本生成</span>
-          <span className={props.genMode === "smart" ? "sel-chip on" : "sel-chip"} onClick={() => props.setGenMode("smart")}>智能多帧</span>
-          <span className={props.genMode === "keyframe" ? "sel-chip on" : "sel-chip"} onClick={() => props.setGenMode("keyframe")}>首尾帧</span>
+          <span
+            className={props.genMode === "smart" ? "sel-chip on" : "sel-chip"}
+            style={modelSupportsI2v(props.settings.模型) ? undefined : { opacity: 0.4, cursor: "not-allowed" }}
+            title={modelSupportsI2v(props.settings.模型) ? undefined : `${resolveVideoModel(props.settings.模型).name} 不支持图生视频`}
+            onClick={() => {
+              if (!modelSupportsI2v(props.settings.模型)) {
+                toast(`${resolveVideoModel(props.settings.模型).name} 不支持智能多帧（需图生），请更换模型`, "warn");
+                return;
+              }
+              props.setGenMode("smart");
+            }}
+          >
+            智能多帧
+          </span>
+          <span
+            className={props.genMode === "keyframe" ? "sel-chip on" : "sel-chip"}
+            style={modelSupportsFlf(props.settings.模型) ? undefined : { opacity: 0.4, cursor: "not-allowed" }}
+            title={modelSupportsFlf(props.settings.模型) ? undefined : `${resolveVideoModel(props.settings.模型).name} 不支持首尾帧`}
+            onClick={() => {
+              if (!modelSupportsFlf(props.settings.模型)) {
+                toast(`${resolveVideoModel(props.settings.模型).name} 不支持首尾帧，请更换模型`, "warn");
+                return;
+              }
+              props.setGenMode("keyframe");
+            }}
+          >
+            首尾帧
+          </span>
+          <span className="field-hint" style={{ marginLeft: 8 }}>{modelLimitHint(props.settings.模型)}</span>
           {/* 出镜元素识别中提示 */}
           {props.elemMatchBusy && (
             <span className="sb-recog-hint" title="正在自动识别每镜出现的场景/角色/道具并补齐绑定">
@@ -3792,9 +3902,29 @@ function StudioStepView(props: {
                     </select>
                   </label>
                   <div className="sb-dur-ctl">
-                    <button onClick={() => props.editShot(sel.id, { dur: Math.max(2, sel.dur - 1) })} disabled={sel.locked} aria-label="减少时长">−</button>
+                    <button
+                      onClick={() =>
+                        props.editShot(sel.id, {
+                          dur: Math.max(studioShotDurFloor(props.settings.模型), sel.dur - 1),
+                        })
+                      }
+                      disabled={sel.locked}
+                      aria-label="减少时长"
+                    >
+                      −
+                    </button>
                     <span>{sel.dur}s</span>
-                    <button onClick={() => props.editShot(sel.id, { dur: Math.min(15, sel.dur + 1) })} disabled={sel.locked} aria-label="增加时长">＋</button>
+                    <button
+                      onClick={() =>
+                        props.editShot(sel.id, {
+                          dur: Math.min(studioShotDurCap(props.settings.模型), sel.dur + 1),
+                        })
+                      }
+                      disabled={sel.locked}
+                      aria-label="增加时长"
+                    >
+                      ＋
+                    </button>
                   </div>
                 </div>
                 {props.assets.length > 0 && (<ShotAssets shot={sel} assets={props.assets} editShot={props.editShot} />)}
@@ -4506,7 +4636,7 @@ function AssetsStep({
       const resp = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scene: "studio-assets", input: script, styleHint: stylePrompt }),
+        body: JSON.stringify({ scene: "studio-assets", input: script, styleHint: stylePrompt, ...studioKbFields() }),
       });
       if (!resp.ok || !resp.body) {
         const j = (await resp.json().catch(() => ({}))) as { error?: string };
@@ -4590,7 +4720,7 @@ function AssetsStep({
       const r = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scene: "studio-asset-desc", input, styleHint: stylePrompt }),
+        body: JSON.stringify({ scene: "studio-asset-desc", input, styleHint: stylePrompt, ...studioKbFields() }),
       });
       if (!r.ok || !r.body) return;
       const reader = r.body.getReader();
@@ -4724,7 +4854,7 @@ function AssetsStep({
           <div className="sh-mask" onClick={() => setSetOpen(false)}>
             {(() => {
               const curModelName = genSettings[ASSET_GEN_MODEL_KEY]?.model ?? STUDIO_IMAGE_MODELS[0].name;
-              const curModel = STUDIO_IMAGE_MODELS.find((m) => m.name === curModelName) ?? STUDIO_IMAGE_MODELS[0];
+              const curModel = studioImageModelEntry(curModelName);
               const curSize = genSettings["角色"]?.size ?? "2K";
               const setAllSize = (s: string) => setGenSettings((p) => ({ ...p, 角色: { ...p["角色"], size: s }, 场景: { ...p["场景"], size: s }, 道具: { ...p["道具"], size: s } }));
               const start = () => { setSetOpen(false); setGenIntent(false); genAllImages(genRedo, true); };
@@ -5818,7 +5948,7 @@ function AssetGenModal({
     try {
       const resp = await fetch("/api/generate", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scene: "studio-char-info", input: `剧本：\n${(script || "（空）").slice(0, 4000)}\n\n角色名：${name.trim() || asset.name || "主角"}` }),
+        body: JSON.stringify({ scene: "studio-char-info", input: `剧本：\n${(script || "（空）").slice(0, 4000)}\n\n角色名：${name.trim() || asset.name || "主角"}`, ...studioKbFields() }),
       });
       if (!resp.ok || !resp.body) { toast("识别失败，请重试", "warn"); return; }
       const reader = resp.body.getReader(); const dec = new TextDecoder(); let buf = "", acc = "";
@@ -5868,7 +5998,7 @@ function AssetGenModal({
       const resp = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scene: "studio-asset-desc", input, styleHint: stylePrompt }),
+        body: JSON.stringify({ scene: "studio-asset-desc", input, styleHint: stylePrompt, ...studioKbFields() }),
       });
       if (!resp.ok || !resp.body) {
         const j = (await resp.json().catch(() => ({}))) as { error?: string };
@@ -5931,19 +6061,29 @@ function AssetGenModal({
       const effStyle = stylePrompt?.trim() || STYLE_UNIFY_FALLBACK;
       const styleLead = `${effStyle}。`;
       const styleSuffix = `，整体画面风格：${effStyle}`;
-      const modelId = STUDIO_IMAGE_MODELS.find((m) => m.name === model)?.modelId || "";
+      const modelId = studioImageModelEntry(model).modelId;
       // 角色=「左照片+右三视图」横构图 → 宽幅画布；其余按清晰度方图
       const genImgSize = asset.kind === "角色" && !kindPrompt ? "2816x1536" : asset.kind === "场景" && !kindPrompt ? SCENE_PANO_SIZE : asset.kind === "道具" && !kindPrompt ? PROP_TRIVIEW_SIZE : (ASSET_SIZE_MAP[size] || "2048x2048");
-      const base = { n: 1, size: genImgSize, ...(modelId ? { model: modelId } : {}) };
       // 生图：有基底图（如尾帧以首帧为基底）→ 图生图保住主体/场景；否则纯文生。改图：图生图（原图 + 修改要求）。
+      const regionEnhance = settingsUseRegionEnhance((getStudioSnapshot() as { settings?: Record<string, string> } | null)?.settings);
       const body =
         tab === "edit"
-          ? { prompt: `${p}${styleSuffix}`, image: editImage, ...base }
-          : {
+          ? imageRequestBody({
+              prompt: `${p}${styleSuffix}`,
+              image: editImage,
+              n: 1,
+              size: genImgSize,
+              model: studioResolveImageModel(modelId, true),
+              regionEnhance,
+            })
+          : imageRequestBody({
               prompt: `${styleLead}${p}，${kindPrompt ?? assetKindPrompt(asset.kind)}${styleSuffix}`,
+              n: 1,
+              size: genImgSize,
+              model: studioResolveImageModel(modelId, !!baseImage),
+              regionEnhance,
               ...(baseImage ? { image: baseImage } : {}),
-              ...base,
-            };
+            });
       const resp = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -6127,7 +6267,7 @@ function AssetGenModal({
         createPortal(
           <div className="sh-mask" onClick={() => setModelSetOpen(false)}>
             {(() => {
-              const curModel = STUDIO_IMAGE_MODELS.find((m) => m.name === model) ?? STUDIO_IMAGE_MODELS[0];
+              const curModel = studioImageModelEntry(model);
               return (
                 <div className="gen-set-dialog gsx" onClick={(e) => e.stopPropagation()}>
                   <button className="gsx-close-abs" onClick={() => setModelSetOpen(false)} aria-label="关闭"><Icon name="close" size={15} /></button>

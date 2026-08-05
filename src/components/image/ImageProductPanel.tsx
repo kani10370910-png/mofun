@@ -5,6 +5,9 @@ import { Icon } from "@/components/ui/Icon";
 import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
 import { useToast } from "@/components/ui/Toast";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
+import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
+import { accountRegionId } from "@/lib/regionEnhance";
+import { useAuth } from "@/lib/AuthContext";
 import { asset } from "@/lib/asset";
 import {
   loadProductSceneImgCache,
@@ -56,6 +59,7 @@ export interface ProductStudioState {
   fusionImgs: [string, string, string];
   fusionLabels: [string, string, string];
   sceneMore: boolean;
+  regionEnhance: boolean;
 }
 
 export function initProductStudio(): ProductStudioState {
@@ -79,6 +83,7 @@ export function initProductStudio(): ProductStudioState {
     fusionImgs: ["", "", ""],
     fusionLabels: ["", "", ""],
     sceneMore: false,
+    regionEnhance: true,
   };
 }
 
@@ -98,6 +103,8 @@ export function ImageProductPanel({
   onOpenFusionLibrary?: () => void;
 }) {
   const toast = useToast();
+  const { user } = useAuth();
+  const regionId = accountRegionId(user);
   const fileRef = useRef<HTMLInputElement>(null);
   const sceneUploadRef = useRef<HTMLInputElement>(null);
   const set = <K extends keyof ProductStudioState>(k: K, v: ProductStudioState[K]) =>
@@ -255,6 +262,12 @@ export function ImageProductPanel({
   return (
     <>
       <div className="ws-scroll">
+        <RegionEnhanceStrip
+          enabled={state.regionEnhance}
+          onChange={(next) => set("regionEnhance", next)}
+          regionId={regionId}
+          showLora={false}
+        />
         {showProductUpload && (
           <div className="field">
             <div className="ws-label-row">

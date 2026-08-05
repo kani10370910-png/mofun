@@ -11,5 +11,7 @@ export const SEED_PRODUCT_RUNS: EventRunRow[] = [
     pct: 100,
     imgs: ["/productcase/product-mix-seed.png"],
     grads: ["thumb-grad-1"],
+    regionEnhance: true,
+    regionId: "anji",
   },
 ];

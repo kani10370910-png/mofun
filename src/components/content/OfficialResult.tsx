@@ -3,6 +3,7 @@
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import type { OfficialArticle } from "@/lib/officialArticlesStorage";
+import { RegionEnhanceBadge } from "@/components/image/RegionEnhanceStrip";
 
 /** 公众号帮写右栏：文章内容 + 历史文章 */
 export function OfficialResult({
@@ -12,6 +13,8 @@ export function OfficialResult({
   history: _history,
   onPickHistory: _onPickHistory,
   onDeleteHistory: _onDeleteHistory,
+  regionEnhance,
+  regionId,
 }: {
   text: string;
   loading: boolean;
@@ -19,6 +22,8 @@ export function OfficialResult({
   history: OfficialArticle[];
   onPickHistory: (row: OfficialArticle) => void;
   onDeleteHistory?: (id: string) => void;
+  regionEnhance?: boolean;
+  regionId?: string;
 }) {
   const toast = useToast();
   const hasText = !!text.trim();
@@ -43,7 +48,10 @@ export function OfficialResult({
               <span className="rh-title">
                 <Icon name="official" size={16} /> {title?.trim() || "公众号文章"}
               </span>
-              <span className="tag green">公众号长文</span>
+              <span className="result-head-tags">
+                <span className="tag green">公众号长文</span>
+                {regionEnhance && <RegionEnhanceBadge regionId={regionId} />}
+              </span>
             </div>
             <div className="result-body" style={{ whiteSpace: "pre-wrap" }}>
               {text}

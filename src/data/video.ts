@@ -10,19 +10,182 @@ import type {
 } from "@/lib/types";
 
 /* ---------- 视频生成模型库（网格选择器） ---------- */
+export type VideoGenMode = "t2v" | "i2v" | "flf2v";
+
 export interface VideoModel {
-  name: string;    // UI 显示名
+  name: string; // UI 显示名
   modelId: string; // 发给 API 的实际模型 ID（各平台不同）
   desc: string;
   tags: string[]; // 能力标签：图生视频 / 音画同步 / 首尾帧 / 1080P / 10s 等
   badge?: "NEW" | "会员专享"; // 角标
+  /** 支持的生成模式：文生 / 图生首帧 / 首尾帧 */
+  modes: VideoGenMode[];
+  /** 时长下限（秒） */
+  durMin: number;
+  /** 时长上限（秒） */
+  durMax: number;
+  /** 可选画质档（UI）；超出档位会灰掉或自动降级 */
+  qualities: readonly string[];
+  /** 是否支持模型原生有声 generate_audio */
+  nativeAudio: boolean;
+  /** 能力说明（模型切换时展示） */
+  limitHint: string;
 }
+
+const Q_1080 = ["480P", "720P", "1080P"] as const;
+const Q_ALL = ["480P", "720P", "1080P", "2K", "4K"] as const;
+const MODES_FULL: VideoGenMode[] = ["t2v", "i2v", "flf2v"];
+
 export const videoModels: VideoModel[] = [
-  // 均为 Direct 分组下实测有通道可用的视频模型（seedance-2.0 / seedance-2.0-fast 在该分组无通道，已移除）
-  { name: "Seedance 2.0 Mini", modelId: "seedance-2.0-mini", desc: "2.0 轻量版，Direct 分组可用，推荐", tags: ["15s", "推荐"] },
-  { name: "Seedance",          modelId: "seedance",          desc: "标准版，Direct 分组可用",            tags: ["音画同步", "15s"] },
-  { name: "Seedance Fast",     modelId: "seedance-fast",     desc: "快速版，出图更快，Direct 分组可用",  tags: ["音画同步", "15s"] },
+  // 优先：1.x Pro
+  {
+    name: "Seedance 1.5 Pro",
+    modelId: "seedance-1.5-pro",
+    desc: "优先推荐 · 音画同生，文生 / 图生 / 首尾帧，4–12 秒",
+    tags: ["优先", "音画同步", "首尾帧", "12s", "1080P"],
+    badge: "NEW",
+    modes: MODES_FULL,
+    durMin: 4,
+    durMax: 12,
+    qualities: Q_1080,
+    nativeAudio: true,
+    limitHint: "时长 4–12 秒；最高 1080P；支持文生、图生与首尾帧；支持原生有声",
+  },
+  {
+    name: "Seedance 1.0 Pro",
+    modelId: "seedance-1.0-pro",
+    desc: "优先推荐 · 影视级画质，文生 / 图生 / 首尾帧，2–12 秒（无原生有声）",
+    tags: ["优先", "首尾帧", "12s", "1080P"],
+    badge: "NEW",
+    modes: MODES_FULL,
+    durMin: 2,
+    durMax: 12,
+    qualities: Q_1080,
+    nativeAudio: false,
+    limitHint: "时长 2–12 秒；最高 1080P；支持文生、图生与首尾帧；不支持模型原生配音",
+  },
+  // 2.0 族
+  {
+    name: "Seedance 2.0",
+    modelId: "seedance-2.0",
+    desc: "2.0 标准版，支持文生 / 图生 / 首尾帧，最长 15 秒",
+    tags: ["音画同步", "15s"],
+    modes: MODES_FULL,
+    durMin: 2,
+    durMax: 15,
+    qualities: Q_ALL,
+    nativeAudio: true,
+    limitHint: "时长 2–15 秒；支持文生、图生与首尾帧；2K/4K 实际按 1080P 生成",
+  },
+  {
+    name: "Seedance 2.0 Fast",
+    modelId: "seedance-2.0-fast",
+    desc: "2.0 快速版，出片更快，最长 15 秒",
+    tags: ["音画同步", "15s", "快速"],
+    modes: MODES_FULL,
+    durMin: 2,
+    durMax: 15,
+    qualities: Q_ALL,
+    nativeAudio: true,
+    limitHint: "时长 2–15 秒；出片更快；支持文生、图生与首尾帧",
+  },
+  {
+    name: "Seedance 2.0 Mini",
+    modelId: "seedance-2.0-mini",
+    desc: "2.0 轻量版，成本更低，最长 15 秒",
+    tags: ["15s", "轻量"],
+    modes: MODES_FULL,
+    durMin: 2,
+    durMax: 15,
+    qualities: Q_ALL,
+    nativeAudio: true,
+    limitHint: "时长 2–15 秒；支持文生、图生与首尾帧；2K/4K 实际按 1080P 生成",
+  },
 ];
+
+/** 旧显示名 / 旧 modelId → 当前 modelId（兼容已存项目设定） */
+const MODEL_ALIASES: Record<string, string> = {
+  seedance: "seedance-2.0",
+  "seedance-fast": "seedance-2.0-fast",
+  Seedance: "seedance-2.0",
+  "Seedance Fast": "seedance-2.0-fast",
+  "doubao-seedance-1-0-pro-250528": "seedance-1.0-pro",
+  "doubao-seedance-1-5-pro-251215": "seedance-1.5-pro",
+};
+
+const FALLBACK_MODEL = videoModels[0]; // Seedance 1.5 Pro
+
+/** 按显示名或 modelId 解析模型；未命中回退到列表首项（1.5 Pro） */
+export function resolveVideoModel(nameOrId?: string): VideoModel {
+  if (!nameOrId) return FALLBACK_MODEL;
+  const aliased = MODEL_ALIASES[nameOrId] || nameOrId;
+  return (
+    videoModels.find((m) => m.name === aliased || m.modelId === aliased || m.name === nameOrId || m.modelId === nameOrId) ??
+    FALLBACK_MODEL
+  );
+}
+
+export function videoModelIdOf(nameOrId?: string): string {
+  return resolveVideoModel(nameOrId).modelId;
+}
+
+export function modelSupportsMode(nameOrId: string | undefined, mode: VideoGenMode): boolean {
+  return resolveVideoModel(nameOrId).modes.includes(mode);
+}
+
+export function modelSupportsI2v(nameOrId?: string): boolean {
+  return modelSupportsMode(nameOrId, "i2v");
+}
+
+export function modelSupportsFlf(nameOrId?: string): boolean {
+  return modelSupportsMode(nameOrId, "flf2v");
+}
+
+export function modelNativeAudio(nameOrId?: string): boolean {
+  return resolveVideoModel(nameOrId).nativeAudio;
+}
+
+export function modelDurRange(nameOrId?: string): { min: number; max: number } {
+  const m = resolveVideoModel(nameOrId);
+  return { min: m.durMin, max: m.durMax };
+}
+
+/** 把秒数夹到模型允许区间 */
+export function clampModelDuration(sec: number, nameOrId?: string): number {
+  const { min, max } = modelDurRange(nameOrId);
+  const n = Number.isFinite(sec) ? sec : min;
+  return Math.max(min, Math.min(max, Math.round(n)));
+}
+
+export function modelQualities(nameOrId?: string): readonly string[] {
+  return resolveVideoModel(nameOrId).qualities;
+}
+
+/** UI 画质是否被当前模型允许 */
+export function modelAllowsQuality(quality: string, nameOrId?: string): boolean {
+  return modelQualities(nameOrId).includes(quality);
+}
+
+/** 画质档 → 上游 resolution；超出模型能力时降到其最高档对应值 */
+export function qualityToModelRes(quality: string, nameOrId?: string): string {
+  const allowed = modelQualities(nameOrId);
+  let q = quality;
+  if (!allowed.includes(q)) {
+    q = allowed.includes("1080P") ? "1080P" : allowed[allowed.length - 1] || "720P";
+  }
+  if (q.includes("4K") || q.includes("2K") || q.includes("1080")) return "1080p";
+  if (q.includes("480")) return "480p";
+  return "720p";
+}
+
+export function modelLimitHint(nameOrId?: string): string {
+  return resolveVideoModel(nameOrId).limitHint;
+}
+
+/** 数字人动态背景等强制图生场景的可用模型（需支持 i2v） */
+export function i2vCapableModels(): VideoModel[] {
+  return videoModels.filter((m) => m.modes.includes("i2v"));
+}
 
 /* ---------- 一句话视频：生成管线（简化版，反映模型真实能力） ---------- */
 export const videoPipeline: VideoPipelineStage[] = [
@@ -114,7 +277,7 @@ export const SETTING_FIELDS: { label: string; opts: string[]; hint?: string; not
   {
     label: "模型",
     opts: videoModels.map((m) => m.name),
-    hint: "逐镜真实生成使用的视频模型，不同模型出图速度与画质不同",
+    hint: "不同模型时长、画质、图生/首尾帧与原生有声能力不同，切换后选项会自动限定",
     notes: Object.fromEntries(videoModels.filter((m) => m.badge).map((m) => [m.name, m.badge as string])),
   },
   { label: "视频比例", opts: [...videoRatios] },
@@ -122,9 +285,9 @@ export const SETTING_FIELDS: { label: string; opts: string[]; hint?: string; not
   {
     label: "视频质量",
     opts: [...videoQualities],
-    hint: "1080P 及以上 ×2 额度；2K/4K 受模型限制，实际以 1080P 生成",
+    hint: "1080P 及以上 ×2 额度；1.0/1.5 Pro 最高 1080P；2K/4K 仅部分模型可选且实际按 1080P 生成",
     notes: { "2K": "模型上限", "4K": "模型上限" },
   },
   { label: "字幕", opts: ["显示", "隐藏"] },
-  { label: "知识库", opts: ["使用", "不使用"], hint: "使用「魔方智绘知识库」，结合账号所在县域的特色产品/景点/文化生成脚本" },
+  { label: "县域增强", opts: ["使用", "不使用"], hint: "开启后结合账号所在县域知识库生成脚本；视频模型不挂载 Lora" },
 ];

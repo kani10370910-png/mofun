@@ -9,10 +9,13 @@ export const dynamic = "force-dynamic";
    返回：{ text: string | null } */
 
 export async function POST(req: NextRequest) {
-  const { input, gender, age } = (await req.json()) as {
+  const { input, gender, age, useKB, county, kbContext } = (await req.json()) as {
     input?: string;
     gender?: string; // 男/女
     age?: string; // 儿童/青年/老年
+    useKB?: boolean;
+    county?: string;
+    kbContext?: string;
   };
   if (!input?.trim()) return Response.json({ text: null }, { status: 400 });
 
@@ -32,6 +35,14 @@ export async function POST(req: NextRequest) {
       model,
       messages: [
         { role: "system", content: SYSTEM_AVATAR_DESC_OPTIMIZE },
+        ...(useKB
+          ? [{
+              role: "system" as const,
+              content:
+                `【县域知识库${county ? `·${county}` : ""}】可融入县域人物气质与服饰符号，勿编造真人。` +
+                (kbContext ? `\n${kbContext}` : ""),
+            }]
+          : []),
         { role: "user", content: userContent },
       ],
       max_tokens: 400,

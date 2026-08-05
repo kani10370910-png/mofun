@@ -19,7 +19,16 @@ import {
   videoRatios,
   videoQualities,
   videoModels,
-  videoDurationRange,
+  clampModelDuration,
+  modelAllowsQuality,
+  modelDurRange,
+  modelLimitHint,
+  modelNativeAudio,
+  modelQualities,
+  modelSupportsFlf,
+  modelSupportsI2v,
+  resolveVideoModel,
+  videoModelIdOf,
 } from "@/data/video";
 import type { VideoRunRow, Grad, AssetCard } from "@/lib/types";
 import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
@@ -27,6 +36,10 @@ import { VideoStyleModal } from "./VideoStyleModal";
 import { LibraryPickerModal } from "@/components/image/LibraryPickerModal";
 import { ClampText } from "@/components/ui/ClampText";
 import { onelineInspires } from "@/data/videoInspires";
+import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
+import { accountRegionId, imageRequestBody, kbFields, notifyRegionEnhance } from "@/lib/regionEnhance";
+import { RegionEnhanceBadge } from "@/components/image/RegionEnhanceStrip";
+import { useAuth } from "@/lib/AuthContext";
 
 /* F10 一句话视频：文生视频(T2V) / 图生视频(I2V) 双 Tab。
    演示骨架：场景引导词库 + 参数 + 首尾帧 + 内容安全预检/复检 + 进度状态机 + 后处理/审核流。
@@ -75,6 +88,8 @@ const SEED_RUNS: VideoRunRow[] = [
     videoUrl: "/demo-videos/hist-minsu-15s.mp4",
     grad: "thumb-grad-1",
     withAudio: false,
+    regionEnhance: true,
+    regionId: "anji",
   },
   {
     id: "seed-2",
@@ -90,6 +105,8 @@ const SEED_RUNS: VideoRunRow[] = [
     videoUrl: "/demo-videos/hist-minsu-5s.mp4",
     grad: "thumb-grad-3",
     withAudio: false,
+    regionEnhance: true,
+    regionId: "anji",
   },
 ];
 
@@ -162,14 +179,14 @@ function ratioToSize(ratio: string): string {
 }
 
 // 并行生成 2 张关键帧（开场 + 中景），为视频提供真实画面变化；任一失败则返回成功的帧，全失败返回 []
-async function genVideoFrames(prompt: string, ratio: string): Promise<string[]> {
+async function genVideoFrames(prompt: string, ratio: string, regionEnhance = true, regionId?: string): Promise<string[]> {
   const size = ratioToSize(ratio);
   const prompts = [prompt, `${prompt}，近景特写，不同机位视角`];
   const fetchFrame = (p: string) =>
     fetch("/api/image", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: p, size }),
+      body: JSON.stringify(imageRequestBody({ prompt: p, size, regionEnhance, regionId })),
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((j: { images?: string[] }) => j.images?.[0] ?? null);
@@ -208,11 +225,29 @@ async function blobUrlToDataUrl(url: string): Promise<string | null> {
 
 // 调真实视频模型（Seedance 2.0 / MiniMax 等）生成含音画的视频文件；失败返回 null，前端自动降级 Ken Burns
 // imageUrl：图生视频首帧图；tailImageUrl：首尾帧模式的尾帧图（触发 firstTailGenerate）；文生视频均不传
-async function genRealVideo(prompt: string, ratio: string, dur: string, videoModel: string, generateAudio: boolean, imageUrl?: string, tailImageUrl?: string): Promise<string> {
+async function genRealVideo(
+  prompt: string,
+  ratio: string,
+  dur: string,
+  videoModel: string,
+  generateAudio: boolean,
+  imageUrl?: string,
+  tailImageUrl?: string,
+  quality?: string,
+): Promise<string> {
   const r = await fetch("/api/video", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, ratio, dur, model: videoModel, generateAudio, ...(imageUrl ? { imageUrl } : {}), ...(tailImageUrl ? { tailImageUrl } : {}) }),
+    body: JSON.stringify({
+      prompt,
+      ratio,
+      dur,
+      model: videoModel,
+      generateAudio,
+      ...(quality ? { quality } : {}),
+      ...(imageUrl ? { imageUrl } : {}),
+      ...(tailImageUrl ? { tailImageUrl } : {}),
+    }),
     signal: AbortSignal.timeout(450_000), // 需大于路由 420s 轮询窗口，避免前端先行放弃
   });
   const j = (await r.json()) as { videoUrl?: string; error?: unknown };
@@ -316,12 +351,16 @@ async function recordKenBurnsVideo(
 }
 
 // 调 AI 优化用户的视频提示词：补充镜头运动、光线氛围、画面质感等专业描述
-async function optimizeVideoPrompt(input: string, style?: string): Promise<string | null> {
+async function optimizeVideoPrompt(
+  input: string,
+  style?: string,
+  kb?: ReturnType<typeof kbFields>,
+): Promise<string | null> {
   try {
     const r = await fetch("/api/video-prompt", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input, style }),
+      body: JSON.stringify({ input, style, ...kb }),
       signal: AbortSignal.timeout(25_000),
     });
     if (!r.ok) return null;
@@ -377,6 +416,9 @@ async function callVideoGenerate(fields: {
   style: string;
   genAudio: boolean;
   count: number;
+  useKB?: boolean;
+  county?: string;
+  kbContext?: string;
 }): Promise<{ finalPrompt: string; appliedStyle: string; notes: string[] } | null> {
   try {
     const r = await fetch("/api/video-generate", {
@@ -448,6 +490,9 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
   const toast = useToast();
   const { addWork, isFavorite, toggleFavorite } = useLibrary();
   const router = useRouter();
+  const { user } = useAuth();
+  const regionId = accountRegionId(user);
+  const [regionEnhance, setRegionEnhance] = useState(true);
 
   // 二次编辑：读取暂存的视频作品，重建为最新历史记录并高亮定位
   const reeditCard = useMemo(() => {
@@ -476,8 +521,32 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
   const [genAudio, setGenAudio] = useState(true); // 是否同时生成声音
   const [style, setStyle] = useState("智能匹配"); // 默认智能匹配（auto）
   const [styleOpen, setStyleOpen] = useState(false); // 视频风格选择浮层
-  const [model, setModel] = useState<string>("Seedance 1.5 Pro"); // 视频生成模型
+  const [model, setModel] = useState<string>(() => resolveVideoModel("Seedance 1.5 Pro").name);
   const [count, setCount] = useState(1);
+  const durRange = modelDurRange(model);
+  const canI2v = modelSupportsI2v(model);
+  const canFlf = modelSupportsFlf(model);
+  const canNativeAudio = modelNativeAudio(model);
+  const allowedQualities = modelQualities(model);
+
+  // 切换模型：夹紧时长/画质/有声；不支持图生时退回文生 Tab
+  function applyModel(name: string) {
+    const m = resolveVideoModel(name);
+    setModel(m.name);
+    setDurSec((d) => clampModelDuration(d, m.name));
+    setQuality((q) => (modelAllowsQuality(q, m.name) ? q : m.qualities[0] || "720P"));
+    if (!m.nativeAudio) setGenAudio(false);
+    else setGenAudio(true);
+    if (tab === "i2v" && !m.modes.includes("i2v")) {
+      setTab("t2v");
+      setEndFrameOn(false);
+      toast(`${m.name} 不支持图生视频，已切回文生`, "warn");
+    } else if (endFrameOn && !m.modes.includes("flf2v")) {
+      setEndFrameOn(false);
+      toast(`${m.name} 不支持首尾帧，已关闭`, "warn");
+    }
+    toast(`已选择视频模型：${m.name}`);
+  }
 
   const [runs, setRuns] = useState<VideoRunRow[]>(() =>
     reeditCard ? [buildReeditRun(reeditCard, reeditNonce as string), ...SEED_RUNS] : SEED_RUNS,
@@ -583,8 +652,9 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       toast("请先输入或选择一个场景引导词", "warn");
       return;
     }
+    notifyRegionEnhance(toast, regionEnhance);
     setExpanding(true);
-    optimizeVideoPrompt(base, style === "智能匹配" ? undefined : style).then((optimized) => {
+    optimizeVideoPrompt(base, style === "智能匹配" ? undefined : style, kbFields(regionEnhance, regionId)).then((optimized) => {
       if (optimized) {
         setPrompt(optimized);
         toast("提示词已优化");
@@ -618,6 +688,14 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
     const isI2v = tab === "i2v";
     const text = (isI2v ? motion : prompt).trim();
 
+    if (isI2v && !canI2v) {
+      toast(`${resolveVideoModel(model).name} 不支持图生视频，请切换模型或改用文生`, "warn");
+      return;
+    }
+    if (isI2v && endFrameOn && !canFlf) {
+      toast(`${resolveVideoModel(model).name} 不支持首尾帧，请关闭首尾帧或更换模型`, "warn");
+      return;
+    }
     if (isI2v && !firstFrame) {
       toast("请先上传首帧图！", "warn");
       return;
@@ -630,6 +708,8 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       toast(isI2v ? "请输入运动描述！" : "请输入提示词或选择场景！", "warn");
       return;
     }
+
+    notifyRegionEnhance(toast, regionEnhance);
 
     // F10-07 安全预检（演示：命中敏感词阻断）
     setSafe("checking");
@@ -657,6 +737,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       const result = await callVideoGenerate({
         scene, sceneCat, prompt: text, model, ratio, durSec,
         quality, style, genAudio, count,
+        ...kbFields(regionEnhance, regionId),
       });
       if (result) {
         finalText = result.finalPrompt;
@@ -676,6 +757,10 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
         } else if (styleObj?.stylePrompt) {
           finalText = `${text}，${styleObj.stylePrompt}`;
         }
+        if (regionEnhance) {
+          const kb = kbFields(true, regionId);
+          if (kb.kbContext) finalText = `${finalText}\n【县域知识库·${kb.county}】\n${kb.kbContext}`;
+        }
       }
     } else {
       // 图生视频：保留原有逻辑（风格预测 + stylePrompt 追加）
@@ -691,6 +776,10 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       } else if (styleObj?.stylePrompt) {
         finalText = `${text}，${styleObj.stylePrompt}`;
       }
+      if (regionEnhance) {
+        const kb = kbFields(true, regionId);
+        if (kb.kbContext) finalText = `${finalText}\n【县域知识库·${kb.county}】\n${kb.kbContext}`;
+      }
     }
 
     enqueue({
@@ -698,12 +787,13 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       text: finalText,
       scene: isI2v ? undefined : scene || undefined,
       ratio,
-      dur: `${durSec}秒`,
+      dur: `${clampModelDuration(durSec, model)}秒`,
       style: appliedStyle,
       poster: isI2v ? firstFrame : undefined,
       tailPoster: isI2v && endFrameOn ? lastFrame : undefined,
-      withAudio: genAudio,
-      videoModel: videoModels.find((m) => m.name === model)?.modelId ?? videoModels[0]?.modelId ?? model,
+      withAudio: genAudio && canNativeAudio,
+      videoModel: videoModelIdOf(model),
+      quality,
     });
   }
 
@@ -719,6 +809,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
     tailPoster?: string; // 首尾帧模式的尾帧图
     withAudio?: boolean;
     videoModel?: string; // 当前选中的视频模型（用于真实视频生成）
+    quality?: string;
   }) {
     setBusy(true);
     const id = "v-" + ++seq.current;
@@ -738,6 +829,8 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       tailPoster: p.tailPoster,
       grad,
       withAudio: p.withAudio !== false, // 默认 true，显式传 false 时关闭
+      regionEnhance,
+      regionId,
     };
     setRuns((prev) => [row, ...prev]);
 
@@ -770,7 +863,16 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       let videoUrl: string | null = null;
       let rawReason = "生成失败，请重试";
       try {
-        videoUrl = await genRealVideo(p.text, p.ratio, p.dur, vm, p.withAudio !== false, imgUrl, tailImgUrl);
+        videoUrl = await genRealVideo(
+          p.text,
+          p.ratio,
+          p.dur,
+          vm,
+          p.withAudio !== false && modelNativeAudio(vm),
+          imgUrl,
+          tailImgUrl,
+          p.quality ?? quality,
+        );
       } catch (e) {
         rawReason = e instanceof Error ? e.message : "生成失败，请重试";
       }
@@ -907,7 +1009,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
         stepKey: "clips",
         script: row.prompt,
         studioIdea: row.prompt,
-        settings: { 模型: "Seedance 2.0 Fast", 视频比例: ratio, 视频风格: "智能匹配", 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示", 知识库: "使用" },
+        settings: { 模型: "Seedance 1.5 Pro", 视频比例: ratio, 视频风格: "智能匹配", 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示", 县域增强: "使用" },
         totalSec: dur,
         targetShots: 1,
         assets: [],
@@ -1123,11 +1225,29 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
                   <span className={tab === "t2v" ? "ev-tab on" : "ev-tab"} onClick={() => setTab("t2v")}>
                     文生视频
                   </span>
-                  <span className={tab === "i2v" ? "ev-tab on" : "ev-tab"} onClick={() => setTab("i2v")}>
+                  <span
+                    className={tab === "i2v" ? "ev-tab on" : "ev-tab"}
+                    onClick={() => {
+                      if (!canI2v) {
+                        toast(`${resolveVideoModel(model).name} 不支持图生视频`, "warn");
+                        return;
+                      }
+                      setTab("i2v");
+                    }}
+                    title={canI2v ? undefined : `${resolveVideoModel(model).name} 不支持图生`}
+                    style={canI2v ? undefined : { opacity: 0.45, cursor: "not-allowed" }}
+                  >
                     图生视频
                   </span>
                 </div>
               </div>
+
+              <RegionEnhanceStrip
+                enabled={regionEnhance}
+                onChange={setRegionEnhance}
+                regionId={regionId}
+                showLora={false}
+              />
 
               {tab === "t2v" ? (
                 <>
@@ -1196,7 +1316,18 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
                         参考图片 <span className="req">*</span>
                       </div>
                       <label className="ov-switch">
-                        <input type="checkbox" checked={endFrameOn} onChange={(e) => setEndFrameOn(e.target.checked)} />
+                        <input
+                          type="checkbox"
+                          checked={endFrameOn}
+                          onChange={(e) => {
+                            if (e.target.checked && !canFlf) {
+                              toast(`${resolveVideoModel(model).name} 不支持首尾帧`, "warn");
+                              return;
+                            }
+                            setEndFrameOn(e.target.checked);
+                          }}
+                          disabled={!canFlf}
+                        />
                         <span className="lg-switch" />
                         首尾帧
                       </label>
@@ -1294,8 +1425,9 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
                   triggerIcon="vidModel"
                   options={videoModels.map((m): DropdownOption => ({ name: m.name, desc: m.desc }))}
                   value={model}
-                  onChange={(o) => { setModel(o.name); toast(`已选择视频模型：${o.name}`); }}
+                  onChange={(o) => applyModel(o.name)}
                 />
+                <div className="field-hint">{modelLimitHint(model)}</div>
               </div>
               <div className="field">
                 <div className="ws-label">视频比例</div>
@@ -1313,23 +1445,41 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
                   <input
                     type="range"
                     className="slider"
-                    min={videoDurationRange.min}
-                    max={videoDurationRange.max}
+                    min={durRange.min}
+                    max={durRange.max}
                     step={1}
-                    value={durSec}
-                    onChange={(e) => setDurSec(Number(e.target.value))}
+                    value={Math.min(durRange.max, Math.max(durRange.min, durSec))}
+                    onChange={(e) => setDurSec(clampModelDuration(Number(e.target.value), model))}
                   />
                   <span className="ov-dur-val">{durSec} s</span>
+                </div>
+                <div className="field-hint">
+                  当前模型支持 {durRange.min}–{durRange.max} 秒
                 </div>
               </div>
               <div className="field">
                 <div className="ws-label">视频质量</div>
                 <div className="chip-row">
-                  {videoQualities.map((q) => (
-                    <span key={q} className={quality === q ? "sel-chip on" : "sel-chip"} onClick={() => setQuality(q)}>
-                      {q}
-                    </span>
-                  ))}
+                  {videoQualities.map((q) => {
+                    const ok = allowedQualities.includes(q);
+                    return (
+                      <span
+                        key={q}
+                        className={quality === q ? "sel-chip on" : "sel-chip"}
+                        style={ok ? undefined : { opacity: 0.35, cursor: "not-allowed" }}
+                        onClick={() => {
+                          if (!ok) {
+                            toast(`${resolveVideoModel(model).name} 最高支持 ${allowedQualities[allowedQualities.length - 1]}`, "warn");
+                            return;
+                          }
+                          setQuality(q);
+                        }}
+                        title={ok ? undefined : "当前模型不支持"}
+                      >
+                        {q}
+                      </span>
+                    );
+                  })}
                 </div>
                 {quality === "1080P" && <div className="field-hint">高清消耗 2 倍额度</div>}
               </div>
@@ -1354,9 +1504,26 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
               <div className="field">
                 <div className="ws-label">同时生成声音</div>
                 <div className="seg">
-                  <div className={genAudio ? "seg-item on" : "seg-item"} onClick={() => setGenAudio(true)}>开启</div>
-                  <div className={!genAudio ? "seg-item on" : "seg-item"} onClick={() => setGenAudio(false)}>关闭</div>
+                  <div
+                    className={genAudio ? "seg-item on" : "seg-item"}
+                    onClick={() => {
+                      if (!canNativeAudio) {
+                        toast(`${resolveVideoModel(model).name} 不支持模型原生配音`, "warn");
+                        return;
+                      }
+                      setGenAudio(true);
+                    }}
+                    style={canNativeAudio ? undefined : { opacity: 0.45 }}
+                  >
+                    开启
+                  </div>
+                  <div className={!genAudio ? "seg-item on" : "seg-item"} onClick={() => setGenAudio(false)}>
+                    关闭
+                  </div>
                 </div>
+                {!canNativeAudio && (
+                  <div className="field-hint">当前模型不支持原生有声，已强制关闭</div>
+                )}
               </div>
               {tab === "t2v" && (
                 <div className="field">
@@ -1663,6 +1830,7 @@ function VideoRunCard({
         <div className="ov-run-meta">
           <span className="ov-run-mode">{row.mode === "i2v" ? "图生视频" : "文生视频"}</span>
           <span className="lg-cat">{row.style} · {row.ratio} · {row.dur}</span>
+          {row.regionEnhance && <RegionEnhanceBadge regionId={row.regionId} />}
           {!loading && (
             <button className="lh-ico lh-tip" data-tip="删除" aria-label="删除" onClick={onDelete}>
               <Icon name="trash" size={14} />

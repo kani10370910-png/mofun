@@ -12,6 +12,16 @@ import { asset } from "@/lib/asset";
 import { AutoBgImg } from "./AutoBgImg";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 import { useGenerateStream } from "@/lib/useGenerateStream";
+import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
+import { defaultStrengthMap, DEFAULT_LORA_IDS } from "@/data/regionAssets";
+import {
+  accountRegionId,
+  kbFields,
+  modelSupportsCountyLora,
+  notifyRegionEnhance,
+  toUiImageModelName,
+} from "@/lib/regionEnhance";
+import { useAuth } from "@/lib/AuthContext";
 
 const modelOpts: DropdownOption[] = imageModels.map((m) => ({ name: m.name, desc: m.desc }));
 const editOpts: DropdownOption[] = editModels.map((m) => ({ name: m.name, desc: m.desc }));
@@ -239,6 +249,12 @@ export interface EventImageState {
   refStrength: number; // 「生成相似图」参考强度（0-100%，无级；滑到多少就保留原图多少）
   editModel: string;
   fromCase?: boolean; // 描述来自「套用参考灵感」：立即生成时跳过 t2i 系统提示词二次扩写，直接出图
+  /** 文生图：是否使用县域 Lora / 知识库增强，默认开启 */
+  regionEnhance: boolean;
+  /** 已选地域 Lora（多选；同方向互斥） */
+  loraIds: string[];
+  /** 各 Lora 强度 0–1 */
+  loraStrengths: Record<string, number>;
 }
 
 export function ImageEventPanel({
@@ -269,7 +285,9 @@ export function ImageEventPanel({
   ratioOptsFn?: (sub: string) => DropdownOption[];
 }) {
   const toast = useToast();
+  const { user } = useAuth();
   const set = <K extends keyof EventImageState>(k: K, v: EventImageState[K]) => setState({ ...state, [k]: v });
+  const regionId = accountRegionId(user);
 
   // 文生图·描述词辅助：联想（LLM 扩写，流式回填）+ 图转文（右侧面板，调视觉模型反推）
   const { generate, state: assocState } = useGenerateStream();
@@ -344,8 +362,13 @@ export function ImageEventPanel({
 
   async function onAssociate() {
     if (assocBusy) return;
+    notifyRegionEnhance(toast, state.regionEnhance);
     const saved = state.input;
-    const result = await generate({ scene: "t2i-associate", input: state.input.trim() }, (full) => {
+    const result = await generate({
+      scene: "t2i-associate",
+      input: state.input.trim(),
+      ...kbFields(state.regionEnhance, regionId),
+    }, (full) => {
       setState({ ...state, input: full });
     });
     if (result.trim()) {
@@ -372,10 +395,37 @@ export function ImageEventPanel({
             图生图
           </span>
         </div>
+        <RegionEnhanceStrip
+          enabled={state.regionEnhance}
+          onChange={(next) => set("regionEnhance", next)}
+          regionId={regionId}
+          showLora={
+            state.tab === "t2i"
+              ? modelSupportsCountyLora(state.model)
+              : modelSupportsCountyLora(state.editModel)
+          }
+          loraIds={state.loraIds}
+          onLoraIdsChange={(ids) => {
+            setState({
+              ...state,
+              loraIds: ids,
+              loraStrengths: (() => {
+                const nextStrengths: Record<string, number> = {};
+                for (const id of ids) {
+                  nextStrengths[id] = state.loraStrengths[id] ?? defaultStrengthMap([id])[id];
+                }
+                return nextStrengths;
+              })(),
+            });
+          }}
+          strengths={state.loraStrengths}
+          onStrengthChange={(id, v) => set("loraStrengths", { ...state.loraStrengths, [id]: v })}
+        />
         {state.tab === "t2i" && (
-          <div className="field">
-            <div className="ws-label">成图类型</div>
-            <div className="preset-grid" id="iEventSub">
+          <>
+            <div className="field">
+              <div className="ws-label">成图类型</div>
+              <div className="preset-grid" id="iEventSub">
               <button
                 className={state.sub === "自定义" ? "preset-chip on" : "preset-chip"}
                 onClick={() => setState({ ...state, sub: "自定义", fromCase: false })}
@@ -397,8 +447,9 @@ export function ImageEventPanel({
                   {s.name}
                 </button>
               ))}
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
 
@@ -428,6 +479,22 @@ export function ImageEventPanel({
                   </button>
                 </>
               }
+            />
+          </div>
+          <div className="field">
+            <div className="ws-label">生图模型</div>
+            <Dropdown
+              title="模型选择"
+              triggerIcon="storage"
+              options={modelOpts}
+              value={toUiImageModelName(state.model) || state.model}
+              onChange={(o) => {
+                setState({
+                  ...state,
+                  model: o.name,
+                  regionEnhance: modelSupportsCountyLora(o.name) ? true : state.regionEnhance,
+                });
+              }}
             />
           </div>
           <div className="field">
@@ -462,10 +529,6 @@ export function ImageEventPanel({
                 <span className="cs-unit">px</span>
               </div>
             )}
-          </div>
-          <div className="field">
-            <div className="ws-label">生图模型</div>
-            <Dropdown title="模型选择" triggerIcon="storage" options={modelOpts} value={state.model} onChange={(o) => set("model", o.name)} />
           </div>
           <div className="field">
             <div className="ws-label">生成数量</div>
@@ -674,7 +737,19 @@ export function ImageEventPanel({
           )}
           <div className="field">
             <div className="ws-label">编辑模型</div>
-            <Dropdown title="编辑模型" triggerIcon="storage" options={editOpts} value={state.editModel} onChange={(o) => set("editModel", o.name)} />
+            <Dropdown
+              title="编辑模型"
+              triggerIcon="storage"
+              options={editOpts}
+              value={toUiImageModelName(state.editModel) || state.editModel}
+              onChange={(o) =>
+                setState({
+                  ...state,
+                  editModel: o.name,
+                  regionEnhance: modelSupportsCountyLora(o.name) ? true : state.regionEnhance,
+                })
+              }
+            />
           </div>
         </>
       )}
@@ -694,6 +769,7 @@ export interface LogoImageState {
   style: string;
   brand: string;
   input: string;
+  regionEnhance: boolean;
 }
 
 export function ImageLogoPanel({
@@ -708,10 +784,18 @@ export function ImageLogoPanel({
   loading: boolean;
 }) {
   const set = <K extends keyof LogoImageState>(k: K, v: LogoImageState[K]) => setState({ ...state, [k]: v });
+  const { user } = useAuth();
+  const regionId = accountRegionId(user);
 
   return (
     <>
       <div className="ws-scroll">
+      <RegionEnhanceStrip
+        enabled={state.regionEnhance}
+        onChange={(next) => set("regionEnhance", next)}
+        regionId={regionId}
+        showLora={true}
+      />
       <div className="field">
         <div className="ws-label">logo 风格</div>
         <div className="logo-style-grid">

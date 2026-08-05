@@ -12,6 +12,7 @@ import { ResultCardActions } from "./ResultCardActions";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { AutoBgImg } from "./AutoBgImg";
 import { asset as assetUrl } from "@/lib/asset";
+import { RegionEnhanceBadge } from "./RegionEnhanceStrip";
 
 // 待删除目标：本次会话生成行（run）或静态历史行（hist，按组+行索引定位）
 type DeleteTarget = { kind: "run"; id: string } | { kind: "hist"; gi: number; ii: number };
@@ -54,6 +55,8 @@ export interface LogoRunRow {
   pct: number; // <100 加载中；100 完成
   results: LogoResult[];
   error?: string; // 生成失败时的原因
+  regionEnhance?: boolean;
+  regionId?: string;
 }
 
 const LOGO_LOAD_PHASES = [
@@ -185,6 +188,7 @@ export function LogoGallery({
                           {it.desc && <span className="lh-desc">{it.desc}</span>}
                         </span>
                         <span className="lg-cat">{it.style}</span>
+                        {it.regionEnhance && <RegionEnhanceBadge regionId={it.regionId} />}
                         <button className="lh-ico lh-tip" data-tip="复制" aria-label="复制" onClick={() => onCopy(it.style, it.prompt)}>
                           <Icon name="copy" size={14} />
                         </button>
@@ -303,6 +307,7 @@ function LogoRunRowView({
           {row.desc && <span className="lh-desc">{row.desc}</span>}
         </span>
         <span className="lg-cat">{row.style}</span>
+        {row.regionEnhance && <RegionEnhanceBadge regionId={row.regionId} />}
         {!loading && (
           <>
             <button className="lh-ico lh-tip" data-tip="复制" aria-label="复制" onClick={() => onCopy(row.style, row.prompt)}>

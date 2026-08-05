@@ -9,11 +9,14 @@ export const dynamic = "force-dynamic";
    返回：{ text: string | null } */
 
 export async function POST(req: NextRequest) {
-  const { input, style, targetChars, prevContext } = (await req.json()) as {
+  const { input, style, targetChars, prevContext, useKB, county, kbContext } = (await req.json()) as {
     input?: string;
     style?: string;
     targetChars?: number;
     prevContext?: string; // 上一镜头画面内容，用于镜头间叙事衔接
+    useKB?: boolean;
+    county?: string;
+    kbContext?: string;
   };
   if (!input?.trim()) return Response.json({ text: null }, { status: 400 });
   const userContent = style ? `${input.trim()}，风格：${style}` : input.trim();
@@ -26,6 +29,14 @@ export async function POST(req: NextRequest) {
 
   // 可选：调用方指定目标字数（覆盖系统提示词内的 180–220 字长度规则）
   const messages: Array<{ role: string; content: string }> = [{ role: "system", content: SYSTEM_VIDEO_PROMPT_OPTIMIZE }];
+  if (useKB) {
+    messages.push({
+      role: "system",
+      content:
+        `【县域知识库${county ? `·${county}` : ""}】请结合县域特色优化画面描述，不要编造与资料冲突的事实。` +
+        (kbContext ? `\n${kbContext}` : ""),
+    });
+  }
   if (targetChars && targetChars > 0) {
     messages.push({ role: "system", content: `本次请将输出长度控制在约 ${targetChars} 字左右，覆盖前述长度规则。` });
   }

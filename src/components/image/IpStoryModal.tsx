@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { useGenerateStream } from "@/lib/useGenerateStream";
+import { accountRegionId, kbFields } from "@/lib/regionEnhance";
+import { useAuth } from "@/lib/AuthContext";
 
 /* IP 故事弹窗：
    - 左侧展示当前 IP 图片
@@ -29,6 +31,8 @@ export function IpStoryModal({
   onClose: () => void;
 }) {
   const toast = useToast();
+  const { user } = useAuth();
+  const regionId = accountRegionId(user);
   // 统一的形象依据
   const formDesc = (rawDesc && rawDesc.trim()) || (baseDesc && baseDesc.trim()) || "";
 
@@ -64,6 +68,7 @@ export function IpStoryModal({
         supplement: supplement.trim(),
         preferredColors: colors,
         canvasSize: ratioName,
+        ...kbFields(true, regionId),
       },
       (f) => setCurrent(f),
     );

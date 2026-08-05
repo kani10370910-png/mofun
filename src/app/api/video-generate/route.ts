@@ -24,6 +24,9 @@ interface VideoGenerateInput {
   voice?: string;
   bgm?: string;
   count?: number;
+  useKB?: boolean;
+  county?: string;
+  kbContext?: string;
 }
 
 interface VideoGenerateOutput {
@@ -59,6 +62,12 @@ export async function POST(req: NextRequest) {
     lines.push(`背景音乐：${body.bgm || "舒缓"}`);
   }
   lines.push(`生成数量：${body.count ?? 1}`);
+  if (body.useKB) {
+    lines.push(`县域增强：开启${body.county ? `（${body.county}）` : ""}`);
+    if (body.kbContext) lines.push(`县域知识库：\n${body.kbContext}`);
+  } else {
+    lines.push("县域增强：关闭");
+  }
   const userContent = lines.join("\n");
 
   const r = await fetch(`${baseURL}/chat/completions`, {

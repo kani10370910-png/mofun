@@ -10,6 +10,9 @@ import { imageRatios, ipExtendTabs, ipExtendPresets, ipPresetPrompts, type IpExt
 import { LibraryPickerModal } from "./LibraryPickerModal";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 import { imgToDataUrl } from "@/lib/image";
+import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
+import { accountRegionId, kbFields, notifyRegionEnhance } from "@/lib/regionEnhance";
+import { useAuth } from "@/lib/AuthContext";
 
 // 参考图/IP 图上传校验
 const ALLOWED_IMG_EXTS = new Set(["jpg", "jpeg", "png", "webp"]);
@@ -98,6 +101,8 @@ export interface IpGenPayload {
   // 统一转成 base64 data URL 传给模型（Seedream 接受 data URL），
   // 因此本地 blob: 上传图也能图生图保一致，不再依赖公网 URL。
   refImage?: string;
+  regionEnhance?: boolean;
+  regionId?: string;
   // —— 扩展设计的结构化展示信息（生成历史卡片头用，替代裸 prompt 文字）——
   ext?: {
     ipImg: string; // 用户上传的 IP 原图（缩略图展示，可用 ipImgUrl）
@@ -142,6 +147,9 @@ export function ImageIpPanel({
   onExtendSeedUsed?: () => void;
 }) {
   const toast = useToast();
+  const { user } = useAuth();
+  const regionId = accountRegionId(user);
+  const [regionEnhance, setRegionEnhance] = useState(true);
   // 受控优先：父级传了 designTab 就用它，否则用内部 state（向后兼容）
   const [innerTab, setInnerTab] = useState<"create" | "extend">("create");
   const tab = designTab ?? innerTab;
@@ -156,6 +164,11 @@ export function ImageIpPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extendSeed]);
 
+  const wrapGenerate = (payload?: IpGenPayload) => {
+    if (!payload) return onGenerate(payload);
+    onGenerate({ ...payload, regionEnhance, regionId });
+  };
+
   return (
     <>
       <div className="ev-tabs">
@@ -168,7 +181,10 @@ export function ImageIpPanel({
       </div>
       {tab === "create" ? (
         <IpCreate
-          onGenerate={onGenerate}
+          onGenerate={wrapGenerate}
+          regionEnhance={regionEnhance}
+          onRegionEnhanceChange={setRegionEnhance}
+          regionId={regionId}
           loading={loading}
           onPropose={onPropose}
           proposeFill={proposeFill}
@@ -177,7 +193,10 @@ export function ImageIpPanel({
         />
       ) : (
         <IpExtend
-          onGenerate={onGenerate}
+          onGenerate={wrapGenerate}
+          regionEnhance={regionEnhance}
+          onRegionEnhanceChange={setRegionEnhance}
+          regionId={regionId}
           loading={loading}
           toast={toast}
           extendSeed={extendSeed}
@@ -199,6 +218,9 @@ function IpCreate({
   proposeFill,
   copyFill,
   fillSeq,
+  regionEnhance = true,
+  onRegionEnhanceChange,
+  regionId,
 }: {
   onGenerate: (payload?: IpGenPayload) => void;
   loading: boolean;
@@ -206,6 +228,9 @@ function IpCreate({
   proposeFill?: string;
   copyFill?: IpCopyPayload | null;
   fillSeq?: number;
+  regionEnhance?: boolean;
+  onRegionEnhanceChange?: (next: boolean) => void;
+  regionId?: string;
 }) {
   const toast = useToast();
   const [desc, setDesc] = useState("");
@@ -311,6 +336,7 @@ function IpCreate({
       preferredColors: colors,
       canvasSize,
       hasReference: uploaded,
+      ...kbFields(regionEnhance, regionId),
     });
     if (opt.state.error) {
       toast(opt.state.error, "warn");
@@ -371,6 +397,12 @@ function IpCreate({
   return (
     <>
       <div className="ws-scroll">
+      <RegionEnhanceStrip
+        enabled={regionEnhance}
+        onChange={(next) => onRegionEnhanceChange?.(next)}
+        regionId={regionId}
+        showLora={true}
+      />
       <div className="field">
         <div className="ws-label">创意描述 <span className="req">*</span></div>
         <div className="ip-desc-wrap">
@@ -560,10 +592,14 @@ export function ProposePanel({
   onClose,
   onGenerate,
   initialText = "",
+  regionEnhance = true,
+  regionId,
 }: {
   onClose: () => void;
   onGenerate: (text: string) => void;
   initialText?: string;
+  regionEnhance?: boolean;
+  regionId?: string;
 }) {
   const toast = useToast();
   const [text, setText] = useState(initialText);
@@ -598,10 +634,15 @@ export function ProposePanel({
       toast("请输入画面描述！", "warn");
       return;
     }
+    notifyRegionEnhance(toast, regionEnhance);
     setErrMsg("");
     setStage("loading");
     // 调 LLM：以输入文本作为「IP 特征」生成三个设计方案
-    const full = await opt.generate({ scene: "ip-propose", description: text.trim() });
+    const full = await opt.generate({
+      scene: "ip-propose",
+      description: text.trim(),
+      ...kbFields(regionEnhance, regionId),
+    });
     if (opt.state.error) {
       setErrMsg("提案生成失败，请稍后重试");
       setStage("form");
@@ -734,6 +775,9 @@ function IpExtend({
   proposeFill,
   copyFill,
   fillSeq,
+  regionEnhance = true,
+  onRegionEnhanceChange,
+  regionId,
 }: {
   onGenerate: (payload?: IpGenPayload) => void;
   loading: boolean;
@@ -743,6 +787,9 @@ function IpExtend({
   proposeFill?: string;
   copyFill?: IpCopyPayload | null;
   fillSeq?: number;
+  regionEnhance?: boolean;
+  onRegionEnhanceChange?: (next: boolean) => void;
+  regionId?: string;
 }) {
   // 每个延展项各记一个选中预设（默认未选 = 该项第一个预设「不使用预设」）
   const [picks, setPicks] = useState<Record<string, string>>({});
@@ -972,6 +1019,12 @@ function IpExtend({
   return (
     <>
       <div className="ws-scroll">
+      <RegionEnhanceStrip
+        enabled={regionEnhance}
+        onChange={(next) => onRegionEnhanceChange?.(next)}
+        regionId={regionId}
+        showLora={true}
+      />
       <div className="field">
         <div className="ws-label-row">
           <div className="ws-label">上传 IP 图 <span className="req">*</span></div>

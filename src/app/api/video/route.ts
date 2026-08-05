@@ -1,4 +1,12 @@
 import { NextRequest } from "next/server";
+import {
+  clampModelDuration,
+  modelNativeAudio,
+  modelSupportsFlf,
+  modelSupportsI2v,
+  qualityToModelRes,
+  resolveVideoModel,
+} from "@/data/video";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,27 +34,65 @@ export async function POST(req: NextRequest) {
     referenceImageUrls?: string[]; // 多张参考图：整片各镜锁场景/角色/道具与风格一致（不作首帧）
     generateAudio?: boolean; // 让视频模型自带音频（Seedance 原生能力）
     resolution?: string; // 分辨率：480p/720p/1080p/2k/4k（由前端视频质量档位映射）
+    quality?: string; // 可选：UI 画质档（480P/720P/…），优先于 resolution 做模型能力映射
     audioUrl?: string; // 参考音频（Seedance 2.0 音频输入）：MP3/WAV，2-15s。模型据此匹配对白嗓音特征、音画同步
     audioUrls?: string[]; // 多段参考音频（最多 3 段、合计≤15s）
   };
 
   const apiKey  = process.env.VIDEO_API_KEY  || process.env.IMAGE_API_KEY  || "";
   const baseURL = (process.env.VIDEO_BASE_URL || process.env.IMAGE_BASE_URL || "").replace(/\/$/, "");
-  const model   = body.model || process.env.VIDEO_MODEL || "seedance-2.0-mini";
+  const model   = body.model || process.env.VIDEO_MODEL || "seedance-1.5-pro";
+  const resolved = resolveVideoModel(model);
 
-  console.log("[video] model:", model, "| baseURL:", baseURL || "(empty)", "| key:", apiKey ? "set" : "MISSING", "| imageUrl:", body.imageUrl ? body.imageUrl.slice(0, 40) + `… (${(body.imageUrl.length/1024).toFixed(0)}KB)` : "none", "| tailImageUrl:", body.tailImageUrl ? `(${(body.tailImageUrl.length/1024).toFixed(0)}KB)` : "none");
+  console.log("[video] model:", model, "| resolved:", resolved.modelId, "| baseURL:", baseURL || "(empty)", "| key:", apiKey ? "set" : "MISSING", "| imageUrl:", body.imageUrl ? body.imageUrl.slice(0, 40) + `… (${(body.imageUrl.length/1024).toFixed(0)}KB)` : "none", "| tailImageUrl:", body.tailImageUrl ? `(${(body.tailImageUrl.length/1024).toFixed(0)}KB)` : "none");
   if (!apiKey || !baseURL) return Response.json({ error: "no API key" }, { status: 503 });
 
-  // seedance / kling 视频模型只接受有效时长区间（约 5–10 秒），镜头脚本里 2–4s 这种会被模型拒（InvalidParameter）。
-  // 这里把提交给模型的时长贴合到 5–10 秒；分镜时间轴仍用镜头自身时长（短镜头在预览里对生成视频做裁剪），不影响脚本节奏。
-  const rawDur = parseInt(String(body.dur).match(/\d+/)?.[0] ?? "5", 10);
-  const duration = Math.max(5, Math.min(10, Number.isFinite(rawDur) ? rawDur : 5));
+  // 按模型能力校验图生 / 首尾帧
+  if (body.tailImageUrl && !modelSupportsFlf(model)) {
+    return Response.json(
+      { error: `${resolved.name} 不支持首尾帧生成，请改用文生视频或更换模型` },
+      { status: 400 },
+    );
+  }
+  if (body.imageUrl && !body.tailImageUrl && !modelSupportsI2v(model)) {
+    return Response.json(
+      { error: `${resolved.name} 不支持图生视频，请改用文生视频或更换模型` },
+      { status: 400 },
+    );
+  }
+
+  // 按时长按模型能力夹紧（1.0：2–12；1.5：4–12；2.0 族：2–15）
+  const rawDur = parseInt(String(body.dur).match(/\d+/)?.[0] ?? String(resolved.durMin), 10);
+  const duration = clampModelDuration(Number.isFinite(rawDur) ? rawDur : resolved.durMin, model);
   const headers  = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` };
 
+  // 无原生有声的模型强制关闭 generate_audio
+  const wantAudio = body.generateAudio !== false;
+  const generateAudio = wantAudio && modelNativeAudio(model);
+
+  // 画质 → 模型允许的 resolution
+  const resolution = body.quality
+    ? qualityToModelRes(body.quality, model)
+    : body.resolution
+      ? qualityToModelRes(
+          body.resolution.toUpperCase().replace(/P$/, "P").replace("1080P", "1080P"),
+          model,
+        )
+      : qualityToModelRes("720P", model);
+
+  const forwardBody = { ...body, resolution };
+
   if (isKlingModel(model)) {
-    return handleKling({ baseURL, headers, model, body, duration });
+    return handleKling({ baseURL, headers, model, body: forwardBody, duration });
   }
-  return handleSeedance({ baseURL, headers, model, body, duration, generateAudio: body.generateAudio !== false });
+  return handleSeedance({
+    baseURL,
+    headers,
+    model: resolved.modelId,
+    body: forwardBody,
+    duration,
+    generateAudio,
+  });
 }
 
 /* ---------- Seedance (Anyfast) ----------

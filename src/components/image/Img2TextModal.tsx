@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
+import { notifyRegionEnhance } from "@/lib/regionEnhance";
 
 /* 「图转文」面板：内嵌渲染在右侧结果区（与「帮我提案」同款交互，不再是居中弹窗）。
    上传一张图（点击 / 拖拽 / ctrl+v 粘贴）→ 调 /api/vision 反推出适合文生图的画面描述词，
@@ -30,9 +31,15 @@ function fileToDataUrl(f: File): Promise<string> {
 export function Img2TextModal({
   onClose,
   onResult,
+  useKB,
+  county,
+  kbContext,
 }: {
   onClose: () => void;
   onResult: (text: string) => void;
+  useKB?: boolean;
+  county?: string;
+  kbContext?: string;
 }) {
   const toast = useToast();
   const [img, setImg] = useState<string>(""); // data URL
@@ -87,12 +94,17 @@ export function Img2TextModal({
 
   async function convert() {
     if (!img || busy) return;
+    notifyRegionEnhance(toast, !!useKB);
     setBusy(true);
     try {
       const resp = await fetch("/api/vision", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: img, prompt: T2I_VISION_PROMPT }),
+        body: JSON.stringify({
+          image: img,
+          prompt: T2I_VISION_PROMPT,
+          ...(useKB ? { useKB: true, county, kbContext } : { useKB: false }),
+        }),
       });
       const j = await resp.json().catch(() => ({}));
       if (!resp.ok || !j?.text) {

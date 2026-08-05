@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
+import { RegionEnhanceBadge } from "@/components/image/RegionEnhanceStrip";
 
 export interface ParsedSocialPlan {
   product: string;
@@ -47,12 +48,16 @@ export function SocialPlanResult({
   posterLoading = false,
   onMakeImage,
   imageLoading = false,
+  regionEnhance,
+  regionId,
 }: {
   plan: ParsedSocialPlan;
   onMakePoster: (picked: { title: string; highlights: string[] }) => Promise<string | void> | string | void;
   posterLoading?: boolean;
   onMakeImage: (picked: { platform: string; text: string }) => Promise<string | void> | string | void;
   imageLoading?: boolean;
+  regionEnhance?: boolean;
+  regionId?: string;
 }) {
   const toast = useToast();
   const [posterOpen, setPosterOpen] = useState(false);
@@ -129,7 +134,14 @@ export function SocialPlanResult({
       <div id="planView">
           <div className="plan-section">
             <div className="plan-sec-head">
-              <h3 className="plan-title-bar">{plan.product || "产品"} 品牌策划方案</h3>
+              <h3 className="plan-title-bar">
+                {plan.product || "产品"} 品牌策划方案
+                {regionEnhance && (
+                  <span style={{ marginLeft: 8, verticalAlign: "middle" }}>
+                    <RegionEnhanceBadge regionId={regionId} />
+                  </span>
+                )}
+              </h3>
               <button className="btn btn-primary btn-sm" onClick={() => setPosterOpen(true)} disabled={posterLoading}>
                 {posterLoading ? "生成中…" : "生成推广海报"}
               </button>

@@ -12,6 +12,7 @@ import { asset as assetUrl } from "@/lib/asset";
 import { IpStoryModal } from "./IpStoryModal";
 import { IpDownloadModal } from "./IpDownloadModal";
 import { ResultCardActions } from "./ResultCardActions";
+import { RegionEnhanceBadge } from "./RegionEnhanceStrip";
 import type { IpGenPayload, IpCopyPayload } from "./ImageIpPanel";
 
 /* 延展设计：把当前图片信息带到 IP扩展设计功能 */
@@ -61,6 +62,8 @@ export interface IpRunRow {
   grads: string[]; // 每张卡片的渐变占位（加载态背景）
   imgs: string[]; // 完成后的图片 URL；与 grads 等长
   error?: string; // 出错信息（加载失败时展示）
+  regionEnhance?: boolean;
+  regionId?: string;
 }
 
 // 按生成时间分组：今天 / 昨天 / 更早
@@ -335,6 +338,7 @@ function IpRunRowView({
             {row.desc && <span className="lh-desc">{row.desc}</span>}
           </span>
         )}
+        {row.regionEnhance && <RegionEnhanceBadge regionId={row.regionId} />}
         {!loading && (
           <>
             {/* 复制：创新设计复制创意描述；扩展设计仅当填了图片描述词时显示 */}

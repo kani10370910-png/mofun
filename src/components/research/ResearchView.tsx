@@ -5,6 +5,9 @@ import { Icon } from "@/components/ui/Icon";
 import { EditorRail } from "@/components/ui/EditorRail";
 import { useToast } from "@/components/ui/Toast";
 import { useGenerateStream } from "@/lib/useGenerateStream";
+import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
+import { accountRegionId, kbFields, notifyRegionEnhance } from "@/lib/regionEnhance";
+import { useAuth } from "@/lib/AuthContext";
 import { researchTypes, researchInspirations, type ResearchInspiration } from "@/data/research";
 import { RESEARCH_ICON } from "@/data/icons";
 import type { IconName } from "@/data/icons";
@@ -78,6 +81,9 @@ const INDUSTRY_REPORTS: ReportCard[] = [
 export function ResearchView({ initialSub }: { initialSub?: string }) {
   const toast = useToast();
   const { state, generate, stop, reset } = useGenerateStream();
+  const { user } = useAuth();
+  const regionId = accountRegionId(user);
+  const [regionEnhance, setRegionEnhance] = useState(true);
   const [active, setActive] = useState(
     researchTypes.find((t) => t.key === initialSub)?.key ?? researchTypes[0].key
   );
@@ -118,6 +124,7 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
             styleHint: focusMeta?.label || "完整投资分析报告",
           }
         : {}),
+      ...kbFields(regionEnhance, regionId),
     };
   }
 
@@ -126,6 +133,7 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
       toast(isHotsale ? "请填写商品/产品名称！" : isIndustry ? "请填写产业主题！" : "请填写调研主体名称！", "warn");
       return;
     }
+    notifyRegionEnhance(toast, regionEnhance);
     setTopTab("history");
     setSelectedReport(null);
     setGeneratedText("");
@@ -184,6 +192,12 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
           <aside className="rs-left">
             <div className="rs-form">
               <div className="rs-form-main">
+              <RegionEnhanceStrip
+                enabled={regionEnhance}
+                onChange={setRegionEnhance}
+                regionId={regionId}
+                showLora={false}
+              />
               <div className="rs-label">{isHotsale ? "商品/产品名称" : isIndustry ? "产业主题" : "调研主体名称"}</div>
               <textarea
                 value={topic}

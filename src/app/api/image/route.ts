@@ -1,20 +1,34 @@
 import { NextRequest } from "next/server";
+import {
+  modelSupportsCountyLora,
+  resolveImageModelId,
+  QWEN_I2I_LOCAL,
+  UI_QWEN_I2I,
+} from "@/lib/imageModelCatalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/* 文生图：OpenAI 兼容的 /images/generations（AnyFast 等）。
+/* 文生图：OpenAI 兼容的 /images/generations（AnyFast / ComfyUI 网关等）。
    读 IMAGE_API_KEY / IMAGE_BASE_URL / IMAGE_MODEL，密钥不进前端。
+   Qwen 本地通道可用 COUNTY_IMAGE_MODEL / COUNTY_EDIT_IMAGE_MODEL（或 QWEN_T2I_MODEL / QWEN_I2I_MODEL）覆盖。
    返回 { images: string[] }，元素为图片 URL 或 data URL。 */
 export async function POST(req: NextRequest) {
-  let body: { prompt?: string; size?: string; n?: number; model?: string; image?: string | string[] };
+  let body: {
+    prompt?: string;
+    size?: string;
+    n?: number;
+    model?: string;
+    image?: string | string[];
+    lora?: { id?: string; strength?: number }[];
+  };
   try {
     body = await req.json();
   } catch {
     return Response.json({ error: "请求体解析失败" }, { status: 400 });
   }
 
-  const prompt = (body.prompt || "").trim();
+  let prompt = (body.prompt || "").trim();
   if (!prompt) return Response.json({ error: "缺少 prompt" }, { status: 400 });
 
   const apiKey = process.env.IMAGE_API_KEY || "";
@@ -27,7 +41,32 @@ export async function POST(req: NextRequest) {
   const baseURL = (process.env.IMAGE_BASE_URL || "https://www.anyfast.ai/v1").replace(/\/$/, "");
   const timeoutMs = Number(process.env.IMAGE_TIMEOUT_MS || 120000);
   const envModel = process.env.IMAGE_MODEL || "dall-e-3"; // 平台默认模型（一定有通道）
-  const reqModel = body.model || envModel; // 前端指定的模型（如「生成设置」选的 Seedream 4.5）
+
+  function resolveUpstream(requested?: string): string {
+    if (!requested) return envModel;
+    const id = resolveImageModelId(requested) || requested;
+    if (modelSupportsCountyLora(requested)) {
+      const isI2i =
+        id === QWEN_I2I_LOCAL ||
+        requested === UI_QWEN_I2I ||
+        requested.includes("图生图") ||
+        requested === "县域编辑模型" ||
+        requested === "基础编辑模型";
+      if (isI2i) {
+        return process.env.COUNTY_EDIT_IMAGE_MODEL || process.env.QWEN_I2I_MODEL || id;
+      }
+      return process.env.COUNTY_IMAGE_MODEL || process.env.QWEN_T2I_MODEL || id;
+    }
+    return id;
+  }
+  const reqModel = resolveUpstream(body.model);
+
+  if (Array.isArray(body.lora) && body.lora.length) {
+    const hint = body.lora
+      .map((l) => `${l.id || "lora"}:${Number(l.strength ?? 0.7).toFixed(2)}`)
+      .join(", ");
+    prompt = `${prompt}\n【lora】${hint}`;
+  }
 
   // 调用上游文生图；连接抖动（ECONNRESET，常见于本机代理）自动重试至多 3 次、退避递增。
   async function callImage(modelId: string): Promise<{ res: Response; text: string } | { err: string; status: number }> {
@@ -44,6 +83,7 @@ export async function POST(req: NextRequest) {
         size: body.size || "2048x2048",
         // 图生图：传参考图（公网 URL）保持一致性；不传则纯文生图。
         ...(body.image ? { image: body.image } : {}),
+        ...(body.lora?.length ? { lora: body.lora } : {}),
       }),
       signal: ctrl.signal,
     };

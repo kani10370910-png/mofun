@@ -191,6 +191,8 @@ export interface LogoHistoryRow {
   style: string;
   desc?: string; // 当时用户填的创意描述
   results: LogoResult[];
+  regionEnhance?: boolean;
+  regionId?: string;
 }
 
 export interface LogoHistoryGroup {
@@ -237,6 +239,8 @@ export interface FontHistoryRow {
   dir: string; // 横向 / 竖向
   desc?: string; // 当时用户填的文字效果描述
   results: FontResult[];
+  regionEnhance?: boolean;
+  regionId?: string;
 }
 
 export interface FontHistoryGroup {
@@ -346,6 +350,8 @@ export interface VideoRunRow {
   bgm?: string; // 背景音乐（音画管线）
   withAudio?: boolean; // 是否同时生成声音（false = 静音视频，不生成任何音轨）
   failReason?: string; // 生成失败时的具体原因（来自 API 错误信息）
+  regionEnhance?: boolean;
+  regionId?: string;
 }
 
 // 音画一体生成管线阶段（一句话视频：无声视频→镜头分析→声音设计→多轨音频→对齐→混音）
@@ -421,7 +427,8 @@ export interface GenerateRequest {
   scene: ContentSceneKey | "research-brand" | "research-industry" | "research-hotsale" | "ip" | "ip-propose" | "ip-story-desc" | "ip-story" | "t2i-associate" | "t2i-event" | "t2i-product" | "studio-script" | "studio-script-pro" | "studio-assets" | "studio-asset-desc" | "studio-char-info" | "studio-idea" | "studio-summary" | "studio-shots" | "studio-safe-rewrite" | "studio-style-match" | "studio-speakers" | "studio-voice-match" | "studio-shot-elements" | "studio-shot-elements-fill" | "avatar-script" | "agent-chat";
   mode?: "outline" | "full";
   styleHint?: string; // 制作大片：项目「视频风格」描述词，注入文本扩写使全片文字基调与画面风格一致（智能匹配为空）
-  useKB?: boolean; // 制作大片：是否使用「魔方智绘知识库」——结合账号所在县域的特色信息生成脚本
+  useKB?: boolean; // 是否使用县域知识库
+  kbContext?: string; // 县域知识库摘要（开启增强时由前端注入）
   /* t2i-event / t2i-product（文生图扩写）专用 */
   eventSub?: string; // 成图类型：海报/长图… 或 白底主图/产地场景…
   imageRatio?: string; // 图片比例（如 3:4）

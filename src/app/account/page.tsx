@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { AccountShell, useAccountTab } from "@/components/account/AccountShell";
@@ -714,10 +714,20 @@ function MembersPanel({ onContact }: { onContact: () => void }) {
   );
 }
 
+function workDay(time?: string): string | null {
+  if (!time) return null;
+  const m = time.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : null;
+}
+
 function CreationsPanel() {
   const { works, isFavorite } = useLibrary();
   const [cat, setCat] = useState(CREATION_CATS[0]?.name || "全部");
   const [favOnly, setFavOnly] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const fromRef = useRef<HTMLInputElement>(null);
+  const toRef = useRef<HTMLInputElement>(null);
 
   const list = useMemo(() => {
     let items = works;
@@ -729,8 +739,17 @@ function CreationsPanel() {
         return rule.match.test(hay);
       });
     }
+    if (dateFrom || dateTo) {
+      items = items.filter((w) => {
+        const d = workDay(w.time);
+        if (!d) return false;
+        if (dateFrom && d < dateFrom) return false;
+        if (dateTo && d > dateTo) return false;
+        return true;
+      });
+    }
     return items.slice(0, 48);
-  }, [works, favOnly, isFavorite, cat]);
+  }, [works, favOnly, isFavorite, cat, dateFrom, dateTo]);
 
   return (
     <div className="am-panel">
@@ -748,13 +767,81 @@ function CreationsPanel() {
             </button>
           ))}
         </div>
-        <label className="am-fav-toggle">
-          <input type="checkbox" checked={favOnly} onChange={(e) => setFavOnly(e.target.checked)} />
-          只显示收藏
-        </label>
+        <div className="am-create-filters">
+          <label className="am-fav-switch">
+            <input
+              type="checkbox"
+              checked={favOnly}
+              onChange={(e) => setFavOnly(e.target.checked)}
+            />
+            <span className="am-fav-track" aria-hidden />
+            <span>只显示收藏</span>
+          </label>
+          <div className="am-date-range">
+            <span className="am-date-label">时间范围：</span>
+            <div className="am-date-box">
+              <button
+                type="button"
+                className={dateFrom ? "am-date-part has" : "am-date-part"}
+                onClick={() => fromRef.current?.showPicker?.() || fromRef.current?.focus()}
+              >
+                {dateFrom || "开始日期"}
+              </button>
+              <span className="am-date-arrow">→</span>
+              <button
+                type="button"
+                className={dateTo ? "am-date-part has" : "am-date-part"}
+                onClick={() => toRef.current?.showPicker?.() || toRef.current?.focus()}
+              >
+                {dateTo || "结束日期"}
+              </button>
+              <button
+                type="button"
+                className="am-date-cal"
+                aria-label="选择日期"
+                onClick={() => fromRef.current?.showPicker?.() || fromRef.current?.focus()}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <rect x="3.5" y="5" width="17" height="15" rx="2" />
+                  <path d="M8 3.5v3M16 3.5v3M3.5 10h17" />
+                </svg>
+              </button>
+              <input
+                ref={fromRef}
+                type="date"
+                className="am-date-native"
+                value={dateFrom}
+                max={dateTo || undefined}
+                onChange={(e) => setDateFrom(e.target.value)}
+                aria-label="开始日期"
+              />
+              <input
+                ref={toRef}
+                type="date"
+                className="am-date-native"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={(e) => setDateTo(e.target.value)}
+                aria-label="结束日期"
+              />
+            </div>
+            {(dateFrom || dateTo) && (
+              <button
+                type="button"
+                className="am-date-clear"
+                onClick={() => {
+                  setDateFrom("");
+                  setDateTo("");
+                }}
+              >
+                清除
+              </button>
+            )}
+          </div>
+        </div>
       </div>
       {list.length === 0 ? (
-        <div className="am-empty">该分类暂无创作资产，可在对应功能中生成并保存后在此查看</div>
+        <div className="am-empty">该筛选条件下暂无创作资产</div>
       ) : (
         <div className="am-create-grid">
           {list.map((w, i) => (
@@ -768,6 +855,7 @@ function CreationsPanel() {
                 </div>
               )}
               <div className="am-create-name">{w.name}</div>
+              {w.time ? <div className="am-create-time">{w.time}</div> : null}
             </div>
           ))}
         </div>

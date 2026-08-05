@@ -5,6 +5,9 @@ import { Icon } from "@/components/ui/Icon";
 import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
 import { useToast } from "@/components/ui/Toast";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
+import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
+import { accountRegionId } from "@/lib/regionEnhance";
+import { useAuth } from "@/lib/AuthContext";
 import {
   signagePlatforms,
   signageStudioSizes,
@@ -41,6 +44,7 @@ export interface SignageStudioState {
   model: string;
   fromCase?: boolean;
   extraDesc: string;
+  regionEnhance: boolean;
 }
 
 export function initSignageStudio(): SignageStudioState {
@@ -63,6 +67,7 @@ export function initSignageStudio(): SignageStudioState {
     count: 1,
     model: SIGNAGE_IMAGE_MODEL,
     extraDesc: "",
+    regionEnhance: true,
   };
 }
 
@@ -82,6 +87,8 @@ export function ImageSignagePanel({
   onOpenRefLibrary?: () => void;
 }) {
   const toast = useToast();
+  const { user } = useAuth();
+  const regionId = accountRegionId(user);
   const logoRef = useRef<HTMLInputElement>(null);
   const refFileRef = useRef<HTMLInputElement>(null);
   const set = <K extends keyof SignageStudioState>(k: K, v: SignageStudioState[K]) =>
@@ -182,6 +189,13 @@ export function ImageSignagePanel({
             </span>
           </div>
         </div>
+
+        <RegionEnhanceStrip
+          enabled={state.regionEnhance}
+          onChange={(next) => set("regionEnhance", next)}
+          regionId={regionId}
+          showLora={false}
+        />
 
         {state.channel === "online" ? (
           <div className="field">

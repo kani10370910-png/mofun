@@ -15,6 +15,7 @@ import {
   readHomeSeason,
   writeHomeSeason,
 } from "@/lib/homeSeason";
+import { accountRegionDisplay } from "@/lib/regionEnhance";
 
 const LOGO = "/brand-logo.png";
 
@@ -279,7 +280,7 @@ export function TopBar() {
             {isHome && !homeChat && (
               <div className="loc-weather">
                 <span className="lw-loc">
-                  <Icon name="pin" size={13} /> 安吉县
+                  <Icon name="pin" size={13} /> {accountRegionDisplay(user)}
                 </span>
                 <span className="lw-weather">
                   <Icon name="thermo" size={13} /> <span className="lw-temp">28℃</span> 多云

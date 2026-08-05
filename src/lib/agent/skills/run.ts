@@ -8,6 +8,17 @@ import { formatSocialOutput, parseProposals } from "../parse";
 import { resolveActiveSkill } from "./resolve";
 import { stripOfficialMarkdown } from "./prompts/officialArticle";
 import type { AgentProposal, AgentRuntimeState, SkillDef, SkillId } from "../types";
+import type { GenerateRequest } from "@/lib/types";
+import { imageRequestBody, kbFields } from "@/lib/regionEnhance";
+
+function withAgentKb(req: GenerateRequest): GenerateRequest {
+  if (req.useKB === false) return { ...req, useKB: false };
+  return { ...kbFields(true), ...req, useKB: true };
+}
+
+function llm(req: GenerateRequest) {
+  return collectGenerate(withAgentKb(req));
+}
 
 export type ExecuteResult = {
   ok: boolean;
@@ -27,12 +38,15 @@ async function genImage(
     const r = await fetch("/api/image", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        prompt,
-        n: Math.min(Math.max(n, 1), 2),
-        size,
-        ...(ref ? { image: ref } : {}),
-      }),
+      body: JSON.stringify(
+        imageRequestBody({
+          prompt,
+          n: Math.min(Math.max(n, 1), 2),
+          size,
+          regionEnhance: true,
+          ...(ref ? { image: ref } : {}),
+        }),
+      ),
     });
     const j = (await r.json()) as { images?: string[]; error?: string };
     if (!r.ok) return { images: [], error: j.error || `出图失败（${r.status}）` };
@@ -141,7 +155,7 @@ export async function runSkillPropose(state: AgentRuntimeState): Promise<Execute
     const plat = socialPlatformLabel(skill.id, state.slots.platform);
     const advantage =
       state.slots.advantage && state.slots.advantage !== "暂无" ? state.slots.advantage : undefined;
-    const raw = await collectGenerate({
+    const raw = await llm({
       scene: "social",
       product: state.slots.topic || brief,
       brand: state.slots.brand && state.slots.brand !== "暂无" ? state.slots.brand : undefined,
@@ -172,14 +186,14 @@ export async function runSkillPropose(state: AgentRuntimeState): Promise<Execute
 
   const full =
     scene === "avatar-script"
-      ? await collectGenerate({
+      ? await llm({
           scene: "avatar-script",
           input: state.slots.script || brief,
           description: state.slots.role || "农技推广",
         })
       : scene === "t2i-associate"
-        ? await collectGenerate({ scene: "t2i-associate", input: brief })
-        : await collectGenerate({ scene: "ip-propose", description });
+        ? await llm({ scene: "t2i-associate", input: brief })
+        : await llm({ scene: "ip-propose", description });
 
   if (!full) return { ok: false, text: "", error: "提案生成失败，请检查网络与 LLM_API_KEY 后重试" };
 
@@ -215,14 +229,14 @@ export async function runSkillPropose(state: AgentRuntimeState): Promise<Execute
             : `${brief}，偏国潮节庆氛围，色块对比强。`,
       },
     ];
-    const b = await collectGenerate({
+    const b = await llm({
       scene: "t2i-associate",
       input:
         skill.id === "skill.image.event_i2i"
           ? `${brief}，图生图改图，保留原图主体，清新田园`
           : `${brief}，清新田园`,
     });
-    const c = await collectGenerate({
+    const c = await llm({
       scene: "t2i-associate",
       input:
         skill.id === "skill.image.event_i2i"
@@ -293,7 +307,7 @@ export async function runSkillGenerate(
         const brand = state.slots.brand && state.slots.brand !== "暂无" ? state.slots.brand : undefined;
         const advantage =
           state.slots.advantage && state.slots.advantage !== "暂无" ? state.slots.advantage : undefined;
-        raw = await collectGenerate({
+        raw = await llm({
           scene: "social",
           product: state.slots.topic || brief,
           brand,
@@ -307,7 +321,7 @@ export async function runSkillGenerate(
         break;
       }
       case "skill.content.official":
-        raw = await collectGenerate({
+        raw = await llm({
           scene: "official",
           title: state.slots.topic || brief,
           keywords: state.slots.keywords,
@@ -319,7 +333,7 @@ export async function runSkillGenerate(
         if (raw) raw = stripOfficialMarkdown(raw);
         break;
       case "skill.content.brand":
-        raw = await collectGenerate({
+        raw = await llm({
           scene: "brand",
           brand: state.slots.brand || brief,
           product: state.slots.sellingPoints || brief,
@@ -328,14 +342,14 @@ export async function runSkillGenerate(
         });
         break;
       case "skill.research.brand":
-        raw = await collectGenerate({
+        raw = await llm({
           scene: "research-brand",
           brand: state.slots.brand || brief,
           input: state.slots.market || "",
         });
         break;
       case "skill.research.industry":
-        raw = await collectGenerate({
+        raw = await llm({
           scene: "research-industry",
           input: [
             state.slots.industry || brief,
@@ -348,61 +362,61 @@ export async function runSkillGenerate(
         });
         break;
       case "skill.research.hotsale":
-        raw = await collectGenerate({
+        raw = await llm({
           scene: "research-hotsale",
           input: state.slots.category || brief,
           product: state.slots.platform,
         });
         break;
       case "skill.video.avatar":
-        raw = await collectGenerate({
+        raw = await llm({
           scene: "avatar-script",
           input: state.slots.script || chosen?.text || brief,
           description: state.slots.role || "农技推广",
         });
         break;
       case "skill.video.studio":
-        raw = await collectGenerate({
+        raw = await llm({
           scene: "studio-script",
           input: state.slots.brief || brief,
           styleHint: state.slots.type,
         });
         break;
       case "skill.video.studio_assets":
-        raw = await collectGenerate({
+        raw = await llm({
           scene: "studio-assets",
           input: state.slots.brief || brief,
           styleHint: state.slots.type,
         });
         break;
       case "skill.video.studio_storyboard":
-        raw = await collectGenerate({
+        raw = await llm({
           scene: "studio-shots",
           input: state.slots.brief || brief,
           styleHint: state.slots.type,
         });
         break;
       case "skill.video.studio_preview":
-        raw = await collectGenerate({
+        raw = await llm({
           scene: "studio-summary",
           input: state.slots.brief || brief,
           styleHint: state.slots.type,
         });
         break;
       case "skill.video.oneline":
-        raw = await collectGenerate({
+        raw = await llm({
           scene: "t2i-associate",
           input: `一句话短视频（文生视频）分镜文案：${state.slots.oneLiner || brief}，氛围${state.slots.mood || "清新田园"}`,
         });
         break;
       case "skill.video.oneline_i2v":
-        raw = await collectGenerate({
+        raw = await llm({
           scene: "t2i-associate",
           input: `一句话短视频（图生视频）镜头说明：基于参考图，${state.slots.oneLiner || brief}，氛围${state.slots.mood || "清新田园"}，写清运动与镜头节奏`,
         });
         break;
       case "skill.image.ip_story":
-        raw = await collectGenerate({
+        raw = await llm({
           scene: "ip-story",
           description: state.slots.creativeDesc || brief,
           ipName: state.slots.brandName || "品牌IP",
@@ -411,7 +425,7 @@ export async function runSkillGenerate(
         break;
       default:
         if (skill.generateScene) {
-          raw = await collectGenerate({
+          raw = await llm({
             scene: skill.generateScene as "t2i-associate",
             input: brief,
           });
@@ -451,7 +465,7 @@ export async function runSkillGenerate(
     };
     const hint = modeHint[skill.id] || state.slots.scene || "白底主图";
     const expanded =
-      (await collectGenerate({
+      (await llm({
         scene: "t2i-product",
         input: hint,
         eventSub: hint,
@@ -481,14 +495,14 @@ export async function runSkillGenerate(
 
   if (isVi) {
     prompt =
-      (await collectGenerate({
+      (await llm({
         scene: "t2i-associate",
         input: `品牌 VI 延展物料套装，基于「${brief}」，包含：主视觉应用示意、配色色板展示、包装/名片/社交头图延展，统一色系${state.slots.colors || ""}，专业品牌手册质感，平面拼贴清晰可读，画面比例 ${ratioLabel}`,
       })) ||
       `${brief}，VI 延展：配色色板 + 包装应用 + 物料示意，统一视觉，比例 ${ratioLabel}`;
   } else if (skill.id === "skill.image.ip" || skill.id === "skill.image.ip_extend") {
     prompt =
-      (await collectGenerate({
+      (await llm({
         scene: "ip",
         description: brief,
         canvasSize: state.slots.ratio || ratioLabel,
@@ -499,7 +513,7 @@ export async function runSkillGenerate(
     prompt =
       skill.id === "skill.image.event_i2i"
         ? `${state.slots.theme || brief}，基于参考图改图，画面比例严格为 ${ratioLabel}`
-        : (await collectGenerate({
+        : (await llm({
             scene: "t2i-event",
             input: brief,
             eventSub: state.slots.format || "海报",
@@ -514,13 +528,13 @@ export async function runSkillGenerate(
         ? `，创意描述：${state.slots.creativeDesc}`
         : "";
     prompt =
-      (await collectGenerate({
+      (await llm({
         scene: "t2i-associate",
         input: `品牌 Logo 设计：名称「${state.slots.brandName || ""}」，logo 风格「${state.slots.style || "智能匹配"}」${desc}，平面标志，白底，居中，无多余文字堆砌，画面比例 ${ratioLabel}`,
       })) || brief;
   } else if (skill.id === "skill.image.font") {
     prompt =
-      (await collectGenerate({
+      (await llm({
         scene: "t2i-associate",
         input: `艺术字「${state.slots.text || brief}」，文字方向${state.slots.dir || "横向"}，效果分类${state.slots.style || "书法体"}，单行文字居中，高清标题字效，画面比例 ${ratioLabel}`,
       })) || brief;
@@ -530,7 +544,7 @@ export async function runSkillGenerate(
         ? "实体门头"
         : state.slots.channel || "线上店招";
     prompt =
-      (await collectGenerate({
+      (await llm({
         scene: "t2i-associate",
         input: `${channel}，店名「${state.slots.shopName || brief}」清晰可读，行业${state.slots.industry || ""}，风格${state.slots.style || "新中式"}，${channel === "实体门头" ? "实景门头招牌，建筑立面" : "宽幅横幅构图"}，画面比例 ${ratioLabel}`,
       })) || brief;

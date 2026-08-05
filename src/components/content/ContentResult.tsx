@@ -4,6 +4,7 @@ import { Icon } from "@/components/ui/Icon";
 import { CONTENT_ICON } from "@/data/icons";
 import { useToast } from "@/components/ui/Toast";
 import type { ContentScene } from "@/lib/types";
+import { RegionEnhanceBadge } from "@/components/image/RegionEnhanceStrip";
 
 /* 普通文案结果卡（流式逐字填充 text；loading 时显示生成中光标） */
 export function ContentResult({
@@ -13,6 +14,8 @@ export function ContentResult({
   isOutline,
   onReOutline,
   onToFull,
+  regionEnhance,
+  regionId,
 }: {
   scene: ContentScene;
   text: string;
@@ -20,6 +23,8 @@ export function ContentResult({
   isOutline?: boolean;
   onReOutline?: () => void;
   onToFull?: () => void;
+  regionEnhance?: boolean;
+  regionId?: string;
 }) {
   const toast = useToast();
 
@@ -31,7 +36,10 @@ export function ContentResult({
             <span className="rh-title">
               <Icon name="official" size={16} /> 公众号 · 提纲
             </span>
-            <span className="tag green">确认后写全文</span>
+            <span className="result-head-tags">
+              <span className="tag green">确认后写全文</span>
+              {regionEnhance && <RegionEnhanceBadge regionId={regionId} />}
+            </span>
           </div>
           <div className="result-body">
             {text}
@@ -61,7 +69,10 @@ export function ContentResult({
             <Icon name={CONTENT_ICON[scene.key] ?? "content"} size={16} />
             {scene.title} · 生成结果
           </span>
-          <span className="tag green">{scene.tag}</span>
+          <span className="result-head-tags">
+            <span className="tag green">{scene.tag}</span>
+            {regionEnhance && <RegionEnhanceBadge regionId={regionId} />}
+          </span>
         </div>
         <div className="result-body">
           {text}

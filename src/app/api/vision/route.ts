@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
    入参：{ image: string(URL 或 data URL), prompt?: string }
    返回：{ text: string } —— 模型对图片的文字描述。 */
 export async function POST(req: NextRequest) {
-  let body: { image?: string; prompt?: string };
+  let body: { image?: string; prompt?: string; useKB?: boolean; county?: string; kbContext?: string };
   try {
     body = await req.json();
   } catch {
@@ -35,10 +35,18 @@ export async function POST(req: NextRequest) {
   const model = process.env.VISION_MODEL || "doubao-seed-1-6-250615";
   const timeoutMs = Number(process.env.VISION_TIMEOUT_MS || 60000);
 
-  const prompt =
+  let prompt =
     body.prompt?.trim() ||
     "请用一段话客观描述这张图里的IP/卡通形象的外观特征（造型、配色、服饰、表情、标志性元素、风格定位等），" +
       "便于据此撰写IP故事。80字以内，只输出描述本身，不要标题、不要换行。";
+  if (body.useKB) {
+    const county = (body.county || "").trim();
+    const kb = (body.kbContext || "").trim();
+    prompt +=
+      `\n【县域语境${county ? `·${county}` : ""}】在不违背「忠于原图」的前提下，可自然融入县域风貌与物产表述；` +
+      `颜色、手持物与图中没有的主体一律不得臆造。` +
+      (kb ? `\n参考资料：\n${kb}` : "");
+  }
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);

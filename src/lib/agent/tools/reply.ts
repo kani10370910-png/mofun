@@ -5,6 +5,7 @@
 import { collectGenerate } from "@/lib/useGenerateStream";
 import { assembleContext } from "../context";
 import type { AgentRuntimeState, AssistantTurn } from "../types";
+import { kbFields } from "@/lib/regionEnhance";
 
 export type ChatHistoryItem = { role: "user" | "assistant"; text: string };
 
@@ -113,5 +114,6 @@ export async function executeAgentReply(params: {
   return collectGenerate({
     scene: "agent-chat",
     input: pack,
+    ...kbFields(true),
   });
 }

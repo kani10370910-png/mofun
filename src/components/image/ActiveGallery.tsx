@@ -12,6 +12,7 @@ import { DeepEditModal } from "./DeepEditModal";
 import { nowStamp } from "@/lib/datetime";
 import { asset as assetUrl } from "@/lib/asset";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { RegionEnhanceBadge } from "./RegionEnhanceStrip";
 
 /* 活动一次生成（文生图/图生图）的历史行：进度推进中 imgs 为空，完成后填入真图 URL */
 export interface EventRunRow {
@@ -24,14 +25,28 @@ export interface EventRunRow {
   imgs: string[]; // 生成的真图 URL（与 grads 等长，空串=该位失败）
   grads: string[];
   error?: string;
+  /** 文生图是否启用了县域增强；仅 true 时展示角标 */
+  regionEnhance?: boolean;
+  /** 本次归属县域 id（角标地名） */
+  regionId?: string;
+  /** 本次是否挂载县域 Lora（仅县域模型族为 true） */
+  regionLora?: boolean;
 }
 
-const EVENT_LOAD_PHASES = [
+const EVENT_LOAD_PHASES_BASE = [
   "正在构思画面…",
   "AI 正在排版构图…",
   "细化视觉细节中，稍等片刻…",
   "即将完成，请耐心等待…",
 ];
+
+function eventLoadPhases(regionEnhance: boolean, useLora?: boolean) {
+  if (!regionEnhance) return EVENT_LOAD_PHASES_BASE;
+  return [
+    useLora ? "正在应用县域 Lora 与知识库…" : "正在引用县域知识库…",
+    ...EVENT_LOAD_PHASES_BASE,
+  ];
+}
 
 // 按生成时间分组标题：今天 / 昨天 / 更早
 function groupLabel(time: string): string {
@@ -336,12 +351,15 @@ function EventRunRowView({
   resultEdit?: boolean;
 }) {
   const loading = row.pct < 100;
+  const useRegion = row.regionEnhance === true;
+  const phases = eventLoadPhases(useRegion, row.regionLora);
   const [phaseIdx, setPhaseIdx] = useState(0);
   useEffect(() => {
     if (!loading) return;
-    const t = window.setInterval(() => setPhaseIdx((p) => (p + 1) % EVENT_LOAD_PHASES.length), 8_000);
+    setPhaseIdx(0);
+    const t = window.setInterval(() => setPhaseIdx((p) => (p + 1) % phases.length), 8_000);
     return () => window.clearInterval(t);
-  }, [loading]);
+  }, [loading, phases.length]);
   // 完成后按收藏筛选；加载中/错误行不筛（保留进度占位/错误展示）
   const cells = row.grads.map((g, i) => ({ g, i, key: `${row.id}-${i}` }));
   const shown = !loading && !row.error && onlyFav ? cells.filter(({ key }) => favs.has(key)) : cells;
@@ -354,6 +372,7 @@ function EventRunRowView({
           <b className="lh-prompt"><ClampText text={row.prompt} lines={2} /></b>
         </span>
         <span className="lg-cat">{row.sub}</span>
+        {useRegion && <RegionEnhanceBadge regionId={row.regionId} />}
         {!loading && (
           <>
             <button className="lh-ico lh-tip" data-tip="复制" aria-label="复制" onClick={onCopy}>
@@ -374,7 +393,7 @@ function EventRunRowView({
               <span className="lh-progress">{row.pct}%完成</span>
               <span className="lh-think">
                 <Icon name="sparkle" size={22} />
-                <em>{EVENT_LOAD_PHASES[phaseIdx]}</em>
+                <em>{phases[phaseIdx]}</em>
               </span>
             </div>
           ) : row.error ? (

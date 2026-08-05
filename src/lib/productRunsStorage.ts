@@ -17,7 +17,17 @@ export function loadProductRuns(): EventRunRow[] {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return SEED_PRODUCT_RUNS;
     const parsed = JSON.parse(raw) as EventRunRow[];
-    return parsed.length > 0 ? parsed : SEED_PRODUCT_RUNS;
+    if (!parsed.length) return SEED_PRODUCT_RUNS;
+    const seedMap = new Map(SEED_PRODUCT_RUNS.map((s) => [s.id, s]));
+    return parsed.map((r) => {
+      const s = seedMap.get(r.id);
+      if (!s) return r;
+      return {
+        ...r,
+        regionEnhance: r.regionEnhance ?? s.regionEnhance,
+        regionId: r.regionId ?? s.regionId,
+      };
+    });
   } catch {
     return SEED_PRODUCT_RUNS;
   }

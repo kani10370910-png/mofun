@@ -14,6 +14,19 @@ import { collectGenerate } from "@/lib/useGenerateStream";
 import { logoSvgDataUrl } from "@/lib/logoSvg";
 import type { AssetCard } from "@/lib/types";
 import { imageTypes, imageModels, imageRatios, logoStyles, fontEffects, productGalleryItems, signageGalleryItems, paintStyles } from "@/data/image";
+import { DEFAULT_LORA_IDS, defaultStrengthMap } from "@/data/regionAssets";
+import {
+  COUNTY_EDIT_MODEL,
+  QWEN_I2I_LOCAL,
+  QWEN_T2I_LOCAL,
+  accountRegionId,
+  applyRegionToImagePrompt,
+  imageRequestBody,
+  kbFields,
+  modelSupportsCountyLora,
+  notifyRegionEnhance,
+} from "@/lib/regionEnhance";
+import { useAuth } from "@/lib/AuthContext";
 import {
   productScenePresets,
   productTasks,
@@ -106,6 +119,8 @@ const SEED_EVENT_RUNS: EventRunRow[] = [
     pct: 100,
     imgs: ["/poster-samples/20260204165107990130xe92i6.jpg"],
     grads: ["thumb-grad-1"],
+    regionEnhance: true,
+    regionId: "anji",
   },
   {
     id: "seed-ev-2",
@@ -116,6 +131,8 @@ const SEED_EVENT_RUNS: EventRunRow[] = [
     pct: 100,
     imgs: ["/poster-samples/202602041724199902428j5nhr.jpg"],
     grads: ["thumb-grad-3"],
+    regionEnhance: true,
+    regionId: "anji",
   },
   {
     id: "seed-ev-3",
@@ -126,6 +143,8 @@ const SEED_EVENT_RUNS: EventRunRow[] = [
     pct: 100,
     imgs: ["/poster-samples/20251225143202617562fe2mzh.jpg"],
     grads: ["thumb-grad-2"],
+    regionEnhance: true,
+    regionId: "anji",
   },
 ];
 
@@ -141,6 +160,8 @@ const SEED_IP_RUNS: IpRunRow[] = [
     pct: 100,
     grads: ["thumb-grad-4"],
     imgs: ["/poster-samples/20260204165107990130xe92i6.jpg"],
+    regionEnhance: true,
+    regionId: "anji",
   },
   {
     id: "seed-ip-2",
@@ -152,6 +173,8 @@ const SEED_IP_RUNS: IpRunRow[] = [
     pct: 100,
     grads: ["thumb-grad-2"],
     imgs: ["/poster-samples/202602041724199902428j5nhr.jpg"],
+    regionEnhance: true,
+    regionId: "anji",
   },
   {
     id: "seed-ip-3",
@@ -163,6 +186,8 @@ const SEED_IP_RUNS: IpRunRow[] = [
     pct: 100,
     grads: ["thumb-grad-1"],
     imgs: ["/poster-samples/20251225143202617562fe2mzh.jpg"],
+    regionEnhance: true,
+    regionId: "anji",
   },
 ];
 
@@ -170,6 +195,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   const toast = useToast();
   const sim = useSimGenerate();
   const { addWork } = useLibrary();
+  const { user } = useAuth();
+  const regionId = accountRegionId(user);
 
   // 二次编辑：读取暂存的图片作品，据 edit.sub 重建为对应模块的一条历史记录并高亮定位
   const reeditNonce = initial?.reedit;
@@ -264,6 +291,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     style: (initialSub === "logo" && back.style) || "智能匹配",
     brand: (initialSub === "logo" && back.brand) || "",
     input: (initialSub === "logo" && back.input) || "",
+    regionEnhance: true,
   }));
   const [fontForm, setFontForm] = useState<FontImageState>(() => {
     if (initialSub !== "font") {
@@ -273,6 +301,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         dir: "h" as const,
         cat: cat0,
         effect: fontEffects.find((f) => f.cat === cat0)?.name || "",
+        regionEnhance: true,
       };
     }
     const tagOrName = back.effect ? String(back.effect) : "";
@@ -289,6 +318,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       dir: back.dir === "竖向" ? "v" : "h",
       cat,
       effect: matched?.name || fontEffects.find((f) => f.cat === cat)?.name || "",
+      regionEnhance: true,
     };
   });
 
@@ -509,8 +539,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     return LOGO_BLOCKED.some((w) => lower.includes(w));
   }
 
-  // logo：内联进度生成（0% → 100%）
-  function runLogoGenerate() {
+  // logo：Qwen-Image-本地-文生图；增强开时挂县域 Lora；失败时回退本地 SVG 演示
+  async function runLogoGenerate() {
     if (logoBusy) return;
     const brand = logoForm.brand.trim();
     if (!brand) {
@@ -525,66 +555,120 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       toast("创意描述包含不允许的词语，请修改后重试", "warn");
       return;
     }
+    notifyRegionEnhance(toast, logoForm.regionEnhance, QWEN_T2I_LOCAL);
     setLogoBusy(true);
     setLogoTab("history");
     const id = "run-" + logoRuns.length + "-" + brand.length;
     const grads = ["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-grad-4"] as const;
     const style = logoForm.style || "智能匹配";
-
-    let picked: string[];
-    try {
-      picked = grads.map((_, i) => logoSvgDataUrl(brand, style, i));
-    } catch {
-      setLogoBusy(false);
-      toast("Logo 生成失败，请检查品牌名称是否含有特殊字符", "warn");
-      const errRow: LogoRunRow = {
-        id,
-        prompt: brand,
-        style,
-        desc: logoForm.input.trim(),
-        time: nowStamp(),
-        pct: 100,
-        results: grads.map((g) => ({ grad: g, emoji: "🎨", fav: false })),
-        error: "Logo 生成失败，请检查品牌名称是否含有特殊字符",
-      };
-      setLogoRuns((prev) => [errRow, ...prev]);
-      return;
-    }
+    const desc = logoForm.input.trim();
+    const promptBase = [
+      `设计品牌 Logo，品牌名「${brand}」`,
+      style !== "智能匹配" ? `风格：${style}` : "",
+      desc || "简洁现代、辨识度高、适合县域农旅品牌",
+      "平面标志、干净背景、无多余文字水印",
+    ]
+      .filter(Boolean)
+      .join("。");
 
     const row: LogoRunRow = {
       id,
       prompt: brand,
       style,
-      desc: logoForm.input.trim(),
+      desc,
       time: nowStamp(),
-      pct: 0,
-      results: grads.map((g, i) => ({ grad: g, emoji: "🎨", img: picked[i], fav: false })),
+      pct: 8,
+      results: grads.map((g) => ({ grad: g, emoji: "🎨", fav: false })),
+      regionEnhance: logoForm.regionEnhance,
+      regionId,
     };
     setLogoRuns((prev) => [row, ...prev]);
 
-    let pct = 0;
+    let pct = 8;
     logoTimer.current = window.setInterval(() => {
-      pct += 12 + (pct % 7);
-      if (pct >= 100) pct = 100;
-      const v = pct;
-      setLogoRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct: v } : r)));
-      if (v >= 100) {
-        if (logoTimer.current) window.clearInterval(logoTimer.current);
+      pct = Math.min(90, pct + 7 + (pct % 5));
+      setLogoRuns((prev) => prev.map((r) => (r.id === id ? { ...r, pct } : r)));
+    }, 500);
+
+    const finish = (imgs: string[], err?: string) => {
+      if (logoTimer.current) {
+        window.clearInterval(logoTimer.current);
         logoTimer.current = null;
-        setLogoBusy(false);
-        toast("logo 生成完成，已存入「我的作品」");
-        addWork({
-          emoji: "✴️",
-          grad: "thumb-grad-3",
-          kind: "图片",
-          name: `${brand} · LOGO`,
-          sub: "品牌设计 · logo",
-          img: picked[0],
-          time: nowStamp(),
-          edit: { sub: "logo", brand, style, input: logoForm.input },
-        });
       }
-    }, 320);
+      setLogoRuns((prev) =>
+        prev.map((r) =>
+          r.id === id
+            ? {
+                ...r,
+                pct: 100,
+                error: err,
+                results: grads.map((g, i) => ({
+                  grad: g,
+                  emoji: "🎨",
+                  img: imgs[i] || imgs[0],
+                  fav: false,
+                })),
+              }
+            : r,
+        ),
+      );
+      setLogoBusy(false);
+      if (err) {
+        toast(err, "warn");
+        return;
+      }
+      toast("logo 生成完成，已存入「我的作品」");
+      addWork({
+        emoji: "✴️",
+        grad: "thumb-grad-3",
+        kind: "图片",
+        name: `${brand} · LOGO`,
+        sub: "品牌设计 · logo",
+        img: imgs[0],
+        time: nowStamp(),
+        edit: { sub: "logo", brand, style, input: logoForm.input },
+      });
+    };
+
+    try {
+      const imgs: string[] = [];
+      for (let i = 0; i < grads.length; i++) {
+        const r = await fetch("/api/image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(90_000),
+          body: JSON.stringify(
+            imageRequestBody({
+              prompt: `${promptBase}（变体 ${i + 1}）`,
+              size: "1024x1024",
+              n: 1,
+              model: QWEN_T2I_LOCAL,
+              regionEnhance: logoForm.regionEnhance,
+              regionId,
+            }),
+          ),
+        });
+        const j = (await r.json().catch(() => ({}))) as { images?: string[]; error?: string };
+        const url = j?.images?.[0] || "";
+        if (url) imgs.push(url);
+      }
+      if (imgs.length) {
+        finish(imgs);
+        return;
+      }
+      // 无可用通道时回退本地 SVG，保证演示可继续
+      const fallback = grads.map((_, i) => logoSvgDataUrl(brand, style, i));
+      finish(fallback);
+      toast("云端出图暂不可用，已用本地预览稿", "warn");
+    } catch {
+      try {
+        const fallback = grads.map((_, i) => logoSvgDataUrl(brand, style, i));
+        finish(fallback);
+        toast("云端出图失败，已用本地预览稿", "warn");
+      } catch {
+        finish([], "Logo 生成失败，请检查品牌名称是否含有特殊字符");
+      }
+    }
   }
 
   // 参考灵感「制作同款」：把案例的风格 / 品牌名称 / 创意描述一一回填到左侧表单
@@ -594,6 +678,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       style: matchedStyle,
       brand: c.name,
       input: c.desc ?? `参考「${c.name}」制作 LOGO，${c.cat}风格，简洁现代、辨识度高`,
+      regionEnhance: logoForm.regionEnhance,
     });
     toast(`已套用「${c.name}」：风格、品牌名、创意描述已填入，可调整后点击「立即生成」`);
   }
@@ -605,6 +690,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       style: matchedStyle,
       brand: prompt,
       input: `参考历史记录「${prompt}」制作 LOGO，${style}风格，简洁现代、辨识度高`,
+      regionEnhance: logoForm.regionEnhance,
     });
     toast("已复制该记录到左侧，可调整后点击「立即生成」");
   }
@@ -625,6 +711,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       toast("文字内容包含不允许的词语，请修改后重试", "warn");
       return;
     }
+    notifyRegionEnhance(toast, fontForm.regionEnhance, QWEN_T2I_LOCAL);
     setFontBusy(true);
     setFontTab("history");
     const id = "font-" + fontRuns.length + "-" + fontForm.text.length;
@@ -635,11 +722,17 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       text: fontForm.text.trim(),
       effect: fontForm.effect,
       dir: dirLabel,
-      desc: `为「${fontForm.text.trim()}」生成「${fontForm.effect}」${fontForm.cat}艺术字，${dirLabel}排版。`,
+      desc: applyRegionToImagePrompt({
+        prompt: `为「${fontForm.text.trim()}」生成「${fontForm.effect}」${fontForm.cat}艺术字，${dirLabel}排版。`,
+        regionEnhance: fontForm.regionEnhance,
+        regionId,
+      }),
       time: nowStamp(),
       pct: 0,
       loadingPhase: 0,
       results: grads.map((g) => ({ grad: g })),
+      regionEnhance: fontForm.regionEnhance,
+      regionId,
     };
     setFontRuns((prev) => [row, ...prev]);
 
@@ -689,6 +782,11 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   // IP 设计：点「立即生成」（描述已由左侧面板用 LLM 优化），调文生图出 4 张真图
   async function runIpGenerate(payload?: IpGenPayload) {
     if (!payload || ipBusy) return;
+    notifyRegionEnhance(
+      toast,
+      payload.regionEnhance !== false,
+      payload.refImage ? QWEN_I2I_LOCAL : QWEN_T2I_LOCAL,
+    );
     setIpBusy(true);
     setIpTab("history"); // 生成时切到生成历史看进度
     const id = "ip-" + ipRuns.length + "-" + payload.prompt.length;
@@ -708,6 +806,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       pct: 8,
       grads,
       imgs: [],
+      regionEnhance: payload.regionEnhance !== false,
+      regionId: payload.regionId || regionId,
     };
     setIpRuns((prev) => [row, ...prev]);
 
@@ -748,11 +848,16 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
           // 单张独立超时：拥塞时单张可达 40~50s，给 90s；超时则 abort → 走重试，避免个别卡死拖垮整批
           signal: AbortSignal.timeout(90_000),
           // 有参考图（扩展设计的 IP 图，已转 base64 data URL）则走图生图，保持人物一致性
-          body: JSON.stringify({
-            prompt: payload!.prompt,
-            size,
-            ...(payload!.refImage ? { image: payload!.refImage } : {}),
-          }),
+          body: JSON.stringify(
+            imageRequestBody({
+              prompt: payload!.prompt,
+              size,
+              model: payload!.refImage ? QWEN_I2I_LOCAL : QWEN_T2I_LOCAL,
+              regionEnhance: payload!.regionEnhance !== false,
+              regionId: payload!.regionId || regionId,
+              ...(payload!.refImage ? { image: payload!.refImage } : {}),
+            }),
+          ),
         });
         const j = await r.json() as { images?: string[]; error?: string };
         const errMsg = j?.error ?? "";
@@ -846,6 +951,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
           description: (payload.rawDesc && payload.rawDesc.trim()) || payload.prompt,
           preferredColors: payload.colors,
           canvasSize: payload.ratioName,
+          ...kbFields(payload.regionEnhance !== false, payload.regionId || regionId),
         }),
       });
       const ctype = resp.headers.get("Content-Type") || "";
@@ -925,6 +1031,11 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       return;
     }
 
+    notifyRegionEnhance(
+      toast,
+      eventForm.regionEnhance,
+      isI2i ? eventForm.editModel : eventForm.model,
+    );
     setEventBusy(true);
     setEventTab("history"); // 切到生成历史看进度
 
@@ -974,6 +1085,9 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       pct: 8,
       imgs: [],
       grads,
+      regionEnhance: eventForm.regionEnhance,
+      regionId,
+      regionLora: eventForm.regionEnhance && modelSupportsCountyLora(isI2i ? eventForm.editModel : eventForm.model),
     };
     setEventRuns((prev) => [row, ...prev]);
 
@@ -986,7 +1100,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         eventSub: eventForm.sub || "海报",
         imageRatio: eventRatioLabel(eventForm.ratio, eventForm.customW, eventForm.customH),
         artStyle: eventForm.style || "智能匹配",
-        county: "",
+        ...kbFields(eventForm.regionEnhance, regionId),
       });
       if (expanded) {
         genPrompt = stylePrompt ? `${expanded}，${stylePrompt}` : expanded;
@@ -1030,7 +1144,16 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: AbortSignal.timeout(90_000),
-          body: JSON.stringify({ prompt: genPrompt, size, ...(refDataUrl ? { image: refDataUrl } : {}) }),
+          body: JSON.stringify(imageRequestBody({
+            prompt: genPrompt,
+            size,
+            image: refDataUrl || undefined,
+            model: isI2i ? eventForm.editModel : eventForm.model,
+            regionEnhance: eventForm.regionEnhance,
+            loraIds: eventForm.loraIds,
+            loraStrengths: eventForm.loraStrengths,
+            regionId,
+          })),
         });
         if (r.status === 429) return ERR_QUOTA;
         const j = await r.json().catch(() => ({})) as { images?: string[]; fail_reason?: string; error?: string; message?: string };
@@ -1140,6 +1263,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       }
     }
 
+    notifyRegionEnhance(toast, productForm.regionEnhance);
     setProductBusy(true);
     setProductTab("history");
 
@@ -1265,6 +1389,9 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       pct: 8,
       imgs: [],
       grads,
+      regionEnhance: productForm.regionEnhance,
+      regionId,
+      regionLora: productForm.regionEnhance && modelSupportsCountyLora(PRODUCT_IMAGE_MODEL),
     };
     setProductRuns((prev) => [row, ...prev]);
 
@@ -1316,12 +1443,14 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: AbortSignal.timeout(90_000),
-          body: JSON.stringify({
+          body: JSON.stringify(imageRequestBody({
             prompt: jobPrompt,
             size: finalSize,
             model: PRODUCT_IMAGE_MODEL,
-            ...(refDataUrl ? { image: refDataUrl } : {}),
-          }),
+            image: refDataUrl || undefined,
+            regionEnhance: productForm.regionEnhance,
+            regionId,
+          })),
         });
         // 404/503：静态站或未配 Key → 走本地演示
         if (r.status === 404 || r.status === 503) return genOnePdDemo(refDataUrl);
@@ -1371,7 +1500,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
                 ? aiSceneExpandSub(scenePreset)
                 : taskToExpandSub("white"),
             imageRatio: eventRatioLabel(size, customW, customH),
-            county: "",
+            ...kbFields(productForm.regionEnhance, regionId),
           });
           if (expanded) jobPrompt = expanded;
         }
@@ -1491,6 +1620,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       }
     }
 
+    notifyRegionEnhance(toast, signageForm.regionEnhance);
     setSignageBusy(true);
     setSignageTab("history");
 
@@ -1530,6 +1660,9 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       pct: 8,
       imgs: [],
       grads,
+      regionEnhance: signageForm.regionEnhance,
+      regionId,
+      regionLora: signageForm.regionEnhance && modelSupportsCountyLora(SIGNAGE_IMAGE_MODEL),
     };
     setSignageRuns((prev) => [row, ...prev]);
 
@@ -1590,12 +1723,14 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: AbortSignal.timeout(90_000),
-          body: JSON.stringify({
+          body: JSON.stringify(imageRequestBody({
             prompt: jobPrompt,
             size: finalSize,
             model: SIGNAGE_IMAGE_MODEL,
-            ...(refDataUrl ? { image: refDataUrl } : {}),
-          }),
+            image: refDataUrl || undefined,
+            regionEnhance: signageForm.regionEnhance,
+            regionId,
+          })),
         });
         if (r.status === 404 || r.status === 503) return genOneSgDemo();
         if (r.status === 429) return ERR_QUOTA;
@@ -1849,6 +1984,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
               setProposeOpen(false);
               toast("已生成创意提案并填入描述（演示）");
             }}
+            regionEnhance
+            regionId={regionId}
           />
         )}
       </>
@@ -1914,6 +2051,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
               // 图转文结果填入左侧画面描述；该结果已是完整画面描述 → fromCase，跳过二次扩写
               setEventForm({ ...eventForm, tab: "t2i", input: text, fromCase: true });
             }}
+            {...kbFields(eventForm.regionEnhance, regionId)}
           />
         )}
         {styleOpen && (
@@ -1997,6 +2135,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
             onResult={(text) => {
               setProductForm({ ...productForm, desc: text, fromCase: true });
             }}
+            {...kbFields(productForm.regionEnhance, regionId)}
           />
         )}
         {productLibOpen && (
@@ -2346,6 +2485,9 @@ function initEvent(type: ImageType): EventImageState {
     editPreset: "不使用预设",
     presetMore: false,
     refStrength: 0,
-    editModel: "基础编辑模型",
+    editModel: COUNTY_EDIT_MODEL,
+    regionEnhance: true,
+    loraIds: DEFAULT_LORA_IDS,
+    loraStrengths: defaultStrengthMap(DEFAULT_LORA_IDS),
   };
 }

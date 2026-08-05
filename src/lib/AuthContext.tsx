@@ -17,6 +17,7 @@ import {
   saveSession,
   type AuthUser,
 } from "@/lib/auth";
+import { resolveRegionIdFromText } from "@/data/regionAssets";
 
 type AuthCtx = {
   user: AuthUser | null;
@@ -89,6 +90,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const updateUser = useCallback((patch: Partial<AuthUser>) => {
     setUser((prev) => {
       const next = { ...(prev || DEMO_USER), ...patch };
+      // 改地址且未显式传 regionId 时，按地址/企业名重新推断归属县域
+      if (patch.address !== undefined && patch.regionId === undefined) {
+        next.regionId = resolveRegionIdFromText(
+          [next.address, next.orgName, next.company].filter(Boolean).join(" ")
+        );
+      }
       saveSession(next);
       return next;
     });

@@ -26,6 +26,10 @@ import { DEMO, demoWait, demoOptimizeDesc, DEMO_AVATAR_IMAGES, DEMO_BG_IMAGES, D
 import { asset as assetUrl } from "@/lib/asset";
 import { getCachedVideo, putCachedVideo } from "@/lib/videoCache";
 import { avatarInspires } from "@/data/videoInspires";
+import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
+import { accountRegionId, imageRequestBody, kbFields, notifyRegionEnhance } from "@/lib/regionEnhance";
+import { RegionEnhanceBadge } from "@/components/image/RegionEnhanceStrip";
+import { useAuth } from "@/lib/AuthContext";
 
 /* ── 工具函数 ── */
 function fileToDataUri(file: File): Promise<string> {
@@ -230,6 +234,8 @@ interface AvatarRun {
   errorMsg?: string;
   time: string;
   overlaySubs?: boolean; // 播放器按 script 实时叠字幕（OmniHuman 原片不烧字幕，避免离屏视频重录冻帧）
+  regionEnhance?: boolean;
+  regionId?: string;
 }
 
 /* 播放器：原片直出 + 按 script 实时叠字幕（不烧进画面，画质/口型零损失）。
@@ -516,6 +522,9 @@ export function AvatarEditor({
   const toast = useToast();
   const { addWork, works, materials, isFavorite, toggleFavorite } = useLibrary();
   const router = useRouter();
+  const { user } = useAuth();
+  const regionId = accountRegionId(user);
+  const [regionEnhance, setRegionEnhance] = useState(true);
 
   /* 弹窗开关（原右侧面板改为弹窗）*/
   const [libOpen, setLibOpen] = useState(false);
@@ -904,19 +913,28 @@ export function AvatarEditor({
   async function genBgDynEdit() {
     if (!bgEditImg) { toast("请先上传/选择场景图", "warn"); return; }
     if (!bgEditDynDesc.trim()) { toast("请先描述背景怎么动（如：微风吹过稻田、云雾缓缓流动）", "warn"); return; }
+    notifyRegionEnhance(toast, regionEnhance);
     setBgEditDynBusy(true);
     try {
       if (DEMO) { await demoWait(1200); setBgEditDyn(DEMO_VIDEO); toast("动态背景已生成（演示），保存后即可用于合成"); return; }
       let uri = bgEditImg;
       if (uri.startsWith("/")) uri = await blobToDataUri(await fetch(uri).then((r) => r.blob()));
       // 用户描述驱动动态方式；固定约束保证不出现人物/文字、构图稳定
-      const prompt = `${bgEditDynDesc.trim()}。保持画面构图基本稳定，动态轻微自然，画面中没有人物、没有文字，作为数字人口播的背景`;
+      const kb = kbFields(regionEnhance, regionId);
+      const prompt = `${bgEditDynDesc.trim()}。保持画面构图基本稳定，动态轻微自然，画面中没有人物、没有文字，作为数字人口播的背景${kb.kbContext ? `\n【县域知识库·${kb.county}】\n${kb.kbContext}` : ""}`;
+      // 动态背景必须图生：用 1.5 Pro（支持 i2v，时长 4–12）
       const r = await fetch("/api/video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt,
-          ratio: "16:9", dur: "5秒", model: "seedance-2.0-mini", resolution: "720p", generateAudio: false, imageUrl: uri,
+          ratio: "16:9",
+          dur: "5秒",
+          model: "seedance-1.5-pro",
+          resolution: "720p",
+          quality: "720P",
+          generateAudio: false,
+          imageUrl: uri,
         }),
         signal: AbortSignal.timeout(450_000),
       });
@@ -949,6 +967,7 @@ export function AvatarEditor({
   /* ── AI 生成背景场景 ── */
   async function aiGenerateBg() {
     if (!bgAgDesc.trim()) { toast("请描述背景场景", "warn"); return; }
+    notifyRegionEnhance(toast, regionEnhance);
     setBgAgBusy(true);
     try {
       if (DEMO) {
@@ -963,7 +982,7 @@ export function AvatarEditor({
       const r = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, size: ratioToSize(bgAgRatio) }),
+        body: JSON.stringify(imageRequestBody({ prompt, size: ratioToSize(bgAgRatio), regionEnhance, regionId })),
       });
       if (!r.ok) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
@@ -1003,13 +1022,14 @@ export function AvatarEditor({
   /* ── AI 优化角色描述（送入 LLM 润色为高质量人像描述）── */
   async function optimizeAgDesc() {
     if (!agDesc.trim()) { toast("请先输入角色描述", "warn"); return; }
+    notifyRegionEnhance(toast, regionEnhance);
     setAgOptBusy(true);
     try {
       if (DEMO) { await demoWait(600); setAgDesc(demoOptimizeDesc(agDesc, agGender, AG_AGE_WORDS[agAge])); toast("已优化角色描述（演示）"); return; }
       const r = await fetch("/api/avatar-desc", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: agDesc.trim(), gender: agGender, age: AG_AGE_WORDS[agAge] }),
+        body: JSON.stringify({ input: agDesc.trim(), gender: agGender, age: AG_AGE_WORDS[agAge], ...kbFields(regionEnhance, regionId) }),
       });
       const j = (await r.json().catch(() => ({}))) as { text?: string | null };
       if (!r.ok || !j.text) { toast("优化失败，请稍后重试", "warn"); return; }
@@ -1025,6 +1045,7 @@ export function AvatarEditor({
   /* ── AI 生图（形象）── */
   async function aiGenerate() {
     if (!agDesc.trim()) { toast("请描述角色特征", "warn"); return; }
+    notifyRegionEnhance(toast, regionEnhance);
     setAgBusy(true);
     try {
       if (DEMO) {
@@ -1038,7 +1059,7 @@ export function AvatarEditor({
       const r = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, size: ratioToSize(agRatio) }),
+        body: JSON.stringify(imageRequestBody({ prompt, size: ratioToSize(agRatio), regionEnhance, regionId })),
       });
       if (!r.ok) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
@@ -1105,7 +1126,7 @@ export function AvatarEditor({
       const r = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, size, image }),
+        body: JSON.stringify(imageRequestBody({ prompt, size, image, regionEnhance, regionId })),
       });
       if (!r.ok) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
@@ -1327,7 +1348,7 @@ export function AvatarEditor({
     if (!existing) {
       const dur = Math.max(2, Math.min(15, Math.ceil(r.script.length / 3) || 5));
       const shot = { id: `shot-avatar-${r.id}`, shotDesc: r.script, caption: "", camera: "", shotSize: "", assetRefs: [] as string[], locked: false, dur, poster: r.poster || "", status: "done", pct: 100, videoUrl: r.videoUrl };
-      const state = { projectName: name, stepKey: "clips", script: r.script, studioIdea: r.script, settings: { 模型: "Seedance 2.0 Fast", 视频比例: "9:16", 视频风格: "智能匹配", 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示", 知识库: "使用" }, totalSec: dur, targetShots: 1, assets: [], shots: [shot], genMode: "text", subtitles: [] };
+      const state = { projectName: name, stepKey: "clips", script: r.script, studioIdea: r.script, settings: { 模型: "Seedance 1.5 Pro", 视频比例: "9:16", 视频风格: "智能匹配", 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示", 县域增强: "使用" }, totalSec: dur, targetShots: 1, assets: [], shots: [shot], genMode: "text", subtitles: [] };
       upsertProject({ id: pid, name, updated: nowStamp(), ts: Date.now(), count: 1, cover: r.videoUrl, state });
     }
     router.push(`/video?sub=studio:clips&from=home&pid=${encodeURIComponent(pid)}&name=${encodeURIComponent(name)}`);
@@ -1426,7 +1447,16 @@ export function AvatarEditor({
     const runId = `run_${Date.now()}`;
     const poster = customImg ?? selectedPreset?.cover ?? "";
     setRuns((prev) => [
-      { id: runId, name: avatarLabel || "数字人", script: script.trim(), poster, status: "running", time: nowStamp() },
+      {
+        id: runId,
+        name: avatarLabel || "数字人",
+        script: script.trim(),
+        poster,
+        status: "running",
+        time: nowStamp(),
+        regionEnhance,
+        regionId,
+      },
       ...prev,
     ]);
     setResultTab("history");
@@ -1577,6 +1607,12 @@ export function AvatarEditor({
           {/* ══ 左：配置表单（宽度与一句话成片一致，300px）══ */}
           <div className="ws-panel sticky">
             <div className="ws-scroll">
+              <RegionEnhanceStrip
+                enabled={regionEnhance}
+                onChange={setRegionEnhance}
+                regionId={regionId}
+                showLora={false}
+              />
               {/* 数字人形象 */}
               <div className="field">
                 <div className="ws-label">数字人形象</div>
@@ -1726,6 +1762,7 @@ export function AvatarEditor({
                         <div className="ov-run-meta">
                           <span className="ov-run-mode">数字人口播</span>
                           <span className="lg-cat">{r.name}</span>
+                          {r.regionEnhance && <RegionEnhanceBadge regionId={r.regionId} />}
                           {r.status !== "running" && (
                             <button className="lh-ico" aria-label="删除" title="删除" onClick={() => deleteRun(r.id)}>
                               <Icon name="trash" size={14} />

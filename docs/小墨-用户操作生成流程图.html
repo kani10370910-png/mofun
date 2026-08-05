@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>小墨 · 用户操作生成流程图（闭环）</title>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        primaryColor: "#f0f0f0",
+        primaryTextColor: "#1a1a1a",
+        primaryBorderColor: "#c8c8c8",
+        lineColor: "#6b7280",
+        secondaryColor: "#ecfdf5",
+        tertiaryColor: "#fafafa",
+        fontFamily: "PingFang SC, Microsoft YaHei, system-ui, sans-serif",
+        fontSize: "14px",
+      },
+      flowchart: { curve: "basis", htmlLabels: true, padding: 12, nodeSpacing: 34, rankSpacing: 40 },
+    });
+  </script>
+  <style>
+    :root { --bg:#f7f7f8; --card:#fff; --text:#1a1a1a; --muted:#666; --border:#e5e5e5; --accent:#059669; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif; background:var(--bg); color:var(--text); }
+    .top { position:sticky; top:0; z-index:10; background:rgba(255,255,255,.94); border-bottom:1px solid var(--border); backdrop-filter:blur(8px); }
+    .top-inner { max-width:1100px; margin:0 auto; padding:12px 20px; display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+    .top h1 { font-size:16px; margin:0; font-weight:600; }
+    .nav a { font-size:13px; color:var(--muted); text-decoration:none; margin-left:12px; }
+    .nav a:hover { color:var(--accent); }
+    .wrap { max-width:1100px; margin:0 auto; padding:28px 20px 64px; }
+    .lead { color:var(--muted); font-size:14px; line-height:1.7; margin:0 0 24px; }
+    section { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px 18px 28px; margin-bottom:20px; overflow-x:auto; }
+    section h2 { font-size:17px; margin:0 0 6px; }
+    section h3 { font-size:14px; margin:18px 0 8px; }
+    .note { font-size:12px; color:var(--muted); margin:0 0 14px; line-height:1.6; }
+    .mermaid { display:flex; justify-content:center; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top; }
+    th { background:#fafafa; font-weight:600; }
+    code { font-size:12px; background:#f3f4f6; padding:1px 5px; border-radius:4px; }
+    .pill { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--border); color:var(--muted); margin-right:6px; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div class="top-inner">
+      <h1>② 用户操作 · 生成流程图（全路径闭环）</h1>
+      <div class="nav">
+        <a href="./小墨-Agent框架详细流程图.html">← ① Agent 框架流程图</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <p class="lead">
+      从<strong>用户视角</strong>描述：进对话 → 说明需求 → 答双问 → 确认方案 → 出图/出文 → 迭代 → 退出/再开。
+      每种可点操作都标出，且最终都能回到「可继续对话」或「回首页再进」形成闭环。
+      <span class="pill">不强制跳转功能页</span>
+      <span class="pill">点图=预览灯箱</span>
+    </p>
+
+    <!-- ========== 总览 ========== -->
+    <section id="overview">
+      <h2>1. 用户总览闭环</h2>
+      <p class="note">外环：首页 ⇄ 对话。内环：提问 → 回答 → 确认 → 生成 → 建议 → 再提问。</p>
+      <pre class="mermaid">
+flowchart TB
+  Hero([首页 Hero]) --> Enter{用户如何进入对话?}
+  Enter -->|输入框回车/发送| Chat[进入对话态]
+  Enter -->|点意图芯片| Chat
+  Enter -->|点案例| Chat
+  Enter -->|恢复历史会话| Chat
+
+  Chat --> Hub(["对话中可随时：打字 / 点选 / 上传 / 顶栏退出"])
+
+  Hub --> AskNeed[说明想做什么]
+  AskNeed --> Clarify[回答双问卡片<br/>或点选项 / 「你定」]
+  Clarify --> More{还要再问?}
+  More -->|是| Clarify
+  More -->|否·视觉类| Plan[阅读方向策划]
+  More -->|否·文案/视频/调研| Ready[看到「提案/生成」按钮]
+
+  Plan --> PlanAct{用户选择}
+  PlanAct -->|确认方案开始生成| Gen
+  PlanAct -->|先出3个备选| Propose
+  PlanAct -->|调整方案方向| Clarify
+  Ready --> ReadyAct{用户选择}
+  ReadyAct -->|直接生成| Gen
+  ReadyAct -->|先出方案| Propose
+
+  Propose --> Pick{选用方案?}
+  Pick -->|用方案N| PlanOrReady[回到策划确认或生成出口]
+  Pick -->|都不满意再说说| Clarify
+  PlanOrReady --> PlanAct
+  PlanOrReady --> ReadyAct
+
+  Gen --> Result{结果}
+  Result -->|成功出图/出文| Deliver[交付气泡 + 建议栈]
+  Result -->|失败| Retry[重试卡]
+  Result -->|缺参考图| UploadHint[提示上传后重试]
+
+  Deliver --> After{用户接下来}
+  After -->|点图片| Lightbox[灯箱预览 · Esc关闭] --> Deliver
+  After -->|再生成一版| Gen
+  After -->|换视觉方向| Clarify
+  After -->|调整配色| ColorPick[选配色] --> Gen
+  After -->|VI延展| Gen
+  After -->|重新出方案| Propose
+  After -->|继续打字新需求| AskNeed
+  After -->|顶栏首页/新建| Hero
+
+  Retry -->|重试| Gen
+  Retry -->|改先出方案| Propose
+  Retry -->|改口说明| AskNeed
+  UploadHint -->|上传附件| Hub
+  UploadHint -->|再点生成| Gen
+
+  Hub --> Exit{顶栏首页或新建对话?}
+  Exit -->|是| Hero
+  Exit -->|否| Hub
+      </pre>
+    </section>
+
+    <!-- ========== 进对话 ========== -->
+    <section id="enter">
+      <h2>2. 进入 / 退出 / 历史（会话级闭环）</h2>
+      <pre class="mermaid">
+flowchart TB
+  H[首页 Hero] --> I1[在输入框输入 Brief]
+  H --> I2[点展示区意图/案例]
+  H --> I3[打开历史 · 点某会话]
+  I1 --> C[对话态：顶栏首页不选中]
+  I2 --> C
+  I3 --> C2[恢复 messages + agentState]
+  C2 --> C
+
+  C --> U1[继续对话操作]
+  U1 --> C
+
+  C --> X1[点顶栏「首页」]
+  C --> X2[新建对话]
+  X1 --> Save[持久化当前会话到历史]
+  X2 --> Save2[持久化 / 清空为空状态]
+  Save --> H
+  Save2 --> H
+  H --> I1
+      </pre>
+    </section>
+
+    <!-- ========== 说明需求 ========== -->
+    <section id="intent-ux">
+      <h2>3. 「我想做什么」——用户可能遇到的全部界面</h2>
+      <pre class="mermaid">
+flowchart TB
+  Type[用户输入一句话] --> See{小墨如何回?}
+
+  See -->|听懂且唯一| DualAsk[直接进入双问卡片]
+  See -->|两个都像| DualIntent[「你更可能想做哪一件？」<br/>点选 IP/Logo/海报…]
+  See -->|完全不清楚| BigCat[大类：文案 / 品牌设计 / 视频 / 调研]
+  BigCat --> Sub{点品牌设计/视频/调研}
+  Sub -->|品牌设计| ImgMenu[IP / Logo / 海报 / 商拍 / 店招 / 字体]
+  Sub -->|视频| VidMenu[一句话成片 / 数字人 / 制作大片]
+  Sub -->|调研| ResMenu[品牌 / 产业 / 爆款]
+  Sub -->|文案| DualAsk
+  ImgMenu --> DualAsk
+  VidMenu --> DualAsk
+  ResMenu --> DualAsk
+  DualIntent --> DualAsk
+
+  DualAsk --> Mid{中途改口?<br/>例如海报改艺术字}
+  Mid -->|是| SwitchUX[小墨换专家 · 再问新双问]
+  Mid -->|否| DualAsk
+  SwitchUX --> DualAsk
+
+  DualAsk --> Done(["进入第4节填槽闭环"])
+  Done --> Type
+      </pre>
+
+      <h3>用户可点控件一览（意图阶段）</h3>
+      <table>
+        <tr><th>界面</th><th>用户操作</th><th>闭环下一跳</th></tr>
+        <tr><td>大类卡</td><td>点「文案/品牌设计/视频/调研」</td><td>二级菜单或双问</td></tr>
+        <tr><td>二级菜单</td><td>点具体能力</td><td>双问</td></tr>
+        <tr><td>双意图卡</td><td>点其中一个标签</td><td>双问</td></tr>
+        <tr><td>输入框</td><td>再发一句改需求</td><td>可能切换专家再双问</td></tr>
+      </table>
+    </section>
+
+    <!-- ========== 双问 ========== -->
+    <section id="slots-ux">
+      <h2>4. 双问填槽 —— 每一种答法</h2>
+      <pre class="mermaid">
+flowchart TB
+  Card[双问卡片：问题A + 问题B<br/>已识别的不再显示] --> Ways{用户怎么答?}
+
+  Ways -->|点选项芯片| One[填一个槽]
+  Ways -->|一句答两项<br/>如「苔间，文旅」| Two[一次填两个槽]
+  Ways -->|只打一项短答| One
+  Ways -->|点「你定/用默认继续」| Def[其余用默认]
+  Ways -->|打「直接出/别问了」| Fast[尽量填默认并推进]
+  Ways -->|上传参考图| Att[附件区显示缩略图<br/>槽未必变]
+  Ways -->|忽略再问别的| TypeNew[新意图/换方向]
+
+  One --> Next{本轮槽齐?}
+  Two --> Next
+  Def --> Next
+  Fast --> Next
+  Att --> Card
+  TypeNew --> IntentBack(["回第3节意图"])
+
+  Next -->|还有必填| Card
+  Next -->|齐了·视觉| PlanUX[出现方向策划全文]
+  Next -->|齐了·非视觉| ExitUX[出现「提案/生成」出口]
+
+  PlanUX --> UserPlan(["第5节"])
+  ExitUX --> UserGen(["第6节"])
+  IntentBack --> Card
+      </pre>
+    </section>
+
+    <!-- ========== 策划确认 ========== -->
+    <section id="plan-ux">
+      <h2>5. 方向策划确认（视觉类必经）</h2>
+      <p class="note">适用：IP / Logo / 活动海报 / 店招 / AI 字体。未点确认则<strong>不会出图</strong>。</p>
+      <pre class="mermaid">
+flowchart TB
+  Plan[展示品牌/视觉方向策划<br/>色系 · Slogan · 主体…] --> Act{用户点击}
+
+  Act -->|确认方案，开始生成| Gen[进入生成]
+  Act -->|先出 3 个备选方案| Prop[进入提案]
+  Act -->|调整方案方向| Rev[改气质/人群/主体/品牌/补充]
+  Rev --> ReAsk[重新双问或补充]
+  ReAsk --> Plan
+
+  Prop --> Props[3 个方案气泡]
+  Props --> PAct{用户点击}
+  PAct -->|用方案一/二/三| Plan2[回到策划确认带选用内容]
+  PAct -->|都不满意，再说说| Free[自由补充]
+  Free --> Plan
+  Plan2 --> Act
+
+  Gen --> After(["第6节结果闭环"])
+  After -->|换方向回来| Plan
+      </pre>
+    </section>
+
+    <!-- ========== 生成与结果 ========== -->
+    <section id="gen-ux">
+      <h2>6. 生成 / 提案结果 —— 成功·失败·缺图全路径</h2>
+      <pre class="mermaid">
+flowchart TB
+  Start([用户点了生成或提案]) --> Busy[出现「正在调用…」感]
+
+  Busy --> Ok{结果}
+  Ok -->|提案成功| Three[3 方案 +「用方案N」]
+  Ok -->|生成成功·图| Imgs[图片气泡]
+  Ok -->|生成成功·文| TextOut[长文/口播/调研文本]
+  Ok -->|失败| Fail[错误说明 + 重试卡]
+  Ok -->|缺商品图/IP扩展图| NeedUp[明确提示先上传]
+
+  Three --> Pick[选用或重说] --> Loop(["回策划/生成"])
+  Imgs --> ClickImg[点击图片 → 灯箱预览]
+  ClickImg -->|Esc / 关闭| Imgs
+  Imgs --> Stack[建议栈按钮]
+  TextOut --> Stack
+
+  Stack --> S1[再生成一版] --> Start
+  Stack --> S2[换一个视觉方向] --> Ask(["回双问"])
+  Stack --> S3[调整配色方案] --> Colors
+  Colors --> PickColor[点色板] --> PlanLike[更新策划或直接出图] --> Start
+  Stack --> S4[确认主视觉/Logo，生成VI延展] --> Start
+  Stack --> S5[重新出方案] --> Start
+  Stack --> S6[继续打字微调] --> Chat(["回对话输入"])
+
+  Fail --> F1[重试生成/提案] --> Start
+  Fail --> F2[改走另一出口] --> Start
+  Fail --> F3[改需求重说] --> Chat
+
+  NeedUp --> Up[点附件上传 1～4 张图]
+  Up --> Start
+
+  Ask --> Loop
+  Chat --> Loop
+  Loop --> Start
+      </pre>
+    </section>
+
+    <!-- ========== 各专家用户路径 ========== -->
+    <section id="by-spec">
+      <h2>7. 按能力的用户路径差异（均闭环回建议栈或双问）</h2>
+      <table>
+        <tr><th>用户想做</th><th>典型双问</th><th>是否策划确认</th><th>生成前额外操作</th><th>交付后建议</th></tr>
+        <tr><td>IP 形象</td><td>品牌+行业 → 风格+人群 → 主体+用途</td><td>要</td><td>扩展模式须上传 IP 图</td><td>VI / 换方向 / 配色 / 再生成</td></tr>
+        <tr><td>Logo</td><td>品牌名+风格等</td><td>要</td><td>—</td><td>VI / 换方向 / 配色 / 再生成</td></tr>
+        <tr><td>活动海报</td><td>物料+主题+风格</td><td>要</td><td>可先 3 方案再确认</td><td>换方向 / 配色 / 再生成 / 再提案</td></tr>
+        <tr><td>店招 / 字体</td><td>店名或文字+气质</td><td>要</td><td>—</td><td>换方向 / 配色 / 再生成</td></tr>
+        <tr><td>商拍</td><td>场景等</td><td>否（ready）</td><td><strong>必须上传商品图</strong></td><td>再生成 / 再提案</td></tr>
+        <tr><td>社媒文案</td><td>平台+主题+语气</td><td>否</td><td>可先提案再生成完整版</td><td>再生成 / 再提案</td></tr>
+        <tr><td>公众号/品牌文案</td><td>主题/卖点</td><td>否</td><td>直接生成</td><td>再生成</td></tr>
+        <tr><td>数字人口播</td><td>角色+脚本</td><td>否</td><td>可「帮我写一版」提案</td><td>再生成 / 再提案</td></tr>
+        <tr><td>一句话成片 / 大片</td><td>一句话/Brief+氛围</td><td>否</td><td>直接生成文案向结果</td><td>再生成</td></tr>
+        <tr><td>调研三类</td><td>品牌/行业/品类</td><td>否</td><td>直接生成报告</td><td>再生成</td></tr>
+      </table>
+      <p class="note">表中每一行的终点都可以：继续点建议、继续打字、或顶栏回首页 —— 闭环成立。</p>
+    </section>
+
+    <!-- ========== 异常与边界 ========== -->
+    <section id="edge">
+      <h2>8. 异常与边界操作（仍闭环）</h2>
+      <pre class="mermaid">
+flowchart TB
+  U[用户操作] --> E{边界情况}
+
+  E -->|点「进入工作台」类 handoff| T1[Toast：请在对话中完成] --> Cont[继续对话]
+  E -->|生成中重复猛点| T2[replying 锁 · 忽略重复] --> Cont
+  E -->|点助手气泡复制/赞/踩/更多| T3[本地反馈 · 可重新生成该轮] --> Cont
+  E -->|灯箱打开时按 Esc| T4[关闭预览] --> Cont
+  E -->|上传非图片| T5[Toast 请上传图片] --> Cont
+  E -->|网络/密钥失败| T6[失败重试卡] --> Cont
+  E -->|未确认就想出图| T7[被闸门拦截提示] --> Plan[去点确认方案] --> Cont
+  E -->|会话半路刷新| T8[可从历史恢复] --> Cont
+
+  Cont --> U
+      </pre>
+    </section>
+
+    <!-- ========== 检查清单 ========== -->
+    <section id="checklist">
+      <h2>9. 闭环验收清单（用户侧）</h2>
+      <table>
+        <tr><th>#</th><th>路径</th><th>是否回到可操作状态</th></tr>
+        <tr><td>1</td><td>Hero → 对话 → 首页</td><td>是 · 回 Hero</td></tr>
+        <tr><td>2</td><td>双问 → 再问 → … → 策划 → 确认 → 出图 → 建议 → 再出图</td><td>是 · 对话内环</td></tr>
+        <tr><td>3</td><td>提案 → 选用 → 确认 → 出图</td><td>是</td></tr>
+        <tr><td>4</td><td>提案 → 都不满意 → 补充 → 再提案</td><td>是</td></tr>
+        <tr><td>5</td><td>出图失败 → 重试 / 改提案 / 改需求</td><td>是</td></tr>
+        <tr><td>6</td><td>商拍无图 → 上传 → 再生成</td><td>是</td></tr>
+        <tr><td>7</td><td>换方向 / 调配色 / VI → 再交付</td><td>是</td></tr>
+        <tr><td>8</td><td>中途改做别的能力 → 新双问</td><td>是</td></tr>
+        <tr><td>9</td><td>历史恢复 → 继续聊</td><td>是</td></tr>
+        <tr><td>10</td><td>handoff → toast → 仍留在对话</td><td>是</td></tr>
+      </table>
+    </section>
+  </div>
+</body>
+</html>

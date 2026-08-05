@@ -7,17 +7,17 @@ import { posterFor } from "@/lib/videoFx";
 import { listProjects, deleteProject, renameProject, reserveProject, uniqueProjectName, cloneProject, toggleProjectFav, ensureStudioSeeds, pruneStudioProjectsExcept, type StudioProjectMeta } from "@/lib/studioProjects";
 import { STUDIO_SEEDS } from "@/data/studioSeed";
 import { appConfirm, appPrompt } from "@/components/ui/Confirm";
-import { SETTING_FIELDS, videoStyles } from "@/data/video";
+import { SETTING_FIELDS, modelAllowsQuality, modelLimitHint, modelQualities, videoStyles } from "@/data/video";
 import type { IconName } from "@/data/icons";
 
 // 新建大片时的视频设定默认值（与 Studio 新项目默认保持一致）
 const DEFAULT_NEW_SETTINGS: Record<string, string> = {
-  模型: "Seedance 2.0 Fast",
+  模型: "Seedance 1.5 Pro",
   视频比例: "16:9",
   视频风格: videoStyles[0].name,
   视频质量: "480P",
   字幕: "显示",
-  知识库: "使用",
+  县域增强: "使用",
 };
 // 新建时把用户选择的视频设定暂存于此，Studio 初始化新项目时读取并清除
 export const NEW_SETTINGS_KEY = "mofun.studio.newSettings";
@@ -292,17 +292,34 @@ export function StudioHome({
             />
             <div className="sh-dialog-label" style={{ marginTop: 16 }}>视频设定</div>
             <div className="sh-dialog-settings">
-              {SETTING_FIELDS.map((f) => (
+              {SETTING_FIELDS.map((f) => {
+                const modelName = draftSettings["模型"] ?? DEFAULT_NEW_SETTINGS["模型"];
+                const opts =
+                  f.label === "视频质量"
+                    ? f.opts.filter((o) => modelAllowsQuality(o, modelName))
+                    : f.opts;
+                return (
                 <div className="sh-set-field" key={f.label}>
                   <div className="sh-set-label">{f.label}</div>
                   <div className="chip-row">
-                    {f.opts.map((o) => {
-                      const on = (draftSettings[f.label] ?? f.opts[0]) === o;
+                    {opts.map((o) => {
+                      const on = (draftSettings[f.label] ?? opts[0]) === o;
                       return (
                         <span
                           key={o}
                           className={on ? "sel-chip on" : "sel-chip"}
-                          onClick={() => setDraftSettings((s) => ({ ...s, [f.label]: o }))}
+                          onClick={() =>
+                            setDraftSettings((s) => {
+                              const next = { ...s, [f.label]: o };
+                              if (f.label === "模型") {
+                                const q = next["视频质量"] || "720P";
+                                if (!modelAllowsQuality(q, o)) {
+                                  next["视频质量"] = modelQualities(o)[0] || "720P";
+                                }
+                              }
+                              return next;
+                            })
+                          }
                         >
                           {o}
                           {f.notes?.[o] && <em className="sel-chip-note">{f.notes[o]}</em>}
@@ -310,8 +327,12 @@ export function StudioHome({
                       );
                     })}
                   </div>
+                  {f.label === "模型" && (
+                    <div className="field-hint" style={{ marginTop: 6 }}>{modelLimitHint(modelName)}</div>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
             <div className="sh-dialog-acts">
               <button className="btn btn-ghost btn-sm" onClick={() => setNaming(false)}>

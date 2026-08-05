@@ -17,6 +17,8 @@ const PROVIDERS: Record<string, ProviderPreset> = {
   qwen: { baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus" },
   glm: { baseURL: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4-plus" },
   ernie: { baseURL: "https://qianfan.baidubce.com/v2", model: "ernie-4.5-turbo-128k" },
+  // 院平台 Token-Pool（需配合 LLM_BASE_URL + LLM_API_KEY；模型以 LLM_MODEL 为准）
+  custom: { baseURL: "https://token.aiit.org.cn/v1", model: "deepseek-v4-flash" },
 };
 
 export interface ResolvedProvider {
@@ -290,10 +292,28 @@ function styleRule(styleHint?: string): string {
 /* 制作大片·知识库：使用「魔方智绘知识库」时，让 LLM 结合账号所在县域的特色信息（产品/景点/文化/品牌）来创作，
    使脚本更贴合真实地方特色。useKB 为 false（不使用）时返回空串、不追加。
    （演示阶段：以规则形式提示模型结合县域知识；后续接入真实知识库检索后可在此拼入检索到的资料。）*/
-function kbRule(useKB?: boolean): string {
-  return useKB
-    ? "\n【结合魔方智绘知识库】请结合本账号所在县域的真实特色信息来构思：当地代表性的农产品、景区景点、民俗文化、节庆与品牌资料，让内容贴合地方实际、可直接落地宣传；涉及具体地名/产品名时优先采用该县域的真实特色。"
-    : "";
+function kbRule(req: { useKB?: boolean; county?: string; kbContext?: string }): string {
+  if (!req.useKB) return "";
+  const county = req.county?.trim();
+  const kb = req.kbContext?.trim();
+  return (
+    "\n【结合县域知识库】" +
+    (county ? `当前账号县域为「${county}」。` : "") +
+    (kb
+      ? `请优先参考以下资料，不要编造与资料冲突的事实：\n${kb}\n`
+      : "请结合该县域真实特产、景点、民俗与品牌信息进行创作。") +
+    "涉及具体地名/产品名时优先采用该县域真实特色。"
+  );
+}
+
+function withKb(messages: ChatMessage[], req: { useKB?: boolean; county?: string; kbContext?: string }): ChatMessage[] {
+  const extra = kbRule(req);
+  if (!extra) return messages;
+  const next = messages.map((m) => ({ ...m }));
+  const sys = next.find((m) => m.role === "system");
+  if (sys) sys.content += extra;
+  else next.unshift({ role: "system", content: extra.trim() });
+  return next;
 }
 
 const STUDIO_SAFE_RULE =
@@ -305,6 +325,10 @@ const STUDIO_SAFE_RULE =
 
 /** 按场景/模式把表单字段拼成 messages */
 export function buildMessages(req: GenerateRequest): ChatMessage[] {
+  return withKb(buildMessagesCore(req), req);
+}
+
+function buildMessagesCore(req: GenerateRequest): ChatMessage[] {
   // 制作大片·参考图描述扩写：把某个场景/角色/道具的简短描述扩写成适合文生图的画面描述，并与剧本统一
   if (req.scene === "studio-asset-desc") {
     return [
@@ -465,8 +489,7 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
           "用中文，条理清晰（用自然分段，小标题直接用文字加冒号），简洁不注水。只输出创意内容，不要额外说明。" +
           "【纯文本】不要使用任何 markdown 标记：不要 **加粗**、不要 # 或 ## 标题符号、不要 - 或 * 列表符号、不要反引号，直接用中文和标点自然表达。" +
           STUDIO_SAFE_RULE +
-          styleRule(req.styleHint) +
-          kbRule(req.useKB),
+          styleRule(req.styleHint),
       },
       { role: "user", content: req.input?.trim() || "请构思一条短视频的原始创意。" },
     ];
@@ -483,8 +506,7 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
           "每个镜头要点交代 谁 / 在哪 / 做什么。用中文，简洁。只输出摘要，不要额外说明。" +
           "【纯文本】不要使用任何 markdown 标记（不要 **、#、##、- 、* 、反引号），直接用中文和标点自然表达。" +
           STUDIO_SAFE_RULE +
-          styleRule(req.styleHint) +
-          kbRule(req.useKB),
+          styleRule(req.styleHint),
       },
       { role: "user", content: `原始创意：\n${req.input?.trim() || "（空）"}\n\n请据此写镜头摘要。` },
     ];
@@ -504,8 +526,7 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
           "核心规则：旁白、对白都必须来自摘要/创意里已有的内容，摘要没有就不写，宁可只有【画面】。镜头与镜头之间用一个空行分隔。\n" +
           "用中文。除「镜头N：」和上述三个中文方括号标签外，不要任何其它标题或 markdown 标记。" +
           STUDIO_SAFE_RULE +
-          styleRule(req.styleHint) +
-          kbRule(req.useKB),
+          styleRule(req.styleHint),
       },
       { role: "user", content: `镜头摘要：\n${req.input?.trim() || "（空）"}\n\n请按【画面】/【旁白】/【对白】结构把每个镜头扩写成完整内容；没有旁白或对白的镜头就省略对应标签。` },
     ];
@@ -544,8 +565,7 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
           "- 负面约束（写画面时主动规避）：无画面扭曲、无人物变形、无五官崩坏、无帧间闪烁、无透视错乱、无主体漂移、无穿模、无比例失调、无角色全程静止、无纯环境空镜、无缓慢渐变光影、无舒缓慢拉运镜、无动作停顿留白、无无意义情绪水帧；全程无字幕、无水印。\n" +
           "- 除「镜头N：」与【时长】/【画面】/【旁白】/【对白】四个标签外，不要任何其它标题、符号、装饰线或 markdown。" +
           STUDIO_SAFE_RULE +
-          styleRule(req.styleHint) +
-          kbRule(req.useKB),
+          styleRule(req.styleHint),
       },
       { role: "user", content: req.input?.trim() || "请据类型与故事，产出一条完整的分镜级镜头脚本。" },
     ];
@@ -563,8 +583,7 @@ export function buildMessages(req: GenerateRequest): ChatMessage[] {
           "3. 贴合用户给的类型（短剧 / 品牌广告 / 文旅宣传 / 个人 IP 等）和时长感，不注水、不跑题；\n" +
           "4. 只输出剧本正文，不要标题、不要旁注、不要 markdown 标记、不要「镜头1：」这类前缀。" +
           STUDIO_SAFE_RULE +
-          styleRule(req.styleHint) +
-          kbRule(req.useKB),
+          styleRule(req.styleHint),
       },
       { role: "user", content: req.input?.trim() || "请创作一段适合短视频拍摄的分镜级剧本。" },
     ];

@@ -62,13 +62,13 @@ export const imageTypes: ImageType[] = [
   ] },
 ];
 
-/* ---------- 宣传图片：生图模型（下拉选择） ---------- */
+/* ---------- 宣传图片：生图模型（下拉只展示友好名；上游 ID 见 imageModelCatalog） ---------- */
 export const imageModels: ModelOption[] = [
-  { name: "Z-Image", desc: "真实感增强" },
-  { name: "Qwen-Image", desc: "中文语义理解强" },
-  { name: "Seedream 4.0", desc: "高细节 · 商业级出图" },
-  { name: "Seedream 4.5", desc: "细节增强 · 商业级出图" },
-  { name: "Seedream-5.0-lite", desc: "轻量快速 · 均衡出图" },
+  { name: "Qwen 文生图", desc: "可挂县域 Lora" },
+  { name: "Z-Image", desc: "真实感增强（待接入）" },
+  { name: "Seedream 4.0", desc: "高细节" },
+  { name: "Seedream 4.5", desc: "细节增强" },
+  { name: "Seedream 5.0", desc: "最新 Seedream" },
 ];
 
 /* ---------- 文生图：图片比例（活动文生图用） ---------- */
@@ -213,11 +213,11 @@ export const productStyles: PaintStyle[] = [
   { key: "photo", name: "写实摄影", emoji: "", grad: "thumb-grad-4", prompt: "写实摄影风格，高细节真实材质，去塑料感与过度平滑" },
 ];
 
-/* ---------- 图生图：编辑模型（活动图生图用） ---------- */
+/* ---------- 图生图：编辑模型（下拉只展示友好名） ---------- */
 export const editModels: ModelOption[] = [
-  { name: "基础编辑模型", desc: "通用图像编辑，速度快" },
-  { name: "高清重绘模型", desc: "细节增强 · 商业级" },
-  { name: "局部重绘模型", desc: "精准修改指定区域" },
+  { name: "Qwen 图生图", desc: "基础编辑 · 可挂县域 Lora" },
+  { name: "高清重绘", desc: "细节增强" },
+  { name: "局部重绘", desc: "精准修改指定区域" },
 ];
 
 /* ---------- logo 设计：风格 + 参考灵感案例 ---------- */
@@ -398,6 +398,8 @@ export const logoHistory: LogoHistoryGroup[] = [
         prompt: "王一鸣，零食公司，需要和零食元素结合",
         style: "经典徽章",
         desc: "为零食公司「王一鸣」设计经典徽章 LOGO，盾形徽章融合饼干、坚果等零食元素，复古质感、专业可信，突出品牌名。",
+        regionEnhance: true,
+        regionId: "anji",
         results: [
           { emoji: "🏅", grad: "thumb-grad-2", fav: true, img: "/logos/55.png" },
           { emoji: "🍪", grad: "thumb-grad-1", fav: false, img: "/logos/56.png" },
@@ -409,6 +411,8 @@ export const logoHistory: LogoHistoryGroup[] = [
         prompt: "刘一锅，新中式，要有锅的形状，要有刘这个字结合",
         style: "新中式",
         desc: "为「刘一锅」设计新中式 LOGO，以锅的形状为主体图形，巧妙融入「刘」字，国风线条、雅致有食欲感。",
+        regionEnhance: true,
+        regionId: "anji",
         results: [
           { emoji: "🍲", grad: "thumb-grad-6", fav: false, img: "/logos/2025112606.png" },
           { emoji: "🥘", grad: "thumb-grad-4", fav: false, img: "/logos/2025112607.png" },
@@ -425,6 +429,8 @@ export const logoHistory: LogoHistoryGroup[] = [
         prompt: "青山茶舍，文字 logo，茶文化",
         style: "文字logo",
         desc: "为「青山茶舍」设计文字型 LOGO，以书法字「青山」为核心，点缀茶叶与远山意象，雅致耐看、有东方茶韵。",
+        regionEnhance: true,
+        regionId: "anji",
         results: [
           { emoji: "🍵", grad: "thumb-grad-3", fav: false, img: "/logos/20251114_13.png" },
           { emoji: "🌿", grad: "thumb-grad-5", fav: false, img: "/logos/20251114_14.png" },
@@ -687,6 +693,8 @@ export const fontHistory: FontHistoryGroup[] = [
         effect: "斗金魏楷",
         dir: "横向",
         desc: "为「安吉白茶」设计书法体艺术字，魏楷笔意、苍劲有力，适合茶礼包装与门头招牌。",
+        regionEnhance: true,
+        regionId: "anji",
         results: [
           { grad: "thumb-grad-2", fav: true },
           { grad: "thumb-grad-1", fav: false },
@@ -699,6 +707,8 @@ export const fontHistory: FontHistoryGroup[] = [
         effect: "剑气宋",
         dir: "横向",
         desc: "为「竹乡好物」设计现代体艺术字，剑气宋瘦劲挺拔、质感分明，适合电商主图与品牌标语。",
+        regionEnhance: true,
+        regionId: "anji",
         results: [
           { grad: "thumb-grad-6", fav: false },
           { grad: "thumb-grad-4", fav: false },
@@ -716,6 +726,8 @@ export const fontHistory: FontHistoryGroup[] = [
         effect: "矻石体",
         dir: "竖向",
         desc: "为「山野食集」设计艺术体竖排字，矻石体粗犷有力、潮酷立体，适合市集海报与短视频封面。",
+        regionEnhance: true,
+        regionId: "anji",
         results: [
           { grad: "thumb-grad-3", fav: false },
           { grad: "thumb-grad-5", fav: false },

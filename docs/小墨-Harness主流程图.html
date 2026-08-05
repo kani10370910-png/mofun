@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>小墨对话框 · Harness 主流程图</title>
+  <style>
+    :root {
+      --bg: #f7f7f8;
+      --card: #ffffff;
+      --node: #f0f0f0;
+      --border: #c8c8c8;
+      --text: #1a1a1a;
+      --muted: #666;
+      --line: #9aa0a6;
+      --arrow: #3b82f6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 32px 20px 48px;
+    }
+    .wrap { max-width: 920px; margin: 0 auto; }
+    h1 { font-size: 22px; font-weight: 600; margin: 0 0 8px; }
+    .lead { color: var(--muted); font-size: 14px; margin: 0 0 20px; line-height: 1.6; }
+    .panel {
+      background: var(--card);
+      border: 1px solid #e5e5e5;
+      border-radius: 12px;
+      padding: 24px 16px 32px;
+      overflow-x: auto;
+    }
+    .legend {
+      display: flex; flex-wrap: wrap; gap: 16px;
+      font-size: 12px; color: var(--muted); margin-top: 16px;
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .swatch-solid, .swatch-dash {
+      width: 28px; height: 0; border-top: 2px solid var(--line);
+      display: inline-block;
+    }
+    .swatch-dash { border-top-style: dashed; }
+    svg { display: block; margin: 0 auto; }
+    .node rect {
+      fill: var(--node);
+      stroke: var(--border);
+      stroke-width: 1.25;
+      rx: 8; ry: 8;
+    }
+    .node text {
+      fill: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      text-anchor: middle;
+      dominant-baseline: middle;
+      font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>小墨对话框 · Harness 主流程</h1>
+    <p class="lead">
+      与 Cursor Canvas 同结构的可直接查看图：A 装配 → 每句意图 → 双问/闸门 → D 断言 → C 工具 → API。
+      虚线为回对话迭代；下游功能页不接入本图。
+    </p>
+    <div class="panel">
+      <!-- 手绘布局 SVG：保证浏览器打开即可见 -->
+      <svg viewBox="0 0 860 980" width="860" height="980" aria-label="Harness 流程图">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--arrow)" />
+          </marker>
+        </defs>
+
+        <!-- edges (drawn behind nodes) -->
+        <!-- ui -> turn -->
+        <line x1="430" y1="68" x2="430" y2="92" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+        <!-- turn -> assemble -->
+        <line x1="430" y1="136" x2="430" y2="160" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+        <!-- assemble -> intent -->
+        <line x1="430" y1="204" x2="430" y2="228" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+
+        <!-- intent branches -->
+        <line x1="430" y1="272" x2="200" y2="300" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+        <line x1="430" y1="272" x2="360" y2="300" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+        <line x1="430" y1="272" x2="520" y2="300" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+        <line x1="430" y1="272" x2="680" y2="300" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+
+        <!-- keep/switch -> extract -->
+        <line x1="200" y1="344" x2="360" y2="380" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+        <line x1="360" y1="344" x2="400" y2="380" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+
+        <!-- extract -> ask / gate -->
+        <line x1="430" y1="424" x2="250" y2="460" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+        <line x1="430" y1="424" x2="430" y2="460" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+
+        <!-- gate -> assert -->
+        <line x1="430" y1="504" x2="430" y2="536" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+
+        <!-- assert -> propose / gen / fail -->
+        <line x1="430" y1="580" x2="250" y2="616" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+        <line x1="430" y1="580" x2="430" y2="616" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+        <line x1="430" y1="580" x2="640" y2="616" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+
+        <!-- propose/gen -> api -->
+        <line x1="250" y1="660" x2="380" y2="700" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+        <line x1="430" y1="660" x2="430" y2="700" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+
+        <!-- api -> post -->
+        <line x1="430" y1="744" x2="430" y2="780" stroke="var(--line)" stroke-width="1.5" marker-end="url(#arr)" />
+
+        <!-- feedback dashed: ask/confirm/category/fail/post -> ui -->
+        <path d="M250 504 V 880 H 40 V 40 H 346" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr)" />
+        <path d="M520 344 V 900 H 60" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="5 4" />
+        <path d="M680 344 V 920 H 80" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="5 4" />
+        <path d="M640 660 V 860 H 100 V 40" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="5 4" />
+        <path d="M430 824 V 940 H 120 V 40" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="5 4" />
+
+        <!-- nodes -->
+        <g class="node" transform="translate(346,24)">
+          <rect width="168" height="44" /><text x="84" y="23">用户输入 / 点选</text>
+        </g>
+        <g class="node" transform="translate(346,92)">
+          <rect width="168" height="44" /><text x="84" y="23">runAgentTurn</text>
+        </g>
+        <g class="node" transform="translate(346,160)">
+          <rect width="168" height="44" /><text x="84" y="23">A · 装配上下文</text>
+        </g>
+        <g class="node" transform="translate(346,228)">
+          <rect width="168" height="44" /><text x="84" y="23">每句意图识别</text>
+        </g>
+
+        <g class="node" transform="translate(116,300)">
+          <rect width="168" height="44" /><text x="84" y="23">keep 当前专家</text>
+        </g>
+        <g class="node" transform="translate(276,300)">
+          <rect width="168" height="44" /><text x="84" y="23">switch / set</text>
+        </g>
+        <g class="node" transform="translate(436,300)">
+          <rect width="168" height="44" /><text x="84" y="23">双意图确认</text>
+        </g>
+        <g class="node" transform="translate(596,300)">
+          <rect width="168" height="44" /><text x="84" y="23">大类澄清</text>
+        </g>
+
+        <g class="node" transform="translate(346,380)">
+          <rect width="168" height="44" /><text x="84" y="23">抽槽 + 同组双填</text>
+        </g>
+
+        <g class="node" transform="translate(166,460)">
+          <rect width="168" height="44" /><text x="84" y="23">双问卡片（只问未填）</text>
+        </g>
+        <g class="node" transform="translate(346,460)">
+          <rect width="168" height="44" /><text x="84" y="23">D · 方向策划闸门</text>
+        </g>
+
+        <g class="node" transform="translate(346,536)">
+          <rect width="168" height="44" /><text x="84" y="23">assertCanGenerate</text>
+        </g>
+
+        <g class="node" transform="translate(166,616)">
+          <rect width="168" height="44" /><text x="84" y="23">toolPropose</text>
+        </g>
+        <g class="node" transform="translate(346,616)">
+          <rect width="168" height="44" /><text x="84" y="23">toolGenerate</text>
+        </g>
+        <g class="node" transform="translate(556,616)">
+          <rect width="168" height="44" /><text x="84" y="23">失败重试卡</text>
+        </g>
+
+        <g class="node" transform="translate(346,700)">
+          <rect width="168" height="44" /><text x="84" y="23">/api/generate · /api/image</text>
+        </g>
+        <g class="node" transform="translate(346,780)">
+          <rect width="168" height="44" /><text x="84" y="23">出图后建议栈</text>
+        </g>
+      </svg>
+      <div class="legend">
+        <span><i class="swatch-solid"></i>实线：主路径推进</span>
+        <span><i class="swatch-dash"></i>虚线：回对话迭代</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

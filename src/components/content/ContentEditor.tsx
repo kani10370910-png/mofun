@@ -32,6 +32,9 @@ import {
   type OfficialArticle,
 } from "@/lib/officialArticlesStorage";
 import { stripOfficialMarkdown } from "@/lib/agent/skills/prompts/officialArticle";
+import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
+import { accountRegionId, imageRequestBody, kbFields, notifyRegionEnhance } from "@/lib/regionEnhance";
+import { useAuth } from "@/lib/AuthContext";
 
 const iconOf = (k: string): IconName => CONTENT_ICON[k] ?? "content";
 
@@ -96,6 +99,9 @@ export function ContentEditor({
   const toast = useToast();
   const { state, generate, stop, reset } = useGenerateStream();
   const { addWork } = useLibrary();
+  const { user } = useAuth();
+  const regionId = accountRegionId(user);
+  const [regionEnhance, setRegionEnhance] = useState(true);
 
   const [active, setActive] = useState<ContentSceneKey>(
     (contentScenes.find((s) => s.key === initialSub)?.key as ContentSceneKey) ?? contentScenes[0].key
@@ -177,6 +183,7 @@ export function ContentEditor({
       platforms: brandForm.platforms,
       outline: outlineParts || undefined,
       input: brandForm.goal.trim() || undefined,
+      ...kbFields(regionEnhance, regionId),
       ...extra,
     };
   }
@@ -198,6 +205,7 @@ export function ContentEditor({
       toast("请至少选择一个推广平台！", "warn");
       return;
     }
+    notifyRegionEnhance(toast, regionEnhance);
     setMode("brand");
     setSocialPlan(null);
     setSocialFallback("");
@@ -240,6 +248,7 @@ export function ContentEditor({
       toast("请填写自定义风格说明！", "warn");
       return;
     }
+    notifyRegionEnhance(toast, regionEnhance);
     setMode("official");
     setViewedOfficial(null);
     const tone =
@@ -255,6 +264,7 @@ export function ContentEditor({
       tone,
       styleHint: officialForm.style === "自定义" ? officialForm.customStyle.trim() : undefined,
       input: `${officialForm.title.trim()}｜${officialForm.keywords.trim()}`,
+      ...kbFields(regionEnhance, regionId),
     };
     const full = stripOfficialMarkdown(await generate(req));
     if (!full.trim()) return;
@@ -266,6 +276,8 @@ export function ContentEditor({
       time: nowStamp(),
       length: officialForm.length,
       style: officialForm.style,
+      regionEnhance,
+      regionId,
     };
     setOfficialArticles(addOfficialArticle(row));
     addWork({
@@ -297,6 +309,7 @@ export function ContentEditor({
       toast("请至少选择一个推广平台！", "warn");
       return;
     }
+    notifyRegionEnhance(toast, regionEnhance);
     setMode("social");
     setSocialPlan(null);
     setSocialFallback("");
@@ -327,6 +340,7 @@ export function ContentEditor({
       platforms: socialForm.platforms,
       outline: outlineParts || undefined,
       input: socialForm.product.trim(),
+      ...kbFields(regionEnhance, regionId),
     };
     const full = await generate(req);
     const parsed = parseSocialPlan(full, socialForm.product);
@@ -377,16 +391,21 @@ export function ContentEditor({
       (advantage ? `产品优势：${advantage}。` : "") +
       "版式要求：竖版海报，主标题大字清晰可读，信息层级明确，视觉聚焦产品卖点，商业广告风格，高清细节，无乱码。";
 
+    notifyRegionEnhance(toast, regionEnhance);
     setPosterLoading(true);
     try {
       const r = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt,
-          size: "2048x2048",
-          n: 1,
-        }),
+        body: JSON.stringify(
+          imageRequestBody({
+            prompt,
+            size: "2048x2048",
+            n: 1,
+            regionEnhance,
+            regionId,
+          }),
+        ),
       });
       const j = (await r.json().catch(() => ({}))) as { images?: string[]; error?: string };
       const img = j.images?.[0];
@@ -434,16 +453,21 @@ export function ContentEditor({
       "画面要求：突出产品质感与产地氛围，构图干净，光线自然，适合手机信息流，高清细节；" +
       "不要大段文字、不要水印、不要乱码字母，可有少量点缀感中文标题字（≤6字）或完全无字。";
 
+    notifyRegionEnhance(toast, regionEnhance);
     setImageLoading(true);
     try {
       const r = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt,
-          size: "2048x2048",
-          n: 1,
-        }),
+        body: JSON.stringify(
+          imageRequestBody({
+            prompt,
+            size: "2048x2048",
+            n: 1,
+            regionEnhance,
+            regionId,
+          }),
+        ),
       });
       const j = (await r.json().catch(() => ({}))) as { images?: string[]; error?: string };
       const img = j.images?.[0];
@@ -494,7 +518,15 @@ export function ContentEditor({
       <div className="editor-layout">
         <EditorRail items={contentScenes} activeKey={active} iconOf={iconOf} onPick={switchScene} />
         <div className="workspace">
-          <div className="ws-panel sticky">{panel}</div>
+          <div className="ws-panel sticky">
+          <RegionEnhanceStrip
+            enabled={regionEnhance}
+            onChange={setRegionEnhance}
+            regionId={regionId}
+            showLora={false}
+          />
+          {panel}
+        </div>
 
           <div id="cResult">
             <div className="rtop-tabs">
@@ -591,6 +623,8 @@ export function ContentEditor({
                   loading={officialLoading}
                   title={officialTitle}
                   history={officialArticles}
+                  regionEnhance={viewedOfficial?.regionEnhance ?? (mode === "official" ? regionEnhance : undefined)}
+                  regionId={viewedOfficial?.regionId ?? regionId}
                   onPickHistory={(row) => {
                     setViewedOfficial(row);
                     setMode("official");
@@ -627,9 +661,11 @@ export function ContentEditor({
                   posterLoading={posterLoading}
                   onMakeImage={genImageByModel}
                   imageLoading={imageLoading}
+                  regionEnhance={regionEnhance}
+                  regionId={regionId}
                 />
               ) : socialFallback && !state.loading ? (
-                <ContentResult scene={scene} text={socialFallback} loading={false} />
+                <ContentResult scene={scene} text={socialFallback} loading={false} regionEnhance={regionEnhance} regionId={regionId} />
               ) : (
                 <div className="preview-empty" style={{ minHeight: 300 }}>
                   <div>

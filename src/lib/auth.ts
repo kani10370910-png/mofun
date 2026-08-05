@@ -10,6 +10,8 @@ export interface AuthUser {
   email: string;
   workEmail: string;
   address: string;
+  /** 账号归属县域 id（anji/deqing/changxing/huzhou/wuxing）；优先于地址推断 */
+  regionId?: string;
   roleTitle: string;
   roleBadge: string;
   company: string;
@@ -57,7 +59,8 @@ export const DEMO_USER: AuthUser = {
   phone: "13800138000",
   email: "jxk1@test",
   workEmail: "jxk1@test",
-  address: "浙江省杭州市",
+  address: "浙江省湖州市安吉县",
+  regionId: "anji",
   roleTitle: "企业管理员",
   roleBadge: "企业版",
   company: "贾鑫康试用",

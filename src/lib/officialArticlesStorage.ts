@@ -8,6 +8,8 @@ export interface OfficialArticle {
   time: string;
   length?: string;
   style?: string;
+  regionEnhance?: boolean;
+  regionId?: string;
 }
 
 const KEY = "mofun.officialArticles";

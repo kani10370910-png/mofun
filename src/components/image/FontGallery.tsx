@@ -11,6 +11,7 @@ import { FontEditModal } from "./FontEditModal";
 import { ResultCardActions } from "./ResultCardActions";
 import { AutoBgImg } from "./AutoBgImg";
 import { asset as assetUrl } from "@/lib/asset";
+import { RegionEnhanceBadge } from "./RegionEnhanceStrip";
 
 type FontTab = "history" | "inspire" | "story";
 
@@ -27,6 +28,8 @@ export interface FontRunRow {
   pct: number; // <100 加载中；100 完成
   loadingPhase?: number; // 加载阶段（0-3），用于切换加载文案
   results: { grad: Grad }[];
+  regionEnhance?: boolean;
+  regionId?: string;
 }
 
 const FONT_LOAD_PHASES = [
@@ -195,6 +198,7 @@ export function FontGallery({
                           </span>
                           <span className="lg-cat">{it.effect}</span>
                           <span className="lg-cat">{it.dir}</span>
+                          {it.regionEnhance && <RegionEnhanceBadge regionId={it.regionId} />}
                           <button className="lh-ico lh-tip" data-tip="复制" aria-label="复制" onClick={() => onCopy(it.text, it.effect)}>
                             <Icon name="copy" size={14} />
                           </button>
@@ -385,6 +389,7 @@ function FontRunRowView({
         </span>
         <span className="lg-cat">{row.effect}</span>
         <span className="lg-cat">{row.dir}</span>
+        {row.regionEnhance && <RegionEnhanceBadge regionId={row.regionId} />}
         {!loading && (
           <>
             <button className="lh-ico lh-tip" data-tip="复制" aria-label="复制" onClick={() => onCopy(row.text, row.effect)}>
