@@ -11,13 +11,24 @@ import {
 import {
   clearSession,
   DEMO_USER,
+  hasEnterpriseInfo,
   loadSession,
   loginWithEnterprise,
   loginWithPhone,
   saveSession,
+  withPlanFromEnterprise,
   type AuthUser,
 } from "@/lib/auth";
+import { loadPointsWallet, pointsToAuthPatch } from "@/lib/points";
 import { resolveRegionIdFromText } from "@/data/regionAssets";
+import { loadPhoneDat, resolvePhoneRegionAsync } from "@/lib/phoneRegion";
+
+function withPointsSynced(user: AuthUser): AuthUser {
+  const w = loadPointsWallet(user.userId, {
+    enterprise: !!user.enterpriseVerified,
+  });
+  return withPlanFromEnterprise({ ...user, ...pointsToAuthPatch(w) });
+}
 
 type AuthCtx = {
   user: AuthUser | null;
@@ -39,14 +50,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [ready, setReady] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
-  const [loginTab, setLoginTab] = useState<"phone" | "enterprise">("enterprise");
+  const [loginTab, setLoginTab] = useState<"phone" | "enterprise">("phone");
 
   useEffect(() => {
-    setUser(loadSession());
+    const session = loadSession();
+    setUser(session ? withPointsSynced(session) : null);
     setReady(true);
+    void loadPhoneDat().catch(() => undefined);
   }, []);
 
-  const openLogin = useCallback((tab: "phone" | "enterprise" = "enterprise") => {
+  const openLogin = useCallback((tab: "phone" | "enterprise" = "phone") => {
     setLoginTab(tab);
     setLoginOpen(true);
   }, []);
@@ -56,7 +69,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loginEnterprise = useCallback((account: string, password: string) => {
     const u = loginWithEnterprise(account, password);
     if (!u) return { ok: false, message: "账号或密码错误（演示：jxk1@test / admin123）" };
-    setUser(u);
+    const synced = withPointsSynced(u);
+    saveSession(synced);
+    setUser(synced);
     setLoginOpen(false);
     return { ok: true };
   }, []);
@@ -71,8 +86,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           : "验证码错误（演示验证码：123456）",
       };
     }
-    setUser(u);
+    const synced = withPointsSynced(u);
+    saveSession(synced);
+    setUser(synced);
     setLoginOpen(false);
+    void resolvePhoneRegionAsync(phone.trim()).then((region) => {
+      if (region?.regionId) {
+        setUser((prev) => {
+          if (!prev) return prev;
+          const next = withPointsSynced(withPlanFromEnterprise({ ...prev, regionId: region.regionId }));
+          saveSession(next);
+          return next;
+        });
+      }
+    });
     return { ok: true };
   }, []);
 
@@ -89,13 +116,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const updateUser = useCallback((patch: Partial<AuthUser>) => {
     setUser((prev) => {
-      const next = { ...(prev || DEMO_USER), ...patch };
-      // 改地址且未显式传 regionId 时，按地址/企业名重新推断归属县域
-      if (patch.address !== undefined && patch.regionId === undefined) {
+      let next = { ...(prev || DEMO_USER), ...patch };
+      // 企业版：地址 / 企业名变更时同步县域 regionId
+      if (
+        hasEnterpriseInfo(next) &&
+        patch.regionId === undefined &&
+        (patch.address !== undefined ||
+          patch.company !== undefined ||
+          patch.orgName !== undefined ||
+          patch.enterpriseVerified !== undefined)
+      ) {
+        next.regionId = resolveRegionIdFromText(
+          [next.address, next.company, next.orgName].filter(Boolean).join(" ")
+        );
+      }
+      // 改地址且未显式传 regionId 时，按地址/企业名重新推断归属区县
+      if (patch.address !== undefined && patch.regionId === undefined && !hasEnterpriseInfo(next)) {
         next.regionId = resolveRegionIdFromText(
           [next.address, next.orgName, next.company].filter(Boolean).join(" ")
         );
       }
+      next = withPlanFromEnterprise(next);
       saveSession(next);
       return next;
     });

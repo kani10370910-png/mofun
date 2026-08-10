@@ -13,9 +13,13 @@ import { AutoBgImg } from "./AutoBgImg";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 import { useGenerateStream } from "@/lib/useGenerateStream";
 import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
+import { PointsCost } from "@/components/ui/PointsCost";
+import { POINT_COST, eventImagePoints, multiImagePoints } from "@/lib/pointCosts";
 import { defaultStrengthMap, DEFAULT_LORA_IDS } from "@/data/regionAssets";
 import {
   accountRegionId,
+  COUNTY_EDIT_MODEL,
+  COUNTY_T2I_MODEL,
   kbFields,
   modelSupportsCountyLora,
   notifyRegionEnhance,
@@ -25,6 +29,20 @@ import { useAuth } from "@/lib/AuthContext";
 
 const modelOpts: DropdownOption[] = imageModels.map((m) => ({ name: m.name, desc: m.desc }));
 const editOpts: DropdownOption[] = editModels.map((m) => ({ name: m.name, desc: m.desc }));
+
+/** 开启 Lora 时：不支持的模型标记为不可选 */
+function modelOptsForLora(useLora: boolean, base: DropdownOption[] = modelOpts): DropdownOption[] {
+  if (!useLora) return base;
+  return base.map((o) =>
+    modelSupportsCountyLora(o.name)
+      ? o
+      : {
+          ...o,
+          disabled: true,
+          desc: (o.desc ? `${o.desc} · ` : "") + "需关闭 Lora 后可选",
+        },
+  );
+}
 
 // SizePreset[] → DropdownOption[]（保留各自形状图标；name=="自定义" 标记 custom）
 const toRatioOpts = (list: SizePreset[]): DropdownOption[] =>
@@ -222,7 +240,7 @@ export function ImageDefaultPanel({
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
-          <Icon name="sparkle" size={16} /> 立即生成
+          立即生成 <PointsCost amount={multiImagePoints(state.count, state.model)} />
         </button>
       </div>
     </>
@@ -249,7 +267,11 @@ export interface EventImageState {
   refStrength: number; // 「生成相似图」参考强度（0-100%，无级；滑到多少就保留原图多少）
   editModel: string;
   fromCase?: boolean; // 描述来自「套用参考灵感」：立即生成时跳过 t2i 系统提示词二次扩写，直接出图
-  /** 文生图：是否使用县域 Lora / 知识库增强，默认开启 */
+  /** 本地增强 · Lora（仅支持模型生效） */
+  useLora: boolean;
+  /** 本地增强 · 知识库 */
+  useKB: boolean;
+  /** @deprecated 兼容旧逻辑：等同 useLora || useKB */
   regionEnhance: boolean;
   /** 已选地域 Lora（多选；同方向互斥） */
   loraIds: string[];
@@ -362,12 +384,12 @@ export function ImageEventPanel({
 
   async function onAssociate() {
     if (assocBusy) return;
-    notifyRegionEnhance(toast, state.regionEnhance);
+    notifyRegionEnhance(toast, { useLora: state.useLora, useKB: state.useKB });
     const saved = state.input;
     const result = await generate({
       scene: "t2i-associate",
       input: state.input.trim(),
-      ...kbFields(state.regionEnhance, regionId),
+      ...kbFields(state.useKB, regionId),
     }, (full) => {
       setState({ ...state, input: full });
     });
@@ -396,14 +418,28 @@ export function ImageEventPanel({
           </span>
         </div>
         <RegionEnhanceStrip
-          enabled={state.regionEnhance}
-          onChange={(next) => set("regionEnhance", next)}
-          regionId={regionId}
-          showLora={
-            state.tab === "t2i"
-              ? modelSupportsCountyLora(state.model)
-              : modelSupportsCountyLora(state.editModel)
+          useLora={state.useLora}
+          onLoraChange={(next) => {
+            if (next) {
+              const t2iOk = modelSupportsCountyLora(state.model);
+              const i2iOk = modelSupportsCountyLora(state.editModel);
+              setState({
+                ...state,
+                useLora: true,
+                regionEnhance: true,
+                model: t2iOk ? state.model : COUNTY_T2I_MODEL,
+                editModel: i2iOk ? state.editModel : COUNTY_EDIT_MODEL,
+              });
+              return;
+            }
+            setState({ ...state, useLora: false, regionEnhance: state.useKB });
+          }}
+          useKB={state.useKB}
+          onKBChange={(next) =>
+            setState({ ...state, useKB: next, regionEnhance: state.useLora || next })
           }
+          regionId={regionId}
+          showLora={true}
           loraIds={state.loraIds}
           onLoraIdsChange={(ids) => {
             setState({
@@ -471,7 +507,7 @@ export function ImageEventPanel({
                     {assocBusy ? (
                       <><Icon name="refresh" size={14} className="ico-spin" /> 联想中…</>
                     ) : (
-                      <><Icon name="sparkle" size={14} /> 联想</>
+                      <>联想</>
                     )}
                   </button>
                   <button type="button" className="ta-tool" onClick={() => onOpenImg2Text?.()}>
@@ -486,16 +522,24 @@ export function ImageEventPanel({
             <Dropdown
               title="模型选择"
               triggerIcon="storage"
-              options={modelOpts}
+              options={modelOptsForLora(state.useLora)}
               value={toUiImageModelName(state.model) || state.model}
               onChange={(o) => {
+                const loraOk = modelSupportsCountyLora(o.name);
                 setState({
                   ...state,
                   model: o.name,
-                  regionEnhance: modelSupportsCountyLora(o.name) ? true : state.regionEnhance,
+                  // 选不支持 Lora 的模型时自动关闭 Lora
+                  useLora: loraOk ? state.useLora : false,
+                  regionEnhance: (loraOk ? state.useLora : false) || state.useKB,
                 });
               }}
             />
+            {state.useLora && (
+              <p className="re-off-hint" style={{ marginTop: 6 }}>
+                已开启 Lora，仅可选支持本地风格的区域文化大模型
+              </p>
+            )}
           </div>
           <div className="field">
             <div className="ws-label">图片尺寸</div>
@@ -740,16 +784,23 @@ export function ImageEventPanel({
             <Dropdown
               title="编辑模型"
               triggerIcon="storage"
-              options={editOpts}
+              options={modelOptsForLora(state.useLora, editOpts)}
               value={toUiImageModelName(state.editModel) || state.editModel}
-              onChange={(o) =>
+              onChange={(o) => {
+                const loraOk = modelSupportsCountyLora(o.name);
                 setState({
                   ...state,
                   editModel: o.name,
-                  regionEnhance: modelSupportsCountyLora(o.name) ? true : state.regionEnhance,
-                })
-              }
+                  useLora: loraOk ? state.useLora : false,
+                  regionEnhance: (loraOk ? state.useLora : false) || state.useKB,
+                });
+              }}
             />
+            {state.useLora && (
+              <p className="re-off-hint" style={{ marginTop: 6 }}>
+                已开启 Lora，仅可选支持本地风格的区域文化大模型
+              </p>
+            )}
           </div>
         </>
       )}
@@ -757,7 +808,14 @@ export function ImageEventPanel({
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
-          <Icon name="sparkle" size={16} /> 立即生成
+          立即生成{" "}
+          <PointsCost
+            amount={eventImagePoints(
+              state.tab,
+              state.count,
+              state.tab === "i2i" ? state.editModel : state.model,
+            )}
+          />
         </button>
       </div>
     </>
@@ -769,6 +827,9 @@ export interface LogoImageState {
   style: string;
   brand: string;
   input: string;
+  useLora: boolean;
+  useKB: boolean;
+  /** @deprecated */
   regionEnhance: boolean;
 }
 
@@ -791,8 +852,14 @@ export function ImageLogoPanel({
     <>
       <div className="ws-scroll">
       <RegionEnhanceStrip
-        enabled={state.regionEnhance}
-        onChange={(next) => set("regionEnhance", next)}
+        useLora={state.useLora}
+        onLoraChange={(next) =>
+          setState({ ...state, useLora: next, regionEnhance: next || state.useKB })
+        }
+        useKB={state.useKB}
+        onKBChange={(next) =>
+          setState({ ...state, useKB: next, regionEnhance: state.useLora || next })
+        }
         regionId={regionId}
         showLora={true}
       />
@@ -840,7 +907,7 @@ export function ImageLogoPanel({
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
-          <Icon name="sparkle" size={16} /> 立即生成
+          立即生成 <PointsCost amount={POINT_COST.imageLogo} />
         </button>
       </div>
     </>

@@ -1,0 +1,60 @@
+{
+  "summary": {
+    "total": 5,
+    "ok": 0,
+    "fail": 5,
+    "successRate": "0.0%",
+    "latencyMs": {
+      "min": 0,
+      "p50": 0,
+      "p95": 0,
+      "max": 0,
+      "avg": 0
+    },
+    "errors": [
+      {
+        "count": 5,
+        "detail": "503:{\"error\":{\"code\":\"model_not_found\",\"message\":\"No available channel for model qwe"
+      }
+    ],
+    "elapsedMs": 3874,
+    "rps": 1.29
+  },
+  "results": [
+    {
+      "ok": false,
+      "i": 0,
+      "ms": 1729,
+      "status": 503,
+      "error": "{\"error\":{\"code\":\"model_not_found\",\"message\":\"No available channel for model qwen3.7-plus under group Direct (distributor) (request id: 202608050311079793758689"
+    },
+    {
+      "ok": false,
+      "i": 1,
+      "ms": 1092,
+      "status": 503,
+      "error": "{\"error\":{\"code\":\"model_not_found\",\"message\":\"No available channel for model qwen3.7-plus under group Direct (distributor) (request id: 2026080503110979070551jH"
+    },
+    {
+      "ok": false,
+      "i": 2,
+      "ms": 362,
+      "status": 503,
+      "error": "{\"error\":{\"code\":\"model_not_found\",\"message\":\"No available channel for model qwen3.7-plus under group Direct (distributor) (request id: 20260805031109442257671h"
+    },
+    {
+      "ok": false,
+      "i": 3,
+      "ms": 353,
+      "status": 503,
+      "error": "{\"error\":{\"code\":\"model_not_found\",\"message\":\"No available channel for model qwen3.7-plus under group Direct (distributor) (request id: 20260805031109798644164S"
+    },
+    {
+      "ok": false,
+      "i": 4,
+      "ms": 362,
+      "status": 503,
+      "error": "{\"error\":{\"code\":\"model_not_found\",\"message\":\"No available channel for model qwen3.7-plus under group Direct (distributor) (request id: 202608050311101568555882"
+    }
+  ]
+}

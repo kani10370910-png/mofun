@@ -8,6 +8,8 @@ import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
 import { accountRegionId } from "@/lib/regionEnhance";
 import { useAuth } from "@/lib/AuthContext";
+import { PointsCost } from "@/components/ui/PointsCost";
+import { multiImagePoints } from "@/lib/pointCosts";
 import {
   signagePlatforms,
   signageStudioSizes,
@@ -45,6 +47,8 @@ export interface SignageStudioState {
   fromCase?: boolean;
   extraDesc: string;
   regionEnhance: boolean;
+  useLora: boolean;
+  useKB: boolean;
 }
 
 export function initSignageStudio(): SignageStudioState {
@@ -68,6 +72,8 @@ export function initSignageStudio(): SignageStudioState {
     model: SIGNAGE_IMAGE_MODEL,
     extraDesc: "",
     regionEnhance: true,
+    useLora: true,
+    useKB: true,
   };
 }
 
@@ -191,10 +197,16 @@ export function ImageSignagePanel({
         </div>
 
         <RegionEnhanceStrip
-          enabled={state.regionEnhance}
-          onChange={(next) => set("regionEnhance", next)}
+          useLora={state.useLora}
+          onLoraChange={(next) =>
+            setState({ ...state, useLora: next, regionEnhance: next || state.useKB })
+          }
+          useKB={state.useKB}
+          onKBChange={(next) =>
+            setState({ ...state, useKB: next, regionEnhance: state.useLora || next })
+          }
           regionId={regionId}
-          showLora={false}
+          showLora={true}
         />
 
         {state.channel === "online" ? (
@@ -477,8 +489,15 @@ export function ImageSignagePanel({
           {` · 生成 ${state.count} 张`}
         </div>
         <button type="button" className="btn btn-primary btn-block" disabled={loading} onClick={onGenerate}>
-          <Icon name="sparkle" size={16} />
-          {loading ? "生成中…" : "立即生成店招"}
+          {loading ? (
+            <>
+              <Icon name="refresh" size={16} className="ico-spin" /> 生成中…
+            </>
+          ) : (
+            <>
+              立即生成 <PointsCost amount={multiImagePoints(state.count, state.model)} />
+            </>
+          )}
         </button>
       </div>
     </>

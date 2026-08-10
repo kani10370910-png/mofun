@@ -11,7 +11,6 @@ import { FontEditModal } from "./FontEditModal";
 import { ResultCardActions } from "./ResultCardActions";
 import { AutoBgImg } from "./AutoBgImg";
 import { asset as assetUrl } from "@/lib/asset";
-import { RegionEnhanceBadge } from "./RegionEnhanceStrip";
 
 type FontTab = "history" | "inspire" | "story";
 
@@ -27,7 +26,8 @@ export interface FontRunRow {
   time: string; // 生成时间（年月日时分）
   pct: number; // <100 加载中；100 完成
   loadingPhase?: number; // 加载阶段（0-3），用于切换加载文案
-  results: { grad: Grad }[];
+  error?: string;
+  results: { grad: Grad; img?: string }[];
   regionEnhance?: boolean;
   regionId?: string;
 }
@@ -198,7 +198,6 @@ export function FontGallery({
                           </span>
                           <span className="lg-cat">{it.effect}</span>
                           <span className="lg-cat">{it.dir}</span>
-                          {it.regionEnhance && <RegionEnhanceBadge regionId={it.regionId} />}
                           <button className="lh-ico lh-tip" data-tip="复制" aria-label="复制" onClick={() => onCopy(it.text, it.effect)}>
                             <Icon name="copy" size={14} />
                           </button>
@@ -207,13 +206,14 @@ export function FontGallery({
                           </button>
                         </div>
                         <div className="lh-imgs">
-                          {shown.map(({ r, key }) => (
+                          {shown.map(({ r, key }, idx) => (
                             <FontResultCard
                               key={key}
                               grad={r.grad}
                               text={it.text}
                               effect={it.effect}
                               dir={it.dir}
+                              index={idx + 1}
                               toast={toast}
                               fav={isFav(key)}
                               onToggleFav={() => toggleFav(key)}
@@ -377,9 +377,9 @@ function FontRunRowView({
 }) {
   const loading = row.pct < 100;
   const cells = row.results.map((r, i) => ({ r, i, key: `r-${row.id}-${i}` }));
-  const shown = !loading && onlyFav ? cells.filter(({ key }) => isFav(key)) : cells;
+  const shown = !loading && !row.error && onlyFav ? cells.filter(({ key }) => isFav(key)) : cells;
   // 「只看收藏」下，已完成且无收藏结果的行整行隐藏
-  if (!loading && onlyFav && shown.length === 0) return null;
+  if (!loading && !row.error && onlyFav && shown.length === 0) return null;
   return (
     <div className={`lh-row${highlight ? " reedit-hl" : ""}`} id={`imgrun-${row.id}`}>
       <div className="lh-meta">
@@ -389,7 +389,6 @@ function FontRunRowView({
         </span>
         <span className="lg-cat">{row.effect}</span>
         <span className="lg-cat">{row.dir}</span>
-        {row.regionEnhance && <RegionEnhanceBadge regionId={row.regionId} />}
         {!loading && (
           <>
             <button className="lh-ico lh-tip" data-tip="复制" aria-label="复制" onClick={() => onCopy(row.text, row.effect)}>
@@ -413,13 +412,19 @@ function FontRunRowView({
                 <em>{FONT_LOAD_PHASES[row.loadingPhase ?? 0]}</em>
               </span>
             </div>
+          ) : row.error ? (
+            <div className={`lh-img ${r.grad}`} key={i} style={{ display: "grid", placeItems: "center", padding: 12, textAlign: "center" }}>
+              <span className="lh-fail">{row.error}</span>
+            </div>
           ) : (
             <FontResultCard
               key={key}
               grad={r.grad}
+              img={r.img}
               text={row.text}
               effect={row.effect}
               dir={row.dir}
+              index={i + 1}
               toast={toast}
               fav={isFav(key)}
               onToggleFav={() => onToggleFav(key)}
@@ -433,35 +438,48 @@ function FontRunRowView({
 
 function FontResultCard({
   grad,
+  img,
   text,
   effect,
   dir,
+  index = 1,
   toast,
   fav = false,
   onToggleFav,
 }: {
   grad: Grad;
+  img?: string;
   text: string;
   effect: string;
   dir: string;
+  index?: number;
   toast: (s: string) => void;
   fav?: boolean;
   onToggleFav?: () => void;
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [zoom, setZoom] = useState(false); // 点击卡片（非按钮处）放大查看原图
+  const [imgError, setImgError] = useState(false);
+  const [zoomError, setZoomError] = useState(false);
   const asset = (kind: string): AssetCard => ({
     emoji: "🔤",
     grad: grad as AssetCard["grad"],
     kind,
-    name: `${text} · 艺术字`,
+    name: `${text} · 艺术字 ${index}`,
     sub: "品牌设计 · AI字体",
+    module: "image",
+    img,
     time: nowStamp(),
   });
 
   return (
     <div className={`lh-img ${grad}`} style={{ cursor: "zoom-in" }} onClick={() => setZoom(true)}>
-      <span className="lh-font-text">{text}</span>
+      {img && !imgError ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img className="lh-result-img" src={assetUrl(img)} alt={text} loading="lazy" onError={() => setImgError(true)} />
+      ) : (
+        <span className="lh-font-text">{text}</span>
+      )}
       <div className="lh-hover lh-hover-bottom">
         <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); setEditOpen(true); }}>
           换色/下载
@@ -477,15 +495,20 @@ function FontResultCard({
       {editOpen && (
         <FontEditModal text={text} effect={effect} dir={dir} grad={grad} onClose={() => setEditOpen(false)} />
       )}
-      {/* 放大查看：字体卡无真实图，用渐变大卡复刻文字（竖排时文字竖向） */}
+      {/* 放大查看：有真图放大图片，否则用渐变大卡复刻文字 */}
       {zoom && (
         <div className="img-zoom-mask" onClick={(e) => { e.stopPropagation(); setZoom(false); }}>
           <button className="img-zoom-close" aria-label="关闭" onClick={(e) => { e.stopPropagation(); setZoom(false); }}>
             <Icon name="close" size={22} />
           </button>
-          <div className={`img-zoom-card ${grad}`} onClick={(e) => e.stopPropagation()}>
-            <span className={`izc-text ${dir.includes("竖") ? "izc-vert" : ""}`}>{text}</span>
-          </div>
+          {img && !zoomError ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img className="img-zoom-img" src={assetUrl(img)} alt={text} onClick={(e) => e.stopPropagation()} onError={() => setZoomError(true)} />
+          ) : (
+            <div className={`img-zoom-card ${grad}`} onClick={(e) => e.stopPropagation()}>
+              <span className={`izc-text ${dir.includes("竖") ? "izc-vert" : ""}`}>{text}</span>
+            </div>
+          )}
         </div>
       )}
     </div>

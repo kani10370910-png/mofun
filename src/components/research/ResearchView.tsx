@@ -8,6 +8,8 @@ import { useGenerateStream } from "@/lib/useGenerateStream";
 import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
 import { accountRegionId, kbFields, notifyRegionEnhance } from "@/lib/regionEnhance";
 import { useAuth } from "@/lib/AuthContext";
+import { useLibrary } from "@/lib/store";
+import { nowStamp } from "@/lib/datetime";
 import { researchTypes, researchInspirations, type ResearchInspiration } from "@/data/research";
 import { RESEARCH_ICON } from "@/data/icons";
 import type { IconName } from "@/data/icons";
@@ -74,16 +76,19 @@ function saveRecentByMode(v: RecentByMode) {
 }
 const INDUSTRY_REPORTS: ReportCard[] = [
   { id: "i1", title: "2025年上半年区域蔬菜产业链运行分析", date: "2025-07-02", tag: "产业调研" },
-  { id: "i2", title: "县域茶产业供需与价格波动调研报告", date: "2025-06-18", tag: "产业调研" },
+  { id: "i2", title: "区县茶产业供需与价格波动调研报告", date: "2025-06-18", tag: "产业调研" },
   { id: "i3", title: "冷链仓配能力对生鲜产业的影响评估", date: "2025-05-27", tag: "产业调研" },
 ];
 
 export function ResearchView({ initialSub }: { initialSub?: string }) {
   const toast = useToast();
+  const { addWork } = useLibrary();
   const { state, generate, stop, reset } = useGenerateStream();
   const { user } = useAuth();
   const regionId = accountRegionId(user);
   const [regionEnhance, setRegionEnhance] = useState(true);
+  const [useLora, setUseLora] = useState(true);
+  const [useKB, setUseKB] = useState(true);
   const [active, setActive] = useState(
     researchTypes.find((t) => t.key === initialSub)?.key ?? researchTypes[0].key
   );
@@ -124,7 +129,7 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
             styleHint: focusMeta?.label || "完整投资分析报告",
           }
         : {}),
-      ...kbFields(regionEnhance, regionId),
+      ...kbFields(useKB, regionId),
     };
   }
 
@@ -133,7 +138,7 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
       toast(isHotsale ? "请填写商品/产品名称！" : isIndustry ? "请填写产业主题！" : "请填写调研主体名称！", "warn");
       return;
     }
-    notifyRegionEnhance(toast, regionEnhance);
+    notifyRegionEnhance(toast, { useLora, useKB });
     setTopTab("history");
     setSelectedReport(null);
     setGeneratedText("");
@@ -154,7 +159,38 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
     };
     setSelectedReport(row);
     setGeneratedText(full);
-    toast("智能调研已完成");
+    const saved = addWork({
+      emoji: "📊",
+      grad: "thumb-grad-4",
+      kind: "文案",
+      name: row.title.slice(0, 40),
+      sub: `市场调研 · ${row.tag}`,
+      module: "research",
+      text: full,
+      time: nowStamp(),
+      edit: { sub: active, input: currentTopic },
+    });
+    toast(saved.ok ? "智能调研已完成并存入仓库" : "智能调研已完成（仓库写入失败，请清理空间后重试）", saved.ok ? undefined : "warn");
+  }
+
+  function saveCurrentReport() {
+    const body = (generatedText || "").trim();
+    if (!selectedReport || !body) {
+      toast("暂无报告正文可存入", "warn");
+      return;
+    }
+    const saved = addWork({
+      emoji: "📊",
+      grad: "thumb-grad-4",
+      kind: "文案",
+      name: selectedReport.title.slice(0, 40),
+      sub: `市场调研 · ${selectedReport.tag}`,
+      module: "research",
+      text: body,
+      time: nowStamp(),
+      edit: { sub: active, input: topic.trim() || selectedReport.title },
+    });
+    toast(saved.ok ? (saved.action === "updated" ? "已更新仓库中的同名报告" : "已存入个人仓库") : "存入失败", saved.ok ? undefined : "warn");
   }
 
   function pickReport(r: ReportCard) {
@@ -193,8 +229,16 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
             <div className="rs-form">
               <div className="rs-form-main">
               <RegionEnhanceStrip
-                enabled={regionEnhance}
-                onChange={setRegionEnhance}
+                useLora={useLora}
+                onLoraChange={(next) => {
+                  setUseLora(next);
+                  setRegionEnhance(next || useKB);
+                }}
+                useKB={useKB}
+                onKBChange={(next) => {
+                  setUseKB(next);
+                  setRegionEnhance(useLora || next);
+                }}
                 regionId={regionId}
                 showLora={false}
               />
@@ -206,7 +250,7 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
                   isHotsale
                     ? "输入商品名称，例如：西湖龙井明前茶..."
                     : isIndustry
-                      ? "输入产业方向，例如：预制菜冷链产业 / 县域白茶全产业链..."
+                      ? "输入产业方向，例如：预制菜冷链产业 / 区县白茶全产业链..."
                     : "请输入品牌/产品名称，例如：萧山青梅…"
                 }
               />
@@ -254,7 +298,13 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
 
               <div className="rs-form-foot">
                 <button className="btn btn-primary btn-block rs-run" type="button" disabled={state.loading} onClick={runResearch}>
-                  <Icon name="sparkle" size={15} /> {state.loading ? "生成中…" : "开始智能调研"}
+                  {state.loading ? (
+                    "生成中…"
+                  ) : (
+                    <>
+                      开始智能调研
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -301,7 +351,7 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
                         type="button"
                         onClick={() => applyInspiration(selectedInspiration)}
                       >
-                        <Icon name="sparkle" size={14} /> 套用灵感
+                        套用灵感
                       </button>
                     </div>
                   </div>
@@ -339,7 +389,7 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
                           applyInspiration(row);
                         }}
                       >
-                        <Icon name="sparkle" size={14} /> 套用灵感
+                        套用灵感
                       </button>
                     </article>
                   ))}
@@ -382,13 +432,26 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
                     <Icon name="chevron" size={14} /> 返回报告大厅
                   </button>
                   <div className="rs-export">
-                    <button className="btn btn-ghost btn-sm" type="button">
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      type="button"
+                      onClick={() => {
+                        const t = generatedText || selectedReport.title;
+                        if (navigator.clipboard) {
+                          void navigator.clipboard.writeText(t);
+                          toast("已复制");
+                        }
+                      }}
+                    >
                       <Icon name="copy" size={14} /> 复制
                     </button>
-                    <button className="btn btn-ghost btn-sm" type="button">
+                    <button className="btn btn-primary btn-sm" type="button" disabled={!generatedText} onClick={saveCurrentReport}>
+                      <Icon name="storage" size={14} /> 存入仓库
+                    </button>
+                    <button className="btn btn-ghost btn-sm" type="button" onClick={() => toast("导出 PDF（演示）")}>
                       <Icon name="download" size={14} /> 导出 PDF
                     </button>
-                    <button className="btn btn-ghost btn-sm" type="button">
+                    <button className="btn btn-ghost btn-sm" type="button" onClick={() => toast("导出 Word（演示）")}>
                       <Icon name="download" size={14} /> 导出 Word
                     </button>
                   </div>

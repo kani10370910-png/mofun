@@ -375,6 +375,7 @@ function IpRunRowView({
               img={row.imgs[i]}
               grad={grad}
               name={row.title}
+              index={i + 1}
               baseDesc={row.desc}
               rawDesc={row.rawDesc}
               colors={row.colors}
@@ -397,6 +398,7 @@ function IpResultCard({
   img,
   grad,
   name,
+  index = 1,
   baseDesc,
   rawDesc,
   colors,
@@ -411,6 +413,7 @@ function IpResultCard({
   img?: string;
   grad: string;
   name: string;
+  index?: number;
   baseDesc?: string;
   rawDesc?: string;
   colors?: string[];
@@ -432,8 +435,9 @@ function IpResultCard({
     emoji: "🧸",
     grad: grad as AssetCard["grad"],
     kind,
-    name: `${name} · IP 设计`,
+    name: `${name} · IP 设计 ${index}`,
     sub: "品牌设计 · IP 设计",
+    module: "image",
     img,
     time: nowStamp(),
   });

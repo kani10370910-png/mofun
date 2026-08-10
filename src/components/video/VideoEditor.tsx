@@ -11,6 +11,8 @@ import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import { videoTypes } from "@/data/video";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
+import { PointsCost } from "@/components/ui/PointsCost";
+import { videoSecondsPoints } from "@/lib/pointCosts";
 import { genStages } from "@/data/genStages";
 import { VID_ICON } from "@/data/icons";
 import type { IconName } from "@/data/icons";
@@ -232,7 +234,7 @@ export function VideoEditor({
             </div>
             <div className="ws-foot">
               <button className="btn btn-primary btn-block gen-btn" disabled={sim.state.open} onClick={runGenerate}>
-                <Icon name="sparkle" size={16} /> 生成{type.name}
+                生成{type.name} <PointsCost amount={videoSecondsPoints(5)} />
               </button>
               <p className="empty-note" style={{ textAlign: "center" }}>
                 自动套用品牌片头片尾与标准字幕样式

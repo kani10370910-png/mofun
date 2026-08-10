@@ -10,6 +10,8 @@ export interface DropdownOption {
   sub?: string; // 尺寸下拉的具体尺寸
   ico?: IconName; // 尺寸形状图标
   custom?: boolean; // 「自定义」项
+  /** 不可选（如开启 Lora 后不支持的模型） */
+  disabled?: boolean;
 }
 
 /* 自定义下拉（模型/尺寸/比例共用），还原 .dropdown/.dd-* 结构与交互 */
@@ -40,7 +42,7 @@ export function Dropdown({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
-  const cur = options.find((o) => o.name === value) ?? options[0];
+  const cur = options.find((o) => o.name === value) ?? options.find((o) => !o.disabled) ?? options[0];
 
   return (
     <div className={`dropdown ${open ? "open" : ""}`} ref={ref}>
@@ -66,8 +68,10 @@ export function Dropdown({
           {options.map((o) => (
             <div
               key={o.name}
-              className={`dd-item ${o.sub !== undefined || o.ico ? "dd-item-sz" : ""} ${o.name === value ? "on" : ""}`}
+              className={`dd-item ${o.sub !== undefined || o.ico ? "dd-item-sz" : ""} ${o.name === value ? "on" : ""}${o.disabled ? " is-disabled" : ""}`}
+              title={o.disabled ? o.desc || "当前不可选" : undefined}
               onClick={() => {
+                if (o.disabled) return;
                 onChange(o);
                 setOpen(false);
               }}

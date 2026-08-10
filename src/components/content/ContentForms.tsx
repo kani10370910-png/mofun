@@ -96,7 +96,7 @@ export function ContentDefaultPanel({
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
-          <Icon name="sparkle" size={16} /> {loading ? "生成中…" : `生成${scene.title.replace("发", "")}文案`}
+          {loading ? "生成中…" : `生成${scene.title.replace("发", "")}文案`}
         </button>
         <p className="empty-note" style={{ textAlign: "center" }}>
           生成结果可二次编辑、润色 / 续写 / 改写、存入个人仓库
@@ -236,7 +236,7 @@ export function OfficialAccountPanel({
 
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
-          <Icon name="sparkle" size={16} /> {loading ? "生成中…" : "生成公众号文章"}
+          {loading ? "生成中…" : "生成公众号文章"}
         </button>
       </div>
     </>
@@ -258,16 +258,48 @@ export interface SocialFormState {
   customAudience: string;
   advantage: string;
   platforms: string[];
+  /** 今天推什么 */
+  intent: string;
+  /** 钩子类型 */
+  hook: string;
+  /** 行动号召 */
+  cta: string;
+  /** 语气 */
+  tone: string;
+  /** 爆款/竞品原文（改写用） */
+  rewriteSource: string;
+  /** 改写模式 */
+  rewriteMode: string;
   /** 各平台内容大纲（可选，对齐品牌推广） */
   outlines: Record<string, SocialOutline>;
   outlineOpen?: string;
 }
 
-const SOCIAL_AUDIENCES = ["婴幼儿", "青少年", "孕妇", "宝妈", "银发族", "白领职场", "健身运动", "学生群体", "户外爱好者", "自定义"];
+const SOCIAL_AUDIENCES = [
+  "文旅游客",
+  "周边城市周末游客",
+  "亲子家庭",
+  "自驾游人群",
+  "银发康养人群",
+  "茶文化爱好者",
+  "农产品采购人群",
+  "本地居民",
+  "自定义",
+];
 const SOCIAL_PLATFORMS = [
   { name: "微信朋友圈", cls: "plat-wechat" },
   { name: "小红书", cls: "plat-xhs" },
 ];
+
+export const SOCIAL_INTENTS = ["上新", "促销", "种草", "复购", "活动预热"] as const;
+export const SOCIAL_HOOKS = ["价格钩", "产地钩", "场景钩", "反差钩", "限时钩"] as const;
+export const SOCIAL_CTAS = ["私信", "留资", "下单", "到店", "转发"] as const;
+export const SOCIAL_TONES = ["口语种草", "采购专业", "本地亲切", "高端克制"] as const;
+export const SOCIAL_REWRITE_MODES = [
+  { key: "换产品改写", tip: "保留爆款结构，换成我的产品" },
+  { key: "同卖点多钩子", tip: "同一卖点输出多个不同钩子" },
+  { key: "跨平台改编", tip: "一稿改成朋友圈+小红书双版本" },
+] as const;
 
 const emptySocialOutline = (): SocialOutline => ({ title: "", subtitle: "", keywords: "" });
 
@@ -275,10 +307,16 @@ export function initSocialForm(product = ""): SocialFormState {
   return {
     product,
     brand: "",
-    audience: "宝妈",
+    audience: "文旅游客",
     customAudience: "",
     advantage: "",
     platforms: ["微信朋友圈"],
+    intent: "种草",
+    hook: "场景钩",
+    cta: "私信",
+    tone: "口语种草",
+    rewriteSource: "",
+    rewriteMode: "换产品改写",
     outlines: {},
     outlineOpen: undefined,
   };
@@ -320,6 +358,118 @@ export function ContentSocialPanel({
     <>
       <div className="ws-scroll">
         <div className="field">
+          <div className="ws-section-title">投放意图</div>
+        </div>
+        <div className="field">
+          <div className="ws-label">
+            今天推什么 <span className="req">*</span>
+          </div>
+          <div className="chip-row social-intent-row">
+            {SOCIAL_INTENTS.map((v) => (
+              <button
+                key={v}
+                type="button"
+                className={`plat-chip ${state.intent === v ? "on" : ""}`}
+                onClick={() => set("intent", v)}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="field">
+          <div className="ws-label">
+            钩子类型 <span className="req">*</span>
+          </div>
+          <div className="chip-row social-intent-row">
+            {SOCIAL_HOOKS.map((v) => (
+              <button
+                key={v}
+                type="button"
+                className={`plat-chip ${state.hook === v ? "on" : ""}`}
+                onClick={() => set("hook", v)}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="field">
+          <div className="ws-label">
+            行动号召 <span className="req">*</span>
+          </div>
+          <div className="chip-row social-intent-row">
+            {SOCIAL_CTAS.map((v) => (
+              <button
+                key={v}
+                type="button"
+                className={`plat-chip ${state.cta === v ? "on" : ""}`}
+                onClick={() => set("cta", v)}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="field">
+          <div className="ws-label">
+            语气 <span className="req">*</span>
+          </div>
+          <div className="chip-row social-intent-row">
+            {SOCIAL_TONES.map((v) => (
+              <button
+                key={v}
+                type="button"
+                className={`plat-chip ${state.tone === v ? "on" : ""}`}
+                onClick={() => set("tone", v)}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="ws-section-title">
+            爆款改写 <span className="opt">（可选，有原文时优先按改写模式生成）</span>
+          </div>
+        </div>
+        <div className="field">
+          <div className="ws-label">粘贴爆款 / 竞品文案</div>
+          <textarea
+            style={{ minHeight: 88, resize: "vertical" }}
+            value={state.rewriteSource}
+            onChange={(e) => set("rewriteSource", e.target.value)}
+            placeholder="粘贴上周爆款或竞品文案，一键改成自己的产品和平台版本…"
+            maxLength={1200}
+          />
+        </div>
+        {state.rewriteSource.trim() && (
+          <div className="field">
+            <div className="ws-label">改写模式</div>
+            <div className="chip-row social-intent-row">
+              {SOCIAL_REWRITE_MODES.map((m) => (
+                <button
+                  key={m.key}
+                  type="button"
+                  className={`plat-chip ${state.rewriteMode === m.key ? "on" : ""}`}
+                  title={m.tip}
+                  onClick={() => set("rewriteMode", m.key)}
+                >
+                  {m.key}
+                </button>
+              ))}
+            </div>
+            <p className="empty-note" style={{ marginTop: 6 }}>
+              {SOCIAL_REWRITE_MODES.find((m) => m.key === state.rewriteMode)?.tip}
+            </p>
+          </div>
+        )}
+
+        <div className="field">
+          <div className="ws-section-title">产品信息</div>
+        </div>
+        <div className="field">
           <div className="ws-label">
             产品名 <span className="req">*</span>
             <span className="opt">（必填）</span>
@@ -357,7 +507,7 @@ export function ContentSocialPanel({
               style={{ marginTop: 8, minHeight: 72, resize: "vertical" }}
               value={state.customAudience}
               onChange={(e) => set("customAudience", e.target.value)}
-              placeholder="描述目标人群，例如：25–40 岁都市宝妈，关注辅食安全与产地溯源…"
+              placeholder="描述目标人群，例如：江浙沪周边2日游人群，偏好自然风景、茶园体验和轻消费…"
               maxLength={200}
             />
           )}
@@ -447,10 +597,10 @@ export function ContentSocialPanel({
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
-          <Icon name="sparkle" size={16} /> {loading ? "生成中…" : "立即生成"}
+          {loading ? "生成中…" : "立即生成"}
         </button>
         <p className="empty-note" style={{ textAlign: "center" }}>
-          生成结果可二次编辑、润色 / 续写 / 改写、存入个人仓库
+          先定意图与钩子，再生成；支持爆款改写与文案配图套装导出
         </p>
       </div>
     </>
@@ -669,7 +819,7 @@ export function BrandPromotionPanel({
 
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
-          <Icon name="sparkle" size={16} /> {loading ? "生成中…" : "生成品牌策划方案"}
+          {loading ? "生成中…" : "生成品牌策划方案"}
         </button>
       </div>
     </>

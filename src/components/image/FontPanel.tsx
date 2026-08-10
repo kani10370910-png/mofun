@@ -6,9 +6,8 @@ import { Icon } from "@/components/ui/Icon";
 import { fontCats, fontEffects } from "@/data/image";
 import type { FontCat, FontEffect } from "@/lib/types";
 import { asset } from "@/lib/asset";
-import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
-import { accountRegionId } from "@/lib/regionEnhance";
-import { useAuth } from "@/lib/AuthContext";
+import { PointsCost } from "@/components/ui/PointsCost";
+import { POINT_COST } from "@/lib/pointCosts";
 
 // 字体置顶状态的 localStorage 键（刷新后保留置顶）
 const PIN_KEY = "mofun.fontPinned";
@@ -18,7 +17,6 @@ export interface FontImageState {
   dir: "h" | "v"; // 横向 / 竖向
   cat: FontCat; // 文字效果分类
   effect: string; // 选中的字体名
-  regionEnhance: boolean;
 }
 
 /* AI 字体专属左侧表单：文字内容 / 文字方向 / 文字效果（分类 + 字体网格） */
@@ -34,8 +32,6 @@ export function FontPanel({
   loading: boolean;
 }) {
   const set = <K extends keyof FontImageState>(k: K, v: FontImageState[K]) => setState({ ...state, [k]: v });
-  const { user } = useAuth();
-  const regionId = accountRegionId(user);
 
   // 置顶字体：记录被置顶的字体 key。置顶项排到当前分类网格最前。
   // 持久化到 localStorage —— 刷新页面后仍保留。SSR 阶段取空集，挂载后再读，避免 hydration 不一致。
@@ -92,12 +88,6 @@ export function FontPanel({
   return (
     <>
       <div className="ws-scroll">
-      <RegionEnhanceStrip
-        enabled={state.regionEnhance}
-        onChange={(next) => set("regionEnhance", next)}
-        regionId={regionId}
-        showLora={true}
-      />
       <div className="field">
         <div className="ws-label">
           文字内容 <span className="req">*</span>
@@ -194,7 +184,7 @@ export function FontPanel({
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
-          立即生成 <span className="btn-credit">2算力</span>
+          立即生成 <PointsCost amount={POINT_COST.imageFont} />
         </button>
       </div>
 

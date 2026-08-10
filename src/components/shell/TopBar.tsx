@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { asset } from "@/lib/asset";
 import { useAuth } from "@/lib/AuthContext";
@@ -16,12 +16,14 @@ import {
   writeHomeSeason,
 } from "@/lib/homeSeason";
 import { accountRegionDisplay } from "@/lib/regionEnhance";
+import { resolveDisplayName, resolvePlanLabel } from "@/lib/auth";
+import { accountHref, accountReturnPath } from "@/lib/accountNav";
 
 const LOGO = "/brand-logo.png";
 
 const NAV: { view: string; href: string; label: string }[] = [
   { view: "home", href: "/", label: "首页" },
-  { view: "template", href: "/template", label: "模版" },
+  { view: "template", href: "/template", label: "灵感" },
   { view: "content", href: "/content", label: "文案策划" },
   { view: "image", href: "/image", label: "品牌设计" },
   { view: "video", href: "/video", label: "视频宣传" },
@@ -31,6 +33,7 @@ const NAV: { view: string; href: string; label: string }[] = [
 
 export function TopBar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const { user, logout, ready, openLogin } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -41,6 +44,24 @@ export function TopBar() {
   const seasonRef = useRef<HTMLDivElement>(null);
   const isHomePath = pathname === "/";
   const isHome = isHomePath && !homeChat;
+
+  const currentPath =
+    pathname + (searchParams?.toString() ? `?${searchParams.toString()}` : "");
+
+  const goAccount = (tab: "personal" | "member" | "creations") => {
+    setMenuOpen(false);
+    router.push(accountHref(tab, currentPath));
+  };
+
+  const onLogout = () => {
+    setMenuOpen(false);
+    const fromOnAccount = accountReturnPath(searchParams.get("from"));
+    logout();
+    // 在账户页退出 → 回到进入前所在页；其它页退出 → 留在当前页
+    if ((pathname || "").startsWith("/account")) {
+      router.replace(fromOnAccount);
+    }
+  };
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/" && !homeChat;
@@ -84,7 +105,12 @@ export function TopBar() {
     };
   }, [menuOpen, seasonOpen]);
 
-  const avatarText = (user?.nickname || user?.realName || "企").slice(0, 1);
+  const displayName = user ? resolveDisplayName(user) : "";
+  const avatarText = displayName
+    ? /^1\d{10}$/.test(displayName)
+      ? displayName.slice(-1)
+      : displayName.slice(0, 1)
+    : "企";
   const seasonLabel = HOME_SEASONS.find((t) => t.id === season)?.label ?? "葱茏之夏";
 
   const topbarClass = isHome
@@ -170,7 +196,6 @@ export function TopBar() {
                   aria-label="账户菜单"
                 >
                   <span className="acct-chip-power" title="算力余额">
-                    <Icon name="sparkle" size={14} />
                     <span>{user.computeBenefit || "∞"}</span>
                   </span>
                   <span className="acct-chip-sep" />
@@ -197,12 +222,12 @@ export function TopBar() {
                       </div>
                       <div className="acct-pop-meta">
                         <div className="acct-pop-name-row">
-                          <span className="acct-pop-name">{user.nickname || user.username}</span>
+                          <span className="acct-pop-name">{displayName}</span>
                           <span className="acct-plan-badge">
-                            <Icon name="sparkle" size={12} /> {user.planLabel || "企业版"}
+                            <Icon name="sparkle" size={12} /> {resolvePlanLabel(user)}
                           </span>
                         </div>
-                        <div className="acct-pop-sub">{user.planLabel || "企业版"}权益</div>
+                        <div className="acct-pop-sub">{resolvePlanLabel(user)}权益</div>
                       </div>
                     </div>
 
@@ -212,7 +237,7 @@ export function TopBar() {
                           <Icon name="sparkle" size={16} />
                         </span>
                         <div>
-                          <div className="acct-benefit-title">{user.planLabel || "企业版"}权益</div>
+                          <div className="acct-benefit-title">{resolvePlanLabel(user)}权益</div>
                           <div className="acct-benefit-exp">{user.expiresAt} 到期</div>
                         </div>
                       </div>
@@ -228,38 +253,30 @@ export function TopBar() {
                             <b>{user.computeGift}</b>
                           </div>
                         </div>
+                        <button
+                          type="button"
+                          className="acct-bal-link"
+                          onClick={() => goAccount("member")}
+                        >
+                          会员中心 / 算力明细
+                        </button>
                       </div>
                     </div>
 
                     <div className="acct-pop-actions">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMenuOpen(false);
-                          router.push("/account");
-                        }}
-                      >
+                      <button type="button" onClick={() => goAccount("member")}>
+                        <Icon name="sparkle" size={18} />
+                        <span>会员中心</span>
+                      </button>
+                      <button type="button" onClick={() => goAccount("personal")}>
                         <Icon name="building" size={18} />
                         <span>管理账户</span>
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMenuOpen(false);
-                          router.push("/account?tab=creations");
-                        }}
-                      >
+                      <button type="button" onClick={() => goAccount("creations")}>
                         <Icon name="image" size={18} />
                         <span>企业资产</span>
                       </button>
-                      <button
-                        type="button"
-                        className="danger"
-                        onClick={() => {
-                          setMenuOpen(false);
-                          logout();
-                        }}
-                      >
+                      <button type="button" className="danger" onClick={onLogout}>
                         <Icon name="logout" size={18} />
                         <span>退出登录</span>
                       </button>
@@ -271,7 +288,7 @@ export function TopBar() {
               <button
                 type="button"
                 className="btn btn-primary topbar-login-btn"
-                onClick={() => openLogin("enterprise")}
+                onClick={() => openLogin("phone")}
               >
                 登录
               </button>

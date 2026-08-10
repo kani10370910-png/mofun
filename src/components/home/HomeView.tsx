@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
+import { PointsCost } from "@/components/ui/PointsCost";
+import { POINT_COST } from "@/lib/pointCosts";
 import { SiteBeian } from "@/components/shell/SiteBeian";
-import { cases, intents } from "@/data/home";
+import { intents } from "@/data/home";
 import { asset } from "@/lib/asset";
-import { buildTemplateApplyHref, findTemplateByName } from "@/lib/templateApply";
 import {
   emptyAgentState,
   runAgentTurn,
@@ -32,7 +32,6 @@ import {
   readBrandMemory,
   type BrandMemory,
 } from "@/lib/agent/memory";
-import { useLibrary } from "@/lib/store";
 import {
   HOME_CHAT_EVENT,
   HOME_CHAT_EXIT_EVENT,
@@ -41,7 +40,6 @@ import {
   readHomeSeason,
 } from "@/lib/homeSeason";
 
-type Cat = "all" | "content" | "image" | "video";
 type ChatRole = "user" | "assistant";
 type ChatMsg = {
   id: string;
@@ -65,6 +63,8 @@ type ChatSession = {
   agentState?: AgentRuntimeState;
   /** 本对话专属品牌记忆，与其它对话隔离 */
   brandMemory?: BrandMemory | null;
+  /** 用户手动重命名的标题 */
+  customTitle?: string;
 };
 
 const CHAT_HISTORY_KEY = "mofun_home_chat_history_v1";
@@ -93,13 +93,6 @@ function sessionTitle(msgs: ChatMsg[]) {
   const t = (first?.text || "新对话").trim();
   return t.length > 24 ? `${t.slice(0, 24)}…` : t;
 }
-
-const CATS: { cat: Cat; name: string }[] = [
-  { cat: "all", name: "全部" },
-  { cat: "content", name: "文案策划" },
-  { cat: "image", name: "品牌设计" },
-  { cat: "video", name: "视频宣传" },
-];
 
 const BUBBLE_FULL = "我是「小墨」，想好今天设计什么了吗！";
 
@@ -133,18 +126,16 @@ function displayAssistantText(text: string) {
 }
 
 export function HomeView() {
-  const router = useRouter();
   const toast = useToast();
-  const { addWork } = useLibrary();
 
   const [input, setInput] = useState("");
   const [attached, setAttached] = useState<string[]>([]);
   const [refImages, setRefImages] = useState<string[]>([]);
-  const [cat, setCat] = useState<Cat>("all");
-  const [kw, setKw] = useState("");
   const [bubbleText, setBubbleText] = useState("");
   const [season, setSeason] = useState<HomeSeason>("summer");
   const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [chatMode, setChatMode] = useState(false);
+  const inChat = chatMode;
   const [chatInput, setChatInput] = useState("");
   const [replying, setReplying] = useState(false);
   const [agentState, setAgentState] = useState<AgentRuntimeState>(() => emptyAgentState());
@@ -153,8 +144,14 @@ export function HomeView() {
     resetBrandMemory(id);
     return id;
   });
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [historyList, setHistoryList] = useState<ChatSession[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sessionMenuId, setSessionMenuId] = useState<string | null>(null);
+  const [historyBatchMode, setHistoryBatchMode] = useState(false);
+  const [historySelected, setHistorySelected] = useState<Set<string>>(() => new Set());
+  const [renameTarget, setRenameTarget] = useState<ChatSession | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const [msgFeedback, setMsgFeedback] = useState<Record<string, "up" | "down">>({});
   const [moreOpenId, setMoreOpenId] = useState<string | null>(null);
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
@@ -179,6 +176,28 @@ export function HomeView() {
   }, [moreOpenId]);
 
   useEffect(() => {
+    if (!sessionMenuId) return;
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.(".hc-session-more-wrap")) return;
+      setSessionMenuId(null);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [sessionMenuId]);
+
+  useEffect(() => {
+    if (!renameTarget) return;
+    const t = window.setTimeout(() => {
+      const el = renameInputRef.current;
+      if (!el) return;
+      el.focus();
+      el.select();
+    }, 30);
+    return () => window.clearTimeout(t);
+  }, [renameTarget]);
+
+  useEffect(() => {
     if (!previewSrc) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setPreviewSrc(null);
@@ -186,7 +205,6 @@ export function HomeView() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [previewSrc]);
-  const inChat = messages.length > 0;
 
   useEffect(() => {
     setSeason(readHomeSeason());
@@ -228,17 +246,24 @@ export function HomeView() {
 
   useEffect(() => {
     if (!inChat) return;
+    setHistoryList(readChatHistory());
+  }, [inChat, sessionId, messages.length]);
+
+  useEffect(() => {
+    if (!inChat) return;
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, inChat, replying]);
 
   function persistSession(msgs: ChatMsg[], id: string, state?: AgentRuntimeState) {
     if (msgs.length === 0) return;
     const raw = state ?? agentStateRef.current;
-    // 参考原图 dataURL 过大，不进历史；保留视觉摘要供续聊
     const { refImages: _drop, ...rest } = raw;
+    const existing = readChatHistory().find((s) => s.id === id);
+    const autoTitle = sessionTitle(msgs);
     const next: ChatSession = {
       id,
-      title: sessionTitle(msgs),
+      title: existing?.customTitle ?? autoTitle,
+      customTitle: existing?.customTitle,
       updatedAt: Date.now(),
       messages: msgs,
       agentState: rest,
@@ -248,13 +273,108 @@ export function HomeView() {
     writeChatHistory([next, ...list]);
   }
 
+  function exitHistoryBatch() {
+    setHistoryBatchMode(false);
+    setHistorySelected(new Set());
+  }
+
+  function toggleHistorySelect(id: string) {
+    setHistorySelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleHistorySelectAll() {
+    if (historySelected.size >= historyList.length) {
+      setHistorySelected(new Set());
+      return;
+    }
+    setHistorySelected(new Set(historyList.map((s) => s.id)));
+  }
+
+  function deleteHistorySessions(ids: Set<string>) {
+    if (!ids.size) {
+      toast("请先选择对话", "warn");
+      return;
+    }
+    const deletingCurrent = ids.has(sessionId);
+    if (!deletingCurrent && messages.length > 0) {
+      persistSession(messages, sessionId);
+    }
+    const list = readChatHistory().filter((s) => !ids.has(s.id));
+    writeChatHistory(list);
+    setHistoryList(list);
+    exitHistoryBatch();
+    setSessionMenuId(null);
+    if (deletingCurrent) {
+      if (list.length > 0) {
+        const s = list[0];
+        setSessionId(s.id);
+        bindBrandMemorySession(s.id, s.brandMemory ?? null);
+        setMessages(s.messages);
+        setAgentState(s.agentState ?? emptyAgentState());
+        setChatInput("");
+        setReplying(false);
+        setAskDrafts({});
+        setAskPicks({});
+      } else {
+        setMessages([]);
+        setChatInput("");
+        setReplying(false);
+        setAskDrafts({});
+        setAskPicks({});
+        setAgentState(emptyAgentState());
+        setRefImages([]);
+        const nextId = uid();
+        resetBrandMemory(nextId);
+        setSessionId(nextId);
+      }
+    }
+    toast(`已删除 ${ids.size} 条对话`);
+  }
+
+  function openRenameSession(s: ChatSession) {
+    setSessionMenuId(null);
+    setRenameTarget(s);
+    setRenameDraft(s.title);
+  }
+
+  function confirmRenameSession() {
+    if (!renameTarget) return;
+    const title = renameDraft.trim();
+    if (!title) {
+      toast("请输入对话名称", "warn");
+      return;
+    }
+    const list = readChatHistory().map((s) =>
+      s.id === renameTarget.id
+        ? { ...s, title, customTitle: title, updatedAt: Date.now() }
+        : s,
+    );
+    writeChatHistory(list);
+    setHistoryList(list);
+    setRenameTarget(null);
+    toast("已重命名");
+  }
+
+  function enterHistoryBatch(fromId?: string) {
+    setSessionMenuId(null);
+    setHistoryBatchMode(true);
+    setHistorySelected(fromId ? new Set([fromId]) : new Set());
+  }
+
+  const historyAllSelected = historyList.length > 0 && historySelected.size >= historyList.length;
+  const historyPartialSelected = historySelected.size > 0 && !historyAllSelected;
+
   function exitToHome(showToast = false) {
     if (messages.length > 0) persistSession(messages, sessionId);
     setMessages([]);
     setChatInput("");
     setInput("");
     setReplying(false);
-    setHistoryOpen(false);
     setAskDrafts({});
     setAskPicks({});
     setAgentState(emptyAgentState());
@@ -262,12 +382,28 @@ export function HomeView() {
     const nextId = uid();
     resetBrandMemory(nextId);
     setSessionId(nextId);
+    setChatMode(false);
     window.dispatchEvent(new CustomEvent(HOME_CHAT_EVENT, { detail: false }));
     if (showToast) toast("已新建对话");
   }
 
   function startNewChat() {
-    exitToHome(true);
+    if (messages.length > 0) persistSession(messages, sessionId);
+    setMessages([]);
+    setChatInput("");
+    setInput("");
+    setReplying(false);
+    setAskDrafts({});
+    setAskPicks({});
+    setAgentState(emptyAgentState());
+    setRefImages([]);
+    const nextId = uid();
+    resetBrandMemory(nextId);
+    setSessionId(nextId);
+    setChatMode(true);
+    setHistoryList(readChatHistory());
+    window.dispatchEvent(new CustomEvent(HOME_CHAT_EVENT, { detail: true }));
+    toast("已新建对话");
   }
 
   const exitToHomeRef = useRef(exitToHome);
@@ -279,12 +415,8 @@ export function HomeView() {
     return () => window.removeEventListener(HOME_CHAT_EXIT_EVENT, onExit);
   }, []);
 
-  function openHistory() {
-    setHistoryList(readChatHistory());
-    setHistoryOpen((v) => !v);
-  }
-
   function loadSession(s: ChatSession) {
+    if (s.id === sessionId) return;
     if (messages.length > 0) persistSession(messages, sessionId);
     setSessionId(s.id);
     bindBrandMemorySession(s.id, s.brandMemory ?? null);
@@ -292,14 +424,17 @@ export function HomeView() {
     setAgentState(s.agentState ?? emptyAgentState());
     setChatInput("");
     setReplying(false);
-    setHistoryOpen(false);
+    setAskDrafts({});
+    setAskPicks({});
+    setChatMode(true);
     window.dispatchEvent(new CustomEvent(HOME_CHAT_EVENT, { detail: true }));
   }
 
   function applyTurn(userText: string, action?: AgentAction) {
     if (replying) return;
     setAskPicks({});
-    if (messages.length === 0) {
+    if (!chatMode) {
+      setChatMode(true);
       window.dispatchEvent(new CustomEvent(HOME_CHAT_EVENT, { detail: true }));
     }
 
@@ -691,21 +826,6 @@ export function HomeView() {
           toast(res.error || "生成失败", "warn");
           return;
         }
-        if (res.images?.length) {
-          res.images.forEach((img, i) => {
-            addWork({
-              emoji: "✨",
-              grad: "thumb-grad-1",
-              kind: "图片",
-              name: `小墨对话 · ${agentStateRef.current.specialistId || "创作"} ${i + 1}`,
-              sub: isVi ? "VI延展" : runSkillId === "skill.image.ip_story" ? "IP故事" : "首页对话",
-              img,
-              time: new Date().toLocaleString("zh-CN", { hour12: false }),
-              edit: { sub: agentStateRef.current.specialistId?.split(".")[1] || "ip", input: res.text },
-            });
-          });
-        }
-
         const spec = agentStateRef.current.specialistId
           ? getSpecialist(agentStateRef.current.specialistId)
           : undefined;
@@ -851,10 +971,6 @@ export function HomeView() {
     else fileRef.current?.click();
   }
 
-  function scrollToShowcase() {
-    document.getElementById("home-showcase")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
   function regenerate(msgId: string) {
     const idx = messages.findIndex((m) => m.id === msgId);
     if (idx < 0) return;
@@ -901,64 +1017,181 @@ export function HomeView() {
     })();
   }
 
-  const shown = useMemo(() => {
-    const q = kw.trim().toLowerCase();
-    return cases.filter(
-      (c) => (cat === "all" || c.cat === cat) && (!q || c.name.toLowerCase().includes(q))
-    );
-  }, [cat, kw]);
-
   if (inChat) {
     return (
       <div className="page page-home page-home-chat">
-        <div className="home-chat-toolbar">
-          <button
-            type="button"
-            className="hc-tool-btn"
-            aria-label="新建对话"
-            title="新建对话"
-            onClick={startNewChat}
-          >
-            <Icon name="chatNew" size={20} />
-          </button>
-          <button
-            type="button"
-            className={`hc-tool-btn ${historyOpen ? "active" : ""}`}
-            aria-label="历史记录"
-            title="历史记录"
-            aria-expanded={historyOpen}
-            onClick={openHistory}
-          >
-            <Icon name="history" size={20} />
-          </button>
-          {historyOpen && (
-            <div className="hc-history-panel">
-              <div className="hc-history-title">历史记录</div>
-              {historyList.length === 0 ? (
-                <div className="hc-history-empty">暂无历史对话</div>
-              ) : (
-                <ul className="hc-history-list">
-                  {historyList.map((s) => (
-                    <li key={s.id}>
-                      <button type="button" className="hc-history-item" onClick={() => loadSession(s)}>
-                        <span className="hc-history-item-title">{s.title}</span>
-                        <span className="hc-history-item-time">
-                          {new Date(s.updatedAt).toLocaleString("zh-CN", {
-                            month: "numeric",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
+        <div className="home-chat-layout">
+          <aside className={`hc-sidebar${sidebarOpen ? "" : " is-collapsed"}`}>
+            {sidebarOpen ? (
+              <div className={`hc-sidebar-body${historyBatchMode ? " is-batch" : ""}`}>
+                {!historyBatchMode && (
+                  <div className="hc-sidebar-head">
+                    <h2 className="hc-sidebar-title">历史记录</h2>
+                    <div className="hc-sidebar-head-actions">
+                      <button
+                        type="button"
+                        className="hc-sidebar-head-btn hc-sidebar-head-plain"
+                        aria-label="新建对话"
+                        title="新建对话"
+                        onClick={startNewChat}
+                      >
+                        <Icon name="chatNew" size={20} />
                       </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
+                      <button
+                        type="button"
+                        className="hc-sidebar-head-btn hc-sidebar-head-panel"
+                        aria-label="收起历史记录"
+                        title="收起历史记录"
+                        onClick={() => setSidebarOpen(false)}
+                      >
+                        <Icon name="panelLeft" size={20} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <nav className="hc-sidebar-nav" aria-label="历史记录">
+                  {historyList.length === 0 ? (
+                    <div className="hc-sidebar-empty">暂无历史对话</div>
+                  ) : (
+                    <ul className="hc-sidebar-list">
+                      {historyList.map((s) => {
+                        const active = s.id === sessionId;
+                        const checked = historySelected.has(s.id);
+                        const menuOpen = sessionMenuId === s.id;
+                        return (
+                          <li key={s.id}>
+                            <div
+                              className={`hc-sidebar-row${active && !historyBatchMode ? " active" : ""}${checked ? " checked" : ""}${menuOpen ? " menu-open" : ""}`}
+                            >
+                              {historyBatchMode ? (
+                                <button
+                                  type="button"
+                                  className="hc-sidebar-item hc-sidebar-item--batch"
+                                  onClick={() => toggleHistorySelect(s.id)}
+                                >
+                                  <span className={`hc-hist-check${checked ? " on" : ""}`} aria-hidden>
+                                    {checked ? <Icon name="check" size={14} /> : null}
+                                  </span>
+                                  <span className="hc-sidebar-item-title">{s.title}</span>
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="hc-sidebar-item"
+                                    onClick={() => loadSession(s)}
+                                  >
+                                    <span className="hc-sidebar-item-title">{s.title}</span>
+                                  </button>
+                                  <div className="hc-session-more-wrap">
+                                    <button
+                                      type="button"
+                                      className="hc-sidebar-more"
+                                      aria-label="更多操作"
+                                      aria-expanded={menuOpen}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSessionMenuId(menuOpen ? null : s.id);
+                                      }}
+                                    >
+                                      <Icon name="dots" size={16} />
+                                    </button>
+                                    {menuOpen && (
+                                      <div className="hc-session-menu" role="menu">
+                                        <button
+                                          type="button"
+                                          role="menuitem"
+                                          onClick={() => enterHistoryBatch()}
+                                        >
+                                          <Icon name="listCheck" size={18} />
+                                          批量操作
+                                        </button>
+                                        <button
+                                          type="button"
+                                          role="menuitem"
+                                          onClick={() => openRenameSession(s)}
+                                        >
+                                          <Icon name="edit" size={18} />
+                                          重命名
+                                        </button>
+                                        <button
+                                          type="button"
+                                          role="menuitem"
+                                          className="danger"
+                                          onClick={() => deleteHistorySessions(new Set([s.id]))}
+                                        >
+                                          <Icon name="trash" size={18} />
+                                          删除对话
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </nav>
+                {historyBatchMode && historyList.length > 0 && (
+                  <div className="hc-history-batch" role="toolbar" aria-label="批量操作">
+                    <div className="hc-history-batch-top">
+                      <button type="button" className="hc-history-batch-all" onClick={toggleHistorySelectAll}>
+                        <span
+                          className={`hc-hist-check hc-hist-check--all${historyAllSelected ? " on" : historyPartialSelected ? " partial" : ""}`}
+                        >
+                          {historyAllSelected ? (
+                            <Icon name="check" size={14} />
+                          ) : historyPartialSelected ? (
+                            <span className="hc-hist-check-minus" />
+                          ) : null}
+                        </span>
+                        全选
+                      </button>
+                      <span className="hc-history-batch-count">已选 {historySelected.size} 条</span>
+                    </div>
+                    <div className="hc-history-batch-actions">
+                      <button type="button" className="hc-history-batch-cancel" onClick={exitHistoryBatch}>
+                        取消
+                      </button>
+                      <button
+                        type="button"
+                        className="hc-history-batch-del"
+                        onClick={() => deleteHistorySessions(historySelected)}
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="hc-sidebar-rail">
+                <button
+                  type="button"
+                  className="hc-sidebar-rail-btn hc-sidebar-rail-plain"
+                  aria-label="新建对话"
+                  title="新建对话"
+                  onClick={startNewChat}
+                >
+                  <Icon name="chatNew" size={20} />
+                </button>
+                <button
+                  type="button"
+                  className="hc-sidebar-rail-btn hc-sidebar-rail-panel"
+                  aria-label="展开历史记录"
+                  onClick={() => setSidebarOpen(true)}
+                >
+                  <Icon name="panelLeft" size={20} />
+                  <span className="hc-sidebar-tip">展开</span>
+                </button>
+              </div>
+            )}
+          </aside>
 
+          <div className="home-chat-main">
         <div className="home-chat">
           <div className="home-chat-list" ref={listRef}>
             {messages.map((m, mi) => {
@@ -1210,7 +1443,7 @@ export function HomeView() {
                                 toast("欢迎通过反馈告诉我产品建议");
                               }}
                             >
-                              <Icon name="sparkle" size={14} /> 产品建议
+                              产品建议
                             </button>
                           </div>
                         )}
@@ -1339,6 +1572,9 @@ export function HomeView() {
             </div>
           </div>
         </div>
+        </div>
+        </div>
+
       {previewSrc && (
         <div
           className="img-lightbox"
@@ -1361,6 +1597,38 @@ export function HomeView() {
             alt="生成结果预览"
             onClick={(e) => e.stopPropagation()}
           />
+        </div>
+      )}
+
+      {renameTarget && (
+        <div className="modal-mask" onClick={() => setRenameTarget(null)}>
+          <div className="hc-rename-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="hc-rename-head">
+              <span className="hc-rename-title">编辑对话名称</span>
+              <button type="button" className="hc-rename-close" aria-label="关闭" onClick={() => setRenameTarget(null)}>
+                <Icon name="close" size={20} />
+              </button>
+            </div>
+            <input
+              ref={renameInputRef}
+              type="text"
+              className="hc-rename-input"
+              value={renameDraft}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmRenameSession();
+                if (e.key === "Escape") setRenameTarget(null);
+              }}
+            />
+            <div className="hc-rename-foot">
+              <button type="button" className="hc-rename-cancel" onClick={() => setRenameTarget(null)}>
+                取消
+              </button>
+              <button type="button" className="hc-rename-ok" onClick={confirmRenameSession}>
+                确认
+              </button>
+            </div>
+          </div>
         </div>
       )}
       </div>
@@ -1455,14 +1723,21 @@ export function HomeView() {
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) sendMessage(input);
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                        e.preventDefault();
+                        toast("功能还在开发中", "warn");
+                      }
                     }}
                     placeholder="描述乡村品牌设计需求，例如：'设计国潮风萧山萝卜干伴手礼包装'，或上传草图方案让我完善"
                   />
                   <div className="chat-bar">
                     <div className="chat-tools" />
-                    <button type="button" className="btn btn-primary hero-gen-btn" onClick={() => sendMessage(input)}>
-                      <Icon name="sparkle" size={16} /> 立即生成
+                    <button
+                      type="button"
+                      className="btn btn-primary hero-gen-btn"
+                      onClick={() => toast("功能还在开发中", "warn")}
+                    >
+                      立即生成 <PointsCost amount={POINT_COST.homeHero} />
                     </button>
                   </div>
                 </div>
@@ -1484,11 +1759,6 @@ export function HomeView() {
           </div>
         </div>
 
-        <button type="button" className="hero-scroll" onClick={scrollToShowcase}>
-          <span>下滑解锁更多内容</span>
-          <Icon name="chevron" size={16} />
-        </button>
-
         <div className="hero-float">
           <div className="hero-cs-wrap">
             <div className="hero-cs-pop" role="tooltip">
@@ -1508,82 +1778,6 @@ export function HomeView() {
         </div>
 
         <SiteBeian className="hero-beian" />
-      </section>
-
-      <section className="showcase" id="home-showcase">
-        <div className="showcase-head">
-          <h2 className="showcase-title">
-            优秀<span>设计案例</span>
-          </h2>
-          <div className="showcase-sub">EXCELLENT DESIGN</div>
-        </div>
-
-        <div className="showcase-search">
-          <Icon name="search" size={18} />
-          <input
-            value={kw}
-            onChange={(e) => setKw(e.target.value)}
-            placeholder="输入关键词搜索灵感…"
-          />
-        </div>
-
-        <div className="showcase-bar">
-          <div className="filter-row">
-            {CATS.map((c) => (
-              <span
-                key={c.cat}
-                className={cat === c.cat ? "sel-chip on" : "sel-chip"}
-                onClick={() => setCat(c.cat)}
-              >
-                {c.name}
-              </span>
-            ))}
-          </div>
-          <a className="showcase-more" onClick={() => router.push("/template")}>
-            查看更多 <Icon name="chevron" size={14} />
-          </a>
-        </div>
-
-        <div className="case-wall">
-          {shown.length === 0 ? (
-            <p className="case-empty empty-note" style={{ gridColumn: "1/-1", textAlign: "center", padding: "30px 0" }}>
-              没有匹配的案例，换个关键词或分类试试～
-            </p>
-          ) : (
-            shown.map((c) => (
-              <div
-                key={c.name}
-                className="case-card"
-                onClick={() => {
-                  const tpl = c.tpl ? findTemplateByName(c.tpl) : undefined;
-                  if (tpl) {
-                    toast(`已套用「${c.name}」，灵感已填入表单`);
-                    window.setTimeout(() => router.push(buildTemplateApplyHref(tpl)), 700);
-                    return;
-                  }
-                  const view = c.cat === "content" ? "content" : c.cat === "video" ? "video" : "image";
-                  const sub = c.cat === "content" ? "social" : c.cat === "video" ? "oneline" : "event";
-                  toast(`已载入「${c.name}」为模板`);
-                  window.setTimeout(() => router.push(`/${view}?sub=${sub}`), 700);
-                }}
-              >
-                <div className={`case-thumb ${c.grad}`}>
-                  <span className="ct-type">{c.type}</span>
-                  <span className="ct-emoji">{c.emoji}</span>
-                  <div className="case-hover">
-                    <button className="btn btn-primary btn-sm">套用模版</button>
-                  </div>
-                </div>
-                <div className="case-info">
-                  <div className="case-name">{c.name}</div>
-                  <div className="case-meta">
-                    <span className="region">📍{c.region}</span> · {c.author}
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
       </section>
     </div>
   );

@@ -1,0 +1,725 @@
+{
+  "summary": {
+    "total": 100,
+    "ok": 99,
+    "fail": 1,
+    "successRate": "99.0%",
+    "latencyMs": {
+      "min": 1726,
+      "p50": 2616,
+      "p95": 4912,
+      "max": 21203,
+      "avg": 3084
+    },
+    "errors": [
+      {
+        "count": 1,
+        "detail": "0:timeout"
+      }
+    ],
+    "elapsedMs": 183284,
+    "rps": 0.55
+  },
+  "results": [
+    {
+      "ok": true,
+      "i": 0,
+      "ms": 2773,
+      "status": 200,
+      "chars": 241
+    },
+    {
+      "ok": true,
+      "i": 1,
+      "ms": 3934,
+      "status": 200,
+      "chars": 228
+    },
+    {
+      "ok": true,
+      "i": 2,
+      "ms": 2440,
+      "status": 200,
+      "chars": 234
+    },
+    {
+      "ok": true,
+      "i": 3,
+      "ms": 3154,
+      "status": 200,
+      "chars": 221
+    },
+    {
+      "ok": true,
+      "i": 4,
+      "ms": 2298,
+      "status": 200,
+      "chars": 227
+    },
+    {
+      "ok": true,
+      "i": 5,
+      "ms": 2545,
+      "status": 200,
+      "chars": 242
+    },
+    {
+      "ok": true,
+      "i": 6,
+      "ms": 2103,
+      "status": 200,
+      "chars": 217
+    },
+    {
+      "ok": true,
+      "i": 7,
+      "ms": 3278,
+      "status": 200,
+      "chars": 230
+    },
+    {
+      "ok": true,
+      "i": 8,
+      "ms": 2529,
+      "status": 200,
+      "chars": 218
+    },
+    {
+      "ok": true,
+      "i": 9,
+      "ms": 2166,
+      "status": 200,
+      "chars": 230
+    },
+    {
+      "ok": true,
+      "i": 10,
+      "ms": 2389,
+      "status": 200,
+      "chars": 250
+    },
+    {
+      "ok": true,
+      "i": 11,
+      "ms": 2481,
+      "status": 200,
+      "chars": 217
+    },
+    {
+      "ok": true,
+      "i": 12,
+      "ms": 2170,
+      "status": 200,
+      "chars": 243
+    },
+    {
+      "ok": true,
+      "i": 13,
+      "ms": 3125,
+      "status": 200,
+      "chars": 230
+    },
+    {
+      "ok": true,
+      "i": 14,
+      "ms": 1855,
+      "status": 200,
+      "chars": 228
+    },
+    {
+      "ok": true,
+      "i": 15,
+      "ms": 2873,
+      "status": 200,
+      "chars": 246
+    },
+    {
+      "ok": true,
+      "i": 16,
+      "ms": 2208,
+      "status": 200,
+      "chars": 218
+    },
+    {
+      "ok": true,
+      "i": 17,
+      "ms": 6128,
+      "status": 200,
+      "chars": 234
+    },
+    {
+      "ok": true,
+      "i": 18,
+      "ms": 6118,
+      "status": 200,
+      "chars": 244
+    },
+    {
+      "ok": true,
+      "i": 19,
+      "ms": 4196,
+      "status": 200,
+      "chars": 225
+    },
+    {
+      "ok": true,
+      "i": 20,
+      "ms": 5461,
+      "status": 200,
+      "chars": 256
+    },
+    {
+      "ok": true,
+      "i": 21,
+      "ms": 3167,
+      "status": 200,
+      "chars": 227
+    },
+    {
+      "ok": true,
+      "i": 22,
+      "ms": 4395,
+      "status": 200,
+      "chars": 242
+    },
+    {
+      "ok": true,
+      "i": 23,
+      "ms": 3101,
+      "status": 200,
+      "chars": 227
+    },
+    {
+      "ok": true,
+      "i": 24,
+      "ms": 2285,
+      "status": 200,
+      "chars": 226
+    },
+    {
+      "ok": true,
+      "i": 25,
+      "ms": 3309,
+      "status": 200,
+      "chars": 245
+    },
+    {
+      "ok": true,
+      "i": 26,
+      "ms": 3602,
+      "status": 200,
+      "chars": 222
+    },
+    {
+      "ok": true,
+      "i": 27,
+      "ms": 2491,
+      "status": 200,
+      "chars": 244
+    },
+    {
+      "ok": true,
+      "i": 28,
+      "ms": 2486,
+      "status": 200,
+      "chars": 222
+    },
+    {
+      "ok": true,
+      "i": 29,
+      "ms": 2173,
+      "status": 200,
+      "chars": 232
+    },
+    {
+      "ok": true,
+      "i": 30,
+      "ms": 2291,
+      "status": 200,
+      "chars": 244
+    },
+    {
+      "ok": true,
+      "i": 31,
+      "ms": 2495,
+      "status": 200,
+      "chars": 217
+    },
+    {
+      "ok": true,
+      "i": 32,
+      "ms": 2235,
+      "status": 200,
+      "chars": 240
+    },
+    {
+      "ok": true,
+      "i": 33,
+      "ms": 3490,
+      "status": 200,
+      "chars": 225
+    },
+    {
+      "ok": true,
+      "i": 34,
+      "ms": 4069,
+      "status": 200,
+      "chars": 227
+    },
+    {
+      "ok": true,
+      "i": 35,
+      "ms": 2162,
+      "status": 200,
+      "chars": 244
+    },
+    {
+      "ok": true,
+      "i": 36,
+      "ms": 3145,
+      "status": 200,
+      "chars": 225
+    },
+    {
+      "ok": true,
+      "i": 37,
+      "ms": 1778,
+      "status": 200,
+      "chars": 236
+    },
+    {
+      "ok": true,
+      "i": 38,
+      "ms": 2840,
+      "status": 200,
+      "chars": 214
+    },
+    {
+      "ok": true,
+      "i": 39,
+      "ms": 2757,
+      "status": 200,
+      "chars": 224
+    },
+    {
+      "ok": true,
+      "i": 40,
+      "ms": 2226,
+      "status": 200,
+      "chars": 245
+    },
+    {
+      "ok": true,
+      "i": 41,
+      "ms": 2422,
+      "status": 200,
+      "chars": 216
+    },
+    {
+      "ok": true,
+      "i": 42,
+      "ms": 4912,
+      "status": 200,
+      "chars": 246
+    },
+    {
+      "ok": true,
+      "i": 43,
+      "ms": 3220,
+      "status": 200,
+      "chars": 224
+    },
+    {
+      "ok": true,
+      "i": 44,
+      "ms": 1861,
+      "status": 200,
+      "chars": 232
+    },
+    {
+      "ok": true,
+      "i": 45,
+      "ms": 3067,
+      "status": 200,
+      "chars": 239
+    },
+    {
+      "ok": true,
+      "i": 46,
+      "ms": 1869,
+      "status": 200,
+      "chars": 229
+    },
+    {
+      "ok": true,
+      "i": 47,
+      "ms": 2275,
+      "status": 200,
+      "chars": 241
+    },
+    {
+      "ok": true,
+      "i": 48,
+      "ms": 1876,
+      "status": 200,
+      "chars": 208
+    },
+    {
+      "ok": true,
+      "i": 49,
+      "ms": 2295,
+      "status": 200,
+      "chars": 223
+    },
+    {
+      "ok": true,
+      "i": 50,
+      "ms": 3863,
+      "status": 200,
+      "chars": 240
+    },
+    {
+      "ok": true,
+      "i": 51,
+      "ms": 3047,
+      "status": 200,
+      "chars": 213
+    },
+    {
+      "ok": true,
+      "i": 52,
+      "ms": 6785,
+      "status": 200,
+      "chars": 243
+    },
+    {
+      "ok": true,
+      "i": 53,
+      "ms": 2664,
+      "status": 200,
+      "chars": 223
+    },
+    {
+      "ok": true,
+      "i": 54,
+      "ms": 3960,
+      "status": 200,
+      "chars": 223
+    },
+    {
+      "ok": true,
+      "i": 55,
+      "ms": 2161,
+      "status": 200,
+      "chars": 254
+    },
+    {
+      "ok": true,
+      "i": 56,
+      "ms": 2562,
+      "status": 200,
+      "chars": 217
+    },
+    {
+      "ok": true,
+      "i": 57,
+      "ms": 2977,
+      "status": 200,
+      "chars": 235
+    },
+    {
+      "ok": true,
+      "i": 58,
+      "ms": 2390,
+      "status": 200,
+      "chars": 207
+    },
+    {
+      "ok": true,
+      "i": 59,
+      "ms": 1935,
+      "status": 200,
+      "chars": 228
+    },
+    {
+      "ok": true,
+      "i": 60,
+      "ms": 1785,
+      "status": 200,
+      "chars": 239
+    },
+    {
+      "ok": true,
+      "i": 61,
+      "ms": 2495,
+      "status": 200,
+      "chars": 223
+    },
+    {
+      "ok": true,
+      "i": 62,
+      "ms": 1726,
+      "status": 200,
+      "chars": 242
+    },
+    {
+      "ok": true,
+      "i": 63,
+      "ms": 3344,
+      "status": 200,
+      "chars": 232
+    },
+    {
+      "ok": true,
+      "i": 64,
+      "ms": 3488,
+      "status": 200,
+      "chars": 224
+    },
+    {
+      "ok": true,
+      "i": 65,
+      "ms": 2055,
+      "status": 200,
+      "chars": 248
+    },
+    {
+      "ok": true,
+      "i": 66,
+      "ms": 3019,
+      "status": 200,
+      "chars": 220
+    },
+    {
+      "ok": true,
+      "i": 67,
+      "ms": 3821,
+      "status": 200,
+      "chars": 234
+    },
+    {
+      "ok": true,
+      "i": 68,
+      "ms": 4197,
+      "status": 200,
+      "chars": 208
+    },
+    {
+      "ok": true,
+      "i": 69,
+      "ms": 3853,
+      "status": 200,
+      "chars": 225
+    },
+    {
+      "ok": true,
+      "i": 70,
+      "ms": 2788,
+      "status": 200,
+      "chars": 243
+    },
+    {
+      "ok": false,
+      "i": 71,
+      "ms": 60006,
+      "status": 0,
+      "error": "timeout"
+    },
+    {
+      "ok": true,
+      "i": 72,
+      "ms": 2753,
+      "status": 200,
+      "chars": 237
+    },
+    {
+      "ok": true,
+      "i": 73,
+      "ms": 2192,
+      "status": 200,
+      "chars": 223
+    },
+    {
+      "ok": true,
+      "i": 74,
+      "ms": 3828,
+      "status": 200,
+      "chars": 230
+    },
+    {
+      "ok": true,
+      "i": 75,
+      "ms": 2242,
+      "status": 200,
+      "chars": 254
+    },
+    {
+      "ok": true,
+      "i": 76,
+      "ms": 2510,
+      "status": 200,
+      "chars": 225
+    },
+    {
+      "ok": true,
+      "i": 77,
+      "ms": 1852,
+      "status": 200,
+      "chars": 233
+    },
+    {
+      "ok": true,
+      "i": 78,
+      "ms": 2481,
+      "status": 200,
+      "chars": 220
+    },
+    {
+      "ok": true,
+      "i": 79,
+      "ms": 2355,
+      "status": 200,
+      "chars": 228
+    },
+    {
+      "ok": true,
+      "i": 80,
+      "ms": 2795,
+      "status": 200,
+      "chars": 251
+    },
+    {
+      "ok": true,
+      "i": 81,
+      "ms": 2190,
+      "status": 200,
+      "chars": 218
+    },
+    {
+      "ok": true,
+      "i": 82,
+      "ms": 3509,
+      "status": 200,
+      "chars": 235
+    },
+    {
+      "ok": true,
+      "i": 83,
+      "ms": 2387,
+      "status": 200,
+      "chars": 218
+    },
+    {
+      "ok": true,
+      "i": 84,
+      "ms": 2609,
+      "status": 200,
+      "chars": 231
+    },
+    {
+      "ok": true,
+      "i": 85,
+      "ms": 2174,
+      "status": 200,
+      "chars": 247
+    },
+    {
+      "ok": true,
+      "i": 86,
+      "ms": 2759,
+      "status": 200,
+      "chars": 216
+    },
+    {
+      "ok": true,
+      "i": 87,
+      "ms": 21203,
+      "status": 200,
+      "chars": 237
+    },
+    {
+      "ok": true,
+      "i": 88,
+      "ms": 3577,
+      "status": 200,
+      "chars": 217
+    },
+    {
+      "ok": true,
+      "i": 89,
+      "ms": 3142,
+      "status": 200,
+      "chars": 228
+    },
+    {
+      "ok": true,
+      "i": 90,
+      "ms": 2930,
+      "status": 200,
+      "chars": 247
+    },
+    {
+      "ok": true,
+      "i": 91,
+      "ms": 3025,
+      "status": 200,
+      "chars": 217
+    },
+    {
+      "ok": true,
+      "i": 92,
+      "ms": 2768,
+      "status": 200,
+      "chars": 236
+    },
+    {
+      "ok": true,
+      "i": 93,
+      "ms": 2616,
+      "status": 200,
+      "chars": 213
+    },
+    {
+      "ok": true,
+      "i": 94,
+      "ms": 2418,
+      "status": 200,
+      "chars": 228
+    },
+    {
+      "ok": true,
+      "i": 95,
+      "ms": 2987,
+      "status": 200,
+      "chars": 245
+    },
+    {
+      "ok": true,
+      "i": 96,
+      "ms": 2564,
+      "status": 200,
+      "chars": 213
+    },
+    {
+      "ok": true,
+      "i": 97,
+      "ms": 1888,
+      "status": 200,
+      "chars": 232
+    },
+    {
+      "ok": true,
+      "i": 98,
+      "ms": 2410,
+      "status": 200,
+      "chars": 218
+    },
+    {
+      "ok": true,
+      "i": 99,
+      "ms": 3690,
+      "status": 200,
+      "chars": 226
+    }
+  ]
+}

@@ -9,6 +9,8 @@ import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
 import { accountRegionId } from "@/lib/regionEnhance";
 import { useAuth } from "@/lib/AuthContext";
 import { asset } from "@/lib/asset";
+import { PointsCost } from "@/components/ui/PointsCost";
+import { multiImagePoints } from "@/lib/pointCosts";
 import {
   loadProductSceneImgCache,
 } from "@/lib/productSceneThumbs";
@@ -60,6 +62,8 @@ export interface ProductStudioState {
   fusionLabels: [string, string, string];
   sceneMore: boolean;
   regionEnhance: boolean;
+  useLora: boolean;
+  useKB: boolean;
 }
 
 export function initProductStudio(): ProductStudioState {
@@ -84,6 +88,8 @@ export function initProductStudio(): ProductStudioState {
     fusionLabels: ["", "", ""],
     sceneMore: false,
     regionEnhance: true,
+    useLora: true,
+    useKB: true,
   };
 }
 
@@ -263,10 +269,16 @@ export function ImageProductPanel({
     <>
       <div className="ws-scroll">
         <RegionEnhanceStrip
-          enabled={state.regionEnhance}
-          onChange={(next) => set("regionEnhance", next)}
+          useLora={state.useLora}
+          onLoraChange={(next) =>
+            setState({ ...state, useLora: next, regionEnhance: next || state.useKB })
+          }
+          useKB={state.useKB}
+          onKBChange={(next) =>
+            setState({ ...state, useKB: next, regionEnhance: state.useLora || next })
+          }
           regionId={regionId}
-          showLora={false}
+          showLora={true}
         />
         {showProductUpload && (
           <div className="field">
@@ -469,7 +481,6 @@ export function ImageProductPanel({
           <div className="field">
             <div className="pd-desc-card">
               <div className="pd-desc-head">
-                <Icon name="sparkle" size={16} className="pd-desc-ico" />
                 <span>自定义场景描述</span>
                 <span className="opt">（选填）</span>
               </div>
@@ -550,7 +561,10 @@ export function ImageProductPanel({
           {loading ? (
             <><Icon name="refresh" size={16} className="ico-spin" /> 生成中…</>
           ) : (
-            <><Icon name="sparkle" size={16} /> 立即出图</>
+            <>
+              立即生成{" "}
+              <PointsCost amount={multiImagePoints(state.count, state.model)} />
+            </>
           )}
         </button>
       </div>

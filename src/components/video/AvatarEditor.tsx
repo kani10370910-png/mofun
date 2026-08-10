@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { EditorRail, type RailItem } from "@/components/ui/EditorRail";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
+import { PointsCost } from "@/components/ui/PointsCost";
+import { avatarSecondsPoints, imageShotPoints, videoSecondsPoints, POINT_COST } from "@/lib/pointCosts";
 import { useLibrary } from "@/lib/store";
 import { getProject, upsertProject, uniqueProjectName } from "@/lib/studioProjects";
 import { nowStamp } from "@/lib/datetime";
@@ -525,6 +527,8 @@ export function AvatarEditor({
   const { user } = useAuth();
   const regionId = accountRegionId(user);
   const [regionEnhance, setRegionEnhance] = useState(true);
+  const [useLora, setUseLora] = useState(true);
+  const [useKB, setUseKB] = useState(true);
 
   /* 弹窗开关（原右侧面板改为弹窗）*/
   const [libOpen, setLibOpen] = useState(false);
@@ -536,6 +540,7 @@ export function AvatarEditor({
 
   /* 右侧：生成历史 / 参考灵感 */
   const [resultTab, setResultTab] = useState<"history" | "inspire">("history");
+  const [onlyFav, setOnlyFav] = useState(false);
   const [runs, setRuns] = useState<AvatarRun[]>([]);
   const [playing, setPlaying] = useState<AvatarRun | null>(null);
   const [previewImg, setPreviewImg] = useState<string | null>(null); // 点缩略图查看完整形象图
@@ -913,15 +918,15 @@ export function AvatarEditor({
   async function genBgDynEdit() {
     if (!bgEditImg) { toast("请先上传/选择场景图", "warn"); return; }
     if (!bgEditDynDesc.trim()) { toast("请先描述背景怎么动（如：微风吹过稻田、云雾缓缓流动）", "warn"); return; }
-    notifyRegionEnhance(toast, regionEnhance);
+    notifyRegionEnhance(toast, { useLora, useKB });
     setBgEditDynBusy(true);
     try {
       if (DEMO) { await demoWait(1200); setBgEditDyn(DEMO_VIDEO); toast("动态背景已生成（演示），保存后即可用于合成"); return; }
       let uri = bgEditImg;
       if (uri.startsWith("/")) uri = await blobToDataUri(await fetch(uri).then((r) => r.blob()));
       // 用户描述驱动动态方式；固定约束保证不出现人物/文字、构图稳定
-      const kb = kbFields(regionEnhance, regionId);
-      const prompt = `${bgEditDynDesc.trim()}。保持画面构图基本稳定，动态轻微自然，画面中没有人物、没有文字，作为数字人口播的背景${kb.kbContext ? `\n【县域知识库·${kb.county}】\n${kb.kbContext}` : ""}`;
+      const kb = kbFields(useKB, regionId);
+      const prompt = `${bgEditDynDesc.trim()}。保持画面构图基本稳定，动态轻微自然，画面中没有人物、没有文字，作为数字人口播的背景${kb.kbContext ? `\n【在地视觉参考·${kb.county}】融入下列气质（勿绘制系统标签）：\n${kb.kbContext}` : ""}`;
       // 动态背景必须图生：用 1.5 Pro（支持 i2v，时长 4–12）
       const r = await fetch("/api/video", {
         method: "POST",
@@ -967,7 +972,7 @@ export function AvatarEditor({
   /* ── AI 生成背景场景 ── */
   async function aiGenerateBg() {
     if (!bgAgDesc.trim()) { toast("请描述背景场景", "warn"); return; }
-    notifyRegionEnhance(toast, regionEnhance);
+    notifyRegionEnhance(toast, { useLora, useKB });
     setBgAgBusy(true);
     try {
       if (DEMO) {
@@ -982,7 +987,7 @@ export function AvatarEditor({
       const r = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(imageRequestBody({ prompt, size: ratioToSize(bgAgRatio), regionEnhance, regionId })),
+        body: JSON.stringify(imageRequestBody({ prompt, size: ratioToSize(bgAgRatio), useLora, useKB, regionId })),
       });
       if (!r.ok) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
@@ -1022,14 +1027,14 @@ export function AvatarEditor({
   /* ── AI 优化角色描述（送入 LLM 润色为高质量人像描述）── */
   async function optimizeAgDesc() {
     if (!agDesc.trim()) { toast("请先输入角色描述", "warn"); return; }
-    notifyRegionEnhance(toast, regionEnhance);
+    notifyRegionEnhance(toast, { useLora, useKB });
     setAgOptBusy(true);
     try {
       if (DEMO) { await demoWait(600); setAgDesc(demoOptimizeDesc(agDesc, agGender, AG_AGE_WORDS[agAge])); toast("已优化角色描述（演示）"); return; }
       const r = await fetch("/api/avatar-desc", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: agDesc.trim(), gender: agGender, age: AG_AGE_WORDS[agAge], ...kbFields(regionEnhance, regionId) }),
+        body: JSON.stringify({ input: agDesc.trim(), gender: agGender, age: AG_AGE_WORDS[agAge], ...kbFields(useKB, regionId) }),
       });
       const j = (await r.json().catch(() => ({}))) as { text?: string | null };
       if (!r.ok || !j.text) { toast("优化失败，请稍后重试", "warn"); return; }
@@ -1045,7 +1050,7 @@ export function AvatarEditor({
   /* ── AI 生图（形象）── */
   async function aiGenerate() {
     if (!agDesc.trim()) { toast("请描述角色特征", "warn"); return; }
-    notifyRegionEnhance(toast, regionEnhance);
+    notifyRegionEnhance(toast, { useLora, useKB });
     setAgBusy(true);
     try {
       if (DEMO) {
@@ -1059,7 +1064,7 @@ export function AvatarEditor({
       const r = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(imageRequestBody({ prompt, size: ratioToSize(agRatio), regionEnhance, regionId })),
+        body: JSON.stringify(imageRequestBody({ prompt, size: ratioToSize(agRatio), useLora, useKB, regionId })),
       });
       if (!r.ok) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
@@ -1126,7 +1131,7 @@ export function AvatarEditor({
       const r = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(imageRequestBody({ prompt, size, image, regionEnhance, regionId })),
+        body: JSON.stringify(imageRequestBody({ prompt, size, image, useLora, useKB, regionId })),
       });
       if (!r.ok) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
@@ -1311,7 +1316,19 @@ export function AvatarEditor({
     updateRun(p.runId, { status: "done", videoUrl, overlaySubs });
     persistRunMeta({ id: p.runId, name: p.name, script: p.script, poster: p.poster.startsWith("data:") ? "" : p.poster, time: p.time, overlaySubs });
     removePending(p.runId);
-    addWork({ emoji: "🧑‍💼", grad: "thumb-grad-2", kind: "视频", name: `${p.name} · 数字人口播`, sub: "数字人模特", time: nowStamp(), edit: { sub: "avatar" } });
+    addWork({
+      emoji: "🧑‍💼",
+      grad: "thumb-grad-2",
+      kind: "视频",
+      name: `${p.name} · 数字人口播`,
+      sub: "数字人模特",
+      module: "video",
+      time: nowStamp(),
+      img: p.poster.startsWith("data:") ? undefined : p.poster,
+      videoUrl: remoteUrl,
+      mediaRef: `idb:${p.runId}`,
+      edit: { sub: "avatar", input: p.script, runId: p.runId },
+    });
   }
 
   // 删除一条生成历史：内存 + 本地元数据一起删（IndexedDB blob 变孤儿但无害，不会再被引用）
@@ -1324,7 +1341,19 @@ export function AvatarEditor({
   }
   // 生成历史 → 作品卡（与生成时写入「我的作品」的口径一致，用于收藏/存库）
   function avatarVideoAsset(r: AvatarRun): AssetCard {
-    return { emoji: "🧑‍💼", grad: "thumb-grad-2", kind: "视频", name: `${r.name} · 数字人口播`, sub: "数字人模特", img: r.poster || "", time: nowStamp(), edit: { sub: "avatar" } };
+    return {
+      emoji: "🧑‍💼",
+      grad: "thumb-grad-2",
+      kind: "视频",
+      name: `${r.name} · 数字人口播`,
+      sub: "数字人模特",
+      module: "video",
+      img: r.poster || undefined,
+      videoUrl: r.videoUrl?.startsWith("blob:") ? undefined : r.videoUrl,
+      mediaRef: `idb:${r.id}`,
+      time: nowStamp(),
+      edit: { sub: "avatar", input: r.script, runId: r.id },
+    };
   }
   // 收藏：写入「我的作品」并标记收藏，与仓库「只看收藏」互通（与一句话一致）
   function toggleRunFav(r: AvatarRun) {
@@ -1348,7 +1377,7 @@ export function AvatarEditor({
     if (!existing) {
       const dur = Math.max(2, Math.min(15, Math.ceil(r.script.length / 3) || 5));
       const shot = { id: `shot-avatar-${r.id}`, shotDesc: r.script, caption: "", camera: "", shotSize: "", assetRefs: [] as string[], locked: false, dur, poster: r.poster || "", status: "done", pct: 100, videoUrl: r.videoUrl };
-      const state = { projectName: name, stepKey: "clips", script: r.script, studioIdea: r.script, settings: { 模型: "Seedance 1.5 Pro", 视频比例: "9:16", 视频风格: "智能匹配", 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示", 县域增强: "使用" }, totalSec: dur, targetShots: 1, assets: [], shots: [shot], genMode: "text", subtitles: [] };
+      const state = { projectName: name, stepKey: "clips", script: r.script, studioIdea: r.script, settings: { 模型: "Seedance 1.5 Pro", 视频比例: "9:16", 视频风格: "智能匹配", 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示", 本地增强: "使用" }, totalSec: dur, targetShots: 1, assets: [], shots: [shot], genMode: "text", subtitles: [] };
       upsertProject({ id: pid, name, updated: nowStamp(), ts: Date.now(), count: 1, cover: r.videoUrl, state });
     }
     router.push(`/video?sub=studio:clips&from=home&pid=${encodeURIComponent(pid)}&name=${encodeURIComponent(name)}`);
@@ -1487,7 +1516,18 @@ export function AvatarEditor({
         setGenLabel("合成完成！");
         updateRun(runId, { status: "done", videoUrl: demoUrl, overlaySubs: false }); // DEMO 已把字幕烧进画面，播放器不再叠加
         persistRunMeta({ id: runId, name: avatarLabel || "数字人", script: script.trim(), poster: poster.startsWith("data:") ? "" : poster, time: nowStamp(), overlaySubs: false });
-        addWork({ emoji: "🧑‍💼", grad: "thumb-grad-2", kind: "视频", name: `${avatarLabel} · 数字人口播`, sub: "数字人模特", time: nowStamp(), edit: { sub: "avatar" } });
+        addWork({
+          emoji: "🧑‍💼",
+          grad: "thumb-grad-2",
+          kind: "视频",
+          name: `${avatarLabel} · 数字人口播`,
+          sub: "数字人模特",
+          module: "video",
+          time: nowStamp(),
+          img: poster.startsWith("data:") ? undefined : poster,
+          mediaRef: `idb:${runId}`,
+          edit: { sub: "avatar", input: script.trim(), runId },
+        });
         toast("数字人视频已生成（演示）");
         return;
       }
@@ -1571,6 +1611,7 @@ export function AvatarEditor({
   const filteredPresets = roleFilter === "全部"
     ? AVATAR_PRESETS
     : AVATAR_PRESETS.filter((p) => p.role === roleFilter);
+  const shownRuns = onlyFav ? runs.filter((r) => isFavorite(avatarVideoAsset(r))) : runs;
 
   // 与制作大片一致：系统/收藏 tab + 场景/年龄/性别筛选，「多情感」按 multiEmotion 标记
   const filteredVoices = VOICES.filter((v) => {
@@ -1608,10 +1649,18 @@ export function AvatarEditor({
           <div className="ws-panel sticky">
             <div className="ws-scroll">
               <RegionEnhanceStrip
-                enabled={regionEnhance}
-                onChange={setRegionEnhance}
+                useLora={useLora}
+                onLoraChange={(next) => {
+                  setUseLora(next);
+                  setRegionEnhance(next || useKB);
+                }}
+                useKB={useKB}
+                onKBChange={(next) => {
+                  setUseKB(next);
+                  setRegionEnhance(useLora || next);
+                }}
                 regionId={regionId}
-                showLora={false}
+                showLora={true}
               />
               {/* 数字人形象 */}
               <div className="field">
@@ -1725,10 +1774,16 @@ export function AvatarEditor({
             <div className="ws-foot">
               <button
                 className="btn btn-primary btn-block gen-btn"
-                disabled={generating || (!avatarImg && !selectedPreset)}
+                disabled={generating}
                 onClick={generate}
               >
-                <Icon name="sparkle" size={16} /> {generating ? `合成中… ${Math.round(genPct)}%` : "立即生成"}
+                {generating ? (
+                  `合成中… ${Math.round(genPct)}%`
+                ) : (
+                  <>
+                    立即生成 <PointsCost amount={avatarSecondsPoints(Math.max(1, estSec || 8))} />
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -1740,74 +1795,109 @@ export function AvatarEditor({
                 <div className={resultTab === "history" ? "tab on" : "tab"} onClick={() => setResultTab("history")}>生成历史</div>
                 <div className={resultTab === "inspire" ? "tab on" : "tab"} onClick={() => setResultTab("inspire")}>参考灵感</div>
               </div>
+              {resultTab === "history" && runs.length > 0 && (
+                <label className="lg-fav-switch">
+                  <input type="checkbox" checked={onlyFav} onChange={(e) => setOnlyFav(e.target.checked)} />
+                  <span className="lg-switch" />
+                  只看收藏
+                </label>
+              )}
               {resultTab === "history" && runs.some((r) => r.status === "running") && (
                 <button className="av-cancel-all" onClick={cancelAllPending} title="清空所有排队/生成中的等待（火山侧任务仍会自行跑完，本地不再等）">取消全部等待</button>
               )}
             </div>
 
             {resultTab === "history" ? (
-              runs.length === 0 ? (
+              shownRuns.length === 0 ? (
                 <div className="preview-empty">
                   <div>
-                    <div className="pe-ico"><Icon name="video" size={42} /></div>
-                    还没有生成记录，选好形象、填好配音，点左下「生成」试试
+                    <div className="pe-ico"><Icon name={onlyFav ? "heart" : "video"} size={42} /></div>
+                    {onlyFav ? "还没有收藏，把鼠标移到视频上点右上角♡收藏" : "还没有生成记录，选好形象、填好配音，点左下「生成」试试"}
                   </div>
                 </div>
               ) : (
-                <div className="av-runs">
-                  {runs.map((r) => (
-                    <div key={r.id} className="av-run">
+                <div className="ov-runs">
+                  {shownRuns.map((r) => {
+                    const done = r.status === "done" && !!r.videoUrl;
+                    const loading = r.status === "running";
+                    const failed = r.status === "failed";
+                    return (
+                    <div key={r.id} className="ov-run">
                       <div className="ov-run-head">
-                        <p className="ov-run-prompt av-run-prompt">{r.script}</p>
+                        <p className="ov-run-prompt">{r.script}</p>
                         <div className="ov-run-meta">
                           <span className="ov-run-mode">数字人口播</span>
                           <span className="lg-cat">{r.name}</span>
                           {r.regionEnhance && <RegionEnhanceBadge regionId={r.regionId} />}
-                          {r.status !== "running" && (
-                            <button className="lh-ico" aria-label="删除" title="删除" onClick={() => deleteRun(r.id)}>
+                          {!loading && (
+                            <button className="lh-ico lh-tip" data-tip="删除" aria-label="删除" onClick={() => deleteRun(r.id)}>
                               <Icon name="trash" size={14} />
                             </button>
                           )}
                           <span className="ov-run-time">{r.time}</span>
                         </div>
                       </div>
-                      <div className="av-run-video">
-                        {r.status === "done" && r.videoUrl ? (
-                          <div className="av-run-poster-wrap" onClick={() => setPlaying(r)}>
-                            <video className="av-run-poster" src={r.videoUrl} muted preload="metadata" />
-                            <button className={isFavorite(avatarVideoAsset(r)) ? "lh-fav on" : "lh-fav"} title="收藏" onClick={(e) => { e.stopPropagation(); toggleRunFav(r); }}>
+                      <div
+                        className={`ov-video ov-video--portrait thumb-grad-2${done ? " clickable" : ""}`}
+                        onClick={done ? () => setPlaying(r) : undefined}
+                        role={done ? "button" : undefined}
+                        title={done ? "点击播放预览" : undefined}
+                      >
+                        {done ? (
+                          <>
+                            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                            <video className="ov-video-poster" src={r.videoUrl!} muted preload="metadata" />
+                            <button
+                              className={isFavorite(avatarVideoAsset(r)) ? "lh-fav on" : "lh-fav"}
+                              title={isFavorite(avatarVideoAsset(r)) ? "取消收藏" : "收藏"}
+                              onClick={(e) => { e.stopPropagation(); toggleRunFav(r); }}
+                            >
                               <Icon name="heart" size={15} />
                             </button>
-                            <div className="av-run-play">▶</div>
+                            <div className="ov-play">▶</div>
                             <span className="lh-mark">
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img className="lh-mark-logo" src={assetUrl("/brand-logo.png")} alt="魔方智绘" />
                               由 AI 生成
                             </span>
-                          </div>
-                        ) : r.status === "running" ? (
-                          <div className="av-run-loading">
+                          </>
+                        ) : loading ? (
+                          <div className="ov-video-loading av-run-loading">
                             {r.poster && <img src={r.poster} alt="" className="av-run-blur" />}
                             <div className="av-run-spinner" />
-                            <div className="av-run-status">{genLabel || "正在合成…"} {Math.round(genPct)}%</div>
+                            <div className="ov-video-status">{genLabel || "正在合成…"} {Math.round(genPct)}%</div>
                             <button className="av-run-cancel" onClick={() => cancelRun(r.id)} title="停止等待这条（火山侧任务仍会自行跑完，本地不再等）">取消等待</button>
                           </div>
                         ) : (
-                          <div className="av-run-loading">
-                            <div className="av-run-status av-run-fail">✕ {r.errorMsg || "生成失败"}</div>
+                          <div className="ov-video-loading">
+                            <Icon name="close" size={26} />
+                            <div className="ov-video-status" style={{ color: "var(--color-warn, #f59e0b)" }}>
+                              {r.errorMsg || "生成失败，请重试"}
+                            </div>
                           </div>
                         )}
                       </div>
-                      {r.status === "done" && r.videoUrl && (
-                        <div className="av-run-acts">
-                          <a href={r.videoUrl} download="数字人口播.mp4" className="btn btn-soft btn-sm">下载视频</a>
+                      {done && (
+                        <div className="ov-run-acts">
+                          <a href={r.videoUrl!} download="数字人口播.mp4" className="btn btn-soft btn-sm">下载视频</a>
                           <button className="btn btn-ghost btn-sm" onClick={() => reeditRun(r)}><Icon name="edit" size={13} /> 重新编辑</button>
-                          <button className="btn btn-ghost btn-sm" onClick={() => generate()}><Icon name="refresh" size={13} /> 再次生成</button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => generate()}>
+                            <Icon name="refresh" size={13} /> 再次生成 <PointsCost amount={avatarSecondsPoints(Math.max(1, estSec || 8))} />
+                          </button>
                           <button className="btn btn-primary btn-sm ov-run-studio" onClick={() => studioFromRun(r)}>去制作大片 <Icon name="chevron" size={14} /></button>
                         </div>
                       )}
+                      {failed && (
+                        <div className="ov-run-acts">
+                          <button className="btn btn-ghost btn-sm" onClick={() => reeditRun(r)}><Icon name="edit" size={13} /> 重新编辑</button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => generate()}>
+                            <Icon name="refresh" size={13} /> 再次生成 <PointsCost amount={avatarSecondsPoints(Math.max(1, estSec || 8))} />
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )
             ) : (
@@ -2196,7 +2286,7 @@ export function AvatarEditor({
                       <button className="av-desc-btn" onClick={() => setAgDesc("")} title="清空描述">清空</button>
                     )}
                     <button className="av-desc-btn av-desc-btn--ai" onClick={optimizeAgDesc} disabled={agOptBusy} title="用 AI 优化角色描述">
-                      {agOptBusy ? "优化中…" : "✨ AI 优化"}
+                      {agOptBusy ? "优化中…" : "AI 优化"}
                     </button>
                   </div>
                 </div>
@@ -2217,7 +2307,9 @@ export function AvatarEditor({
               </div>
             </div>
             <div className="av-modal-foot">
-              <button className="btn btn-primary" disabled={agBusy} onClick={aiGenerate}>{agBusy ? "生成中…" : "生成形象"}</button>
+              <button className="btn btn-primary" disabled={agBusy} onClick={aiGenerate}>
+                {agBusy ? "生成中…" : <>生成形象 <PointsCost amount={POINT_COST.imagePerShot} /></>}
+              </button>
             </div>
           </div>
         </div>
@@ -2251,7 +2343,9 @@ export function AvatarEditor({
               </div>
             </div>
             <div className="av-modal-foot">
-              <button className="btn btn-primary" disabled={bgAgBusy} onClick={aiGenerateBg}>{bgAgBusy ? "生成中…" : "生成背景"}</button>
+              <button className="btn btn-primary" disabled={bgAgBusy} onClick={aiGenerateBg}>
+                {bgAgBusy ? "生成中…" : <>生成背景 <PointsCost amount={POINT_COST.imagePerShot} /></>}
+              </button>
             </div>
           </div>
         </div>
@@ -2293,7 +2387,12 @@ export function AvatarEditor({
                     )}
                   </div>
                   <button className="btn btn-soft btn-sm av-cr-cutout-btn" disabled={bgEditDynBusy || !bgEditImg} onClick={genBgDynEdit}>
-                    {bgEditDynBusy ? "生成中…（约2-3分钟）" : bgEditDyn ? "重新生成动态背景" : "生成动态背景"}
+                    {bgEditDynBusy
+                      ? "生成中…（约2-3分钟）"
+                      : <>
+                          {bgEditDyn ? "重新生成动态背景" : "生成动态背景"}{" "}
+                          <PointsCost amount={videoSecondsPoints(5, { model: "Seedance 1.5 Pro", quality: "720P", withAudio: false })} />
+                        </>}
                   </button>
                 </div>
               </div>
@@ -2402,7 +2501,13 @@ export function AvatarEditor({
                           value={composeDesc} onChange={(e) => setComposeDesc(e.target.value)} maxLength={200} />
                         <div className="av-compose-acts">
                           <button className="btn btn-soft btn-sm" disabled={composeBusy} onClick={() => { setComposeMode(false); setComposeImg2(null); setComposeDesc(""); }}>返回</button>
-                          <button className="btn btn-primary btn-sm" disabled={composeBusy} onClick={composeImages}>{composeBusy ? "生成中…" : composeImg2 ? "开始合成" : "开始生成"}</button>
+                          <button className="btn btn-primary btn-sm" disabled={composeBusy} onClick={composeImages}>
+                            {composeBusy
+                              ? "生成中…"
+                              : <>
+                                  {composeImg2 ? "开始合成" : "开始生成"} <PointsCost amount={imageShotPoints()} />
+                                </>}
+                          </button>
                         </div>
                         <div className="av-single-tip" style={{ maxWidth: "none" }}>只填描述即可直接改图；上传图2则把图2的元素融合进图1。结果作为新的原图</div>
                       </div>

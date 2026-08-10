@@ -3,11 +3,13 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { asset } from "@/lib/asset";
-import { DEMO_LOGIN } from "@/lib/auth";
+import { DEMO_CODE, DEMO_LOGIN } from "@/lib/auth";
 import { useAuth } from "@/lib/AuthContext";
+import { useToast } from "@/components/ui/Toast";
 
 export function LoginModal() {
   const { loginOpen, loginTab, closeLogin, loginEnterprise, loginPhone, openLogin } = useAuth();
+  const toast = useToast();
   const [tab, setTab] = useState<"phone" | "enterprise">(loginTab);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -82,6 +84,8 @@ export function LoginModal() {
     }
     setErr("");
     setCountdown(60);
+    setCode(DEMO_CODE);
+    toast(`验证码已发送（演示码：${DEMO_CODE}）`);
   }
 
   return (
@@ -121,7 +125,7 @@ export function LoginModal() {
                 setErr("");
               }}
             >
-              手机验证登录
+              手机号登录
             </button>
             <button
               type="button"
@@ -141,6 +145,9 @@ export function LoginModal() {
           <form className="lm-form" onSubmit={onSubmit}>
             {tab === "phone" ? (
               <>
+                <p className="lm-phone-hint">
+                  个人用户以手机号作为登录账户，获取验证码后登录（演示码会自动填入）。
+                </p>
                 <input
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}

@@ -4,6 +4,8 @@ import { useRef, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { makeZip } from "@/lib/zip";
+import { PointsCost } from "@/components/ui/PointsCost";
+import { POINT_COST } from "@/lib/pointCosts";
 
 type PackState = "idle" | "packing" | "done" | "error";
 
@@ -116,7 +118,7 @@ export function LogoDownloadModal({
             <div className="dl-actions">
               {pack === "idle" && (
                 <button className="btn btn-primary" onClick={startPack}>
-                  <Icon name="sparkle" size={15} /> 生成可编辑文件 <span className="btn-credit">12 算力</span>
+                  生成可编辑文件 <PointsCost amount={POINT_COST.imageLogoEditable} />
                 </button>
               )}
               {pack === "packing" && (

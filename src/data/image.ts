@@ -64,7 +64,7 @@ export const imageTypes: ImageType[] = [
 
 /* ---------- 宣传图片：生图模型（下拉只展示友好名；上游 ID 见 imageModelCatalog） ---------- */
 export const imageModels: ModelOption[] = [
-  { name: "Qwen 文生图", desc: "可挂县域 Lora" },
+  { name: "MoFun区域文化大模型", desc: "可挂本地 Lora" },
   { name: "Z-Image", desc: "真实感增强（待接入）" },
   { name: "Seedream 4.0", desc: "高细节" },
   { name: "Seedream 4.5", desc: "细节增强" },
@@ -215,7 +215,7 @@ export const productStyles: PaintStyle[] = [
 
 /* ---------- 图生图：编辑模型（下拉只展示友好名） ---------- */
 export const editModels: ModelOption[] = [
-  { name: "Qwen 图生图", desc: "基础编辑 · 可挂县域 Lora" },
+  { name: "MoFun区域文化大模型", desc: "基础编辑 · 可挂本地 Lora" },
   { name: "高清重绘", desc: "细节增强" },
   { name: "局部重绘", desc: "精准修改指定区域" },
 ];
@@ -693,8 +693,6 @@ export const fontHistory: FontHistoryGroup[] = [
         effect: "斗金魏楷",
         dir: "横向",
         desc: "为「安吉白茶」设计书法体艺术字，魏楷笔意、苍劲有力，适合茶礼包装与门头招牌。",
-        regionEnhance: true,
-        regionId: "anji",
         results: [
           { grad: "thumb-grad-2", fav: true },
           { grad: "thumb-grad-1", fav: false },
@@ -707,8 +705,6 @@ export const fontHistory: FontHistoryGroup[] = [
         effect: "剑气宋",
         dir: "横向",
         desc: "为「竹乡好物」设计现代体艺术字，剑气宋瘦劲挺拔、质感分明，适合电商主图与品牌标语。",
-        regionEnhance: true,
-        regionId: "anji",
         results: [
           { grad: "thumb-grad-6", fav: false },
           { grad: "thumb-grad-4", fav: false },
@@ -726,8 +722,6 @@ export const fontHistory: FontHistoryGroup[] = [
         effect: "矻石体",
         dir: "竖向",
         desc: "为「山野食集」设计艺术体竖排字，矻石体粗犷有力、潮酷立体，适合市集海报与短视频封面。",
-        regionEnhance: true,
-        regionId: "anji",
         results: [
           { grad: "thumb-grad-3", fav: false },
           { grad: "thumb-grad-5", fav: false },
@@ -826,7 +820,7 @@ export const signageGalleryItems: ActiveGalleryItem[] = [
     img: "/signagecase/signage-specialty.png",
     w: 1920,
     h: 150,
-    prompt: "横版电商店招，淘宝通栏比例，店铺名「山里货优选」大字居中，副文案「县域特产 · 助农直供」，特产生鲜，清新产地风格，适合电商店头",
+    prompt: "横版电商店招，淘宝通栏比例，店铺名「山里货优选」大字居中，副文案「区县特产 · 助农直供」，特产生鲜，清新产地风格，适合电商店头",
   },
   {
     sub: "线上店招",

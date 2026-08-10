@@ -11,6 +11,7 @@ const GRADS = ["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-grad-4", "
 
 export function BrandPane({ seed, seqStart }: { seed: Brand[]; seqStart: number }) {
   const toast = useToast();
+  const router = useRouter();
   // 品牌列表本地可变（新增/另存副本）
   const [brands, setBrands] = useState<Brand[]>(() => JSON.parse(JSON.stringify(seed)));
   const [activeIds, setActiveIds] = useState<string[]>([]);
@@ -63,9 +64,14 @@ export function BrandPane({ seed, seqStart }: { seed: Brand[]; seqStart: number 
         <p className="empty-note" style={{ margin: 0 }}>
           按「家」管理品牌资产：可同时勾选多家，下方依次展开各家的作品与素材文件，未选中的看不到。
         </p>
-        <button className="btn btn-primary btn-sm" onClick={() => setShowForm(true)}>
-          <Icon name="plus" size={15} /> 新增品牌资产
-        </button>
+        <div className="brand-toolbar-actions">
+          <button className="btn btn-ghost btn-sm" onClick={() => router.push("/storage/distribute")}>
+            <Icon name="share" size={15} /> 下发资产
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowForm(true)}>
+            <Icon name="plus" size={15} /> 新增品牌资产
+          </button>
+        </div>
       </div>
 
       <div className="brand-card-grid">
@@ -194,41 +200,12 @@ function BrandExpand({
               <AssetCardView
                 key={w.name}
                 item={w}
-                actions={
-                  editable ? (
-                    <>
-                      <button
-                        className="btn btn-soft btn-sm"
-                        onClick={() => {
-                          const t = editTargetOf(w);
-                          toast(`正在打开「${t.label}」编辑器…`);
-                          router.push(t.href);
-                        }}
-                      >
-                        二次编辑
-                      </button>
-                      <button className="btn btn-ghost btn-sm" onClick={() => toast("重出规格（演示）")}>
-                        重出规格
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        className="btn btn-soft btn-sm"
-                        onClick={() => {
-                          const t = editTargetOf(w);
-                          toast(`正在打开「${t.label}」编辑器…`);
-                          router.push(t.href);
-                        }}
-                      >
-                        使用
-                      </button>
-                      <button className="btn btn-ghost btn-sm" onClick={() => toast(`已将「${w.name}」另存为我的素材（演示）`)}>
-                        另存为我的素材
-                      </button>
-                    </>
-                  )
-                }
+                onEdit={() => {
+                  const t = editTargetOf(w);
+                  toast(`正在打开「${t.label}」编辑器…`);
+                  router.push(t.href);
+                }}
+                onDelete={editable ? () => toast("重出规格（演示）") : undefined}
               />
             ))
           ) : (
@@ -254,20 +231,8 @@ function BrandExpand({
               <AssetCardView
                 key={m.name}
                 item={m}
-                actions={
-                  editable ? (
-                    <>
-                      <button className="btn btn-soft btn-sm">用于做图</button>
-                      <button className="btn btn-ghost btn-sm">下载</button>
-                    </>
-                  ) : (
-                    <>
-                      <button className="btn btn-soft btn-sm">使用</button>
-                      <button className="btn btn-ghost btn-sm" onClick={() => toast(`已将「${m.name}」另存为我的素材（演示）`)}>
-                        另存为我的素材
-                      </button>
-                    </>
-                  )
+                onEdit={() =>
+                  toast(editable ? "用于做图（演示）" : `已将「${m.name}」另存为我的素材（演示）`)
                 }
               />
             ))

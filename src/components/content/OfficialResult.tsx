@@ -71,7 +71,7 @@ export function OfficialResult({
                 <Icon name="copy" size={15} /> 复制
               </button>
               <button className="btn btn-ghost btn-sm" disabled={!hasText} onClick={() => toast("已对文案执行「润色」（演示）")}>
-                <Icon name="sparkle" size={15} /> 润色
+                润色
               </button>
               <button className="btn btn-ghost btn-sm" disabled={!hasText} onClick={() => toast("已对文案执行「续写」（演示）")}>
                 <Icon name="plus" size={15} /> 续写

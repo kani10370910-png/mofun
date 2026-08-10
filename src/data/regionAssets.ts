@@ -1,4 +1,4 @@
-/** 地域增强资产包（演示）：展示用，不接真实 Lora / RAG */
+/** 区县资产包：知识库摘要供扩写/出图引用；Lora 列表随区县模型通道真实挂载 */
 
 export type RegionLora = {
   id: string;
@@ -24,7 +24,7 @@ export type RegionAssetPack = {
   knowledge: RegionKnowledge[];
 };
 
-/** 全站演示 Lora 目录（「查看更多」列表）；同 direction 互斥 */
+/** 全站区县 Lora 目录（「查看更多」列表）；同 direction 互斥 */
 export const ALL_REGION_LORAS: RegionLora[] = [
   {
     id: "lora-anji-tea",
@@ -201,8 +201,91 @@ export const DEFAULT_REGION_ID = "anji";
 export const DEFAULT_LORA_ID = ALL_REGION_LORAS[0].id;
 export const DEFAULT_LORA_IDS = [DEFAULT_LORA_ID];
 
+/** 区县 regionId → 所属市级 regionId（企业账号仅能调取本市及下辖知识库 / Lora） */
+export const REGION_TO_CITY: Record<string, string> = {
+  huzhou: "huzhou",
+  anji: "huzhou",
+  deqing: "huzhou",
+  changxing: "huzhou",
+  wuxing: "huzhou",
+};
+
+/** 地域包 → 省 / 市 / 区县展示名 */
+export const REGION_GEO: Record<string, { province: string; city: string; county: string }> = {
+  anji: { province: "浙江省", city: "湖州市", county: "安吉县" },
+  deqing: { province: "浙江省", city: "湖州市", county: "德清县" },
+  changxing: { province: "浙江省", city: "湖州市", county: "长兴县" },
+  wuxing: { province: "浙江省", city: "湖州市", county: "吴兴区" },
+  huzhou: { province: "浙江省", city: "湖州市", county: "湖州市" },
+};
+
+export function formatRegionGeoLabel(regionId: string = DEFAULT_REGION_ID): string {
+  const geo = REGION_GEO[regionId] || REGION_GEO[DEFAULT_REGION_ID];
+  if (geo.county === geo.city) return `${geo.province} · ${geo.city}`;
+  return `${geo.province} · ${geo.city} · ${geo.county}`;
+}
+
+/** 解析地域包所属市级 id */
+export function getCityRegionId(regionId: string = DEFAULT_REGION_ID): string {
+  return REGION_TO_CITY[regionId] || regionId;
+}
+
+/** 某市可访问的全部地域包 id（市本级 + 下辖区县） */
+export function getCityJurisdictionRegionIds(cityRegionId: string): string[] {
+  const ids = Object.entries(REGION_TO_CITY)
+    .filter(([, city]) => city === cityRegionId)
+    .map(([rid]) => rid);
+  return ids.length ? ids : [cityRegionId];
+}
+
+/** 目标地域是否在该市管辖范围内 */
+export function isRegionAllowedForCity(regionId: string, cityRegionId: string): boolean {
+  return getCityJurisdictionRegionIds(cityRegionId).includes(regionId);
+}
+
+/** 该市可用的全部 Lora（市 + 下辖区县） */
+export function availableLorasForCity(cityRegionId: string): RegionLora[] {
+  const seen = new Set<string>();
+  const out: RegionLora[] = [];
+  for (const rid of getCityJurisdictionRegionIds(cityRegionId)) {
+    for (const l of getRegionPack(rid).loras) {
+      if (seen.has(l.id)) continue;
+      seen.add(l.id);
+      out.push(l);
+    }
+  }
+  return out.length ? out : getRegionPack(cityRegionId).loras;
+}
+
+/** 过滤 Lora id，仅保留本市管辖范围内的模型 */
+export function filterLoraIdsForCity(ids: string[], cityRegionId: string): string[] {
+  const allowed = new Set(availableLorasForCity(cityRegionId).map((l) => l.id));
+  const filtered = ids.filter((id) => allowed.has(id));
+  if (filtered.length) return filtered;
+  const defaults = defaultLoraIdsForRegion(cityRegionId);
+  return defaults.filter((id) => allowed.has(id));
+}
+
+export function searchRegionLorasForCity(query: string, cityRegionId: string): RegionLora[] {
+  const q = query.trim().toLowerCase();
+  const pool = availableLorasForCity(cityRegionId);
+  if (!q) return pool;
+  return pool.filter(
+    (l) =>
+      l.name.toLowerCase().includes(q) ||
+      l.blurb.toLowerCase().includes(q) ||
+      l.regionName.toLowerCase().includes(q) ||
+      l.direction.toLowerCase().includes(q)
+  );
+}
+
 export function getRegionPack(regionId: string = DEFAULT_REGION_ID): RegionAssetPack {
   return PACKS[regionId] || PACKS[DEFAULT_REGION_ID];
+}
+
+export function defaultLoraIdsForRegion(regionId: string = DEFAULT_REGION_ID): string[] {
+  const pack = getRegionPack(regionId);
+  return pack.lora?.id ? [pack.lora.id] : [DEFAULT_LORA_ID];
 }
 
 export function getLoraById(id?: string): RegionLora {
@@ -214,7 +297,8 @@ export function getLorasByIds(ids: string[]): RegionLora[] {
   return ALL_REGION_LORAS.filter((l) => set.has(l.id));
 }
 
-export function searchRegionLoras(query: string): RegionLora[] {
+export function searchRegionLoras(query: string, cityRegionId?: string): RegionLora[] {
+  if (cityRegionId) return searchRegionLorasForCity(query, cityRegionId);
   const q = query.trim().toLowerCase();
   if (!q) return ALL_REGION_LORAS;
   return ALL_REGION_LORAS.filter(
@@ -256,7 +340,7 @@ export function defaultStrengthMap(ids: string[]): Record<string, number> {
   return map;
 }
 
-/** 根据账号资料文本（地址/企业名）推断地域包 */
+/** 根据企业名称 / 注册地址推断地域包 id */
 export function resolveRegionIdFromText(text?: string): string {
   const t = (text || "").toLowerCase();
   if (!t) return DEFAULT_REGION_ID;
@@ -265,5 +349,11 @@ export function resolveRegionIdFromText(text?: string): string {
   if (t.includes("长兴")) return "changxing";
   if (t.includes("吴兴")) return "wuxing";
   if (t.includes("湖州")) return "huzhou";
+  if (t.includes("浙江")) return "huzhou";
   return DEFAULT_REGION_ID;
+}
+
+/** 从企业资料解析 regionId 并返回标准展示文案 */
+export function resolveRegionLabelFromEnterpriseText(text?: string): string {
+  return formatRegionGeoLabel(resolveRegionIdFromText(text));
 }

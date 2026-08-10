@@ -76,10 +76,13 @@ export function ResultCardActions({
           confirmText="储存"
           onCancel={() => setConfirmSave(false)}
           onConfirm={() => {
-            addMaterial(asset("素材"));
+            const mat = addMaterial(asset("素材"));
             addWork(asset("图片"));
             setConfirmSave(false);
-            toast("已另存为「仓库 · 我的素材」");
+            toast(
+              mat.ok ? "已另存为「仓库 · 我的素材」" : "本地空间不足，存入失败",
+              mat.ok ? undefined : "warn",
+            );
           }}
         />
       )}

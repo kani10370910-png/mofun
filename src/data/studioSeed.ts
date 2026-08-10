@@ -25,7 +25,7 @@ const ZHUBIAN: StudioProject = {
       "配音": "沉稳男声",
       "配乐": "舒缓",
       "字幕": "显示",
-      "县域增强": "使用"
+      "本地增强": "使用"
     },
     "totalSec": 40,
     "targetShots": 7,

@@ -6,6 +6,8 @@ import { useToast } from "@/components/ui/Toast";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import type { AssetCard, Grad } from "@/lib/types";
+import { PointsCost } from "@/components/ui/PointsCost";
+import { POINT_COST } from "@/lib/pointCosts";
 
 export type ToolKey = "enhance" | "erase" | "matting" | "expand" | "repair" | "vector";
 
@@ -382,7 +384,7 @@ function ToolFooter({
         <span className="iw-foot-arrow">→</span>
         <span className="iw-foot-dim">{out}</span>
         <button className="iw-foot-go" onClick={() => toast("开始放大（演示）")}>
-          开始放大 <span className="iw-go-credit">2算力/次</span>
+          开始放大 <PointsCost amount={POINT_COST.imageEnhance} perTime className="iw-go-credit" />
         </button>
       </div>
     );
@@ -401,7 +403,7 @@ function ToolFooter({
           onChange={(e) => setBrush(Number(e.target.value))}
         />
         <button className="iw-foot-go iw-foot-go-soft" onClick={() => toast("开始消除（演示）")}>
-          开始消除 <span className="iw-go-credit">2算力/次</span>
+          开始消除 <PointsCost amount={POINT_COST.imageErase} perTime className="iw-go-credit" />
         </button>
         <div className="iw-foot-extra">
           <button className="iw-mini" title="抓手">✋</button>
@@ -426,13 +428,13 @@ function ToolFooter({
           ))}
         </div>
         <button className="iw-foot-soft-btn" onClick={() => toast("智能识别（演示）")}>
-          <Icon name="sparkle" size={15} /> 智能识别
+          智能识别
         </button>
         <button className="iw-foot-soft-btn" onClick={() => toast("快速选择（演示）")}>
           <Icon name="search" size={15} /> 快速选择
         </button>
         <button className="iw-foot-go iw-foot-go-dark" onClick={() => toast("开始抠图（演示）")}>
-          开始抠图 <span className="iw-go-credit">2算力/次</span>
+          开始抠图 <PointsCost amount={POINT_COST.imageMatte} perTime className="iw-go-credit" />
         </button>
       </div>
     );
@@ -450,7 +452,7 @@ function ToolFooter({
           <input value={height} onChange={(e) => setHeight(e.target.value)} /> <i>px</i>
         </span>
         <button className="iw-foot-go iw-foot-go-dark" onClick={() => toast("扩图（演示）")}>
-          扩图 <span className="iw-go-credit">4算力/次</span>
+          扩图 <PointsCost amount={POINT_COST.imageExpand} perTime className="iw-go-credit" />
         </button>
       </div>
     );
@@ -460,7 +462,7 @@ function ToolFooter({
     return (
       <div className="iw-foot-row iw-foot-center">
         <button className="iw-foot-go iw-foot-go-dark" onClick={() => toast("开始修复（演示）")}>
-          开始修复 <span className="iw-go-credit">2算力/次</span>
+          开始修复 <PointsCost amount={POINT_COST.imageRepair} perTime className="iw-go-credit" />
         </button>
       </div>
     );
@@ -482,7 +484,12 @@ function ToolFooter({
         disabled={convertDisabled}
         onClick={onConvert}
       >
-        开始转换 <span className="iw-go-credit">{vecModel === "basic" ? "2" : "8"}算力/次</span>
+        开始转换{" "}
+        <PointsCost
+          amount={vecModel === "basic" ? POINT_COST.imageVectorBasic : POINT_COST.imageVectorPro}
+          perTime
+          className="iw-go-credit"
+        />
       </button>
     </div>
   );

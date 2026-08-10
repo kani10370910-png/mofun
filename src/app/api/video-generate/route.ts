@@ -63,10 +63,10 @@ export async function POST(req: NextRequest) {
   }
   lines.push(`生成数量：${body.count ?? 1}`);
   if (body.useKB) {
-    lines.push(`县域增强：开启${body.county ? `（${body.county}）` : ""}`);
-    if (body.kbContext) lines.push(`县域知识库：\n${body.kbContext}`);
+    lines.push(`本地增强：开启${body.county ? `（${body.county}）` : ""}`);
+    if (body.kbContext) lines.push(`本地知识库：\n${body.kbContext}`);
   } else {
-    lines.push("县域增强：关闭");
+    lines.push("本地增强：关闭");
   }
   const userContent = lines.join("\n");
 

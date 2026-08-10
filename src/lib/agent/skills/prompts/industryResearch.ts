@@ -58,7 +58,7 @@ function fullReportUser(topic: string, span: string, region?: string): string {
     "8) 对标案例对比（约 300 字）",
     "9) 参考文献（强制，列正文已引用的来源）",
     "",
-    "要求：结论可执行；适配县域农文旅语境时可结合本地产业链；禁止假装已检索未给出的网页。",
+    "要求：结论可执行；适配区县农文旅语境时可结合本地产业链；禁止假装已检索未给出的网页。",
   ]
     .filter(Boolean)
     .join("\n");
@@ -110,7 +110,7 @@ function pricingUser(topic: string, span: string, region?: string): string {
     "1) 四问设计：Too Expensive / Too Cheap / Expensive(High Side) / Cheap(Good Value)",
     "2) 结合品类与客群，给出合理价格锚点区间判断（标明假设）",
     "3) 识别 OPP（最优价格点）与可接受价格带",
-    "4) 对县域农文旅/消费品的定价落地建议",
+    "4) 对区县农文旅/消费品的定价落地建议",
     "5) 数据缺口与校验方式",
     "6) 参考文献",
   ]

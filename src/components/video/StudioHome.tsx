@@ -17,7 +17,7 @@ const DEFAULT_NEW_SETTINGS: Record<string, string> = {
   视频风格: videoStyles[0].name,
   视频质量: "480P",
   字幕: "显示",
-  县域增强: "使用",
+  本地增强: "使用",
 };
 // 新建时把用户选择的视频设定暂存于此，Studio 初始化新项目时读取并清除
 export const NEW_SETTINGS_KEY = "mofun.studio.newSettings";

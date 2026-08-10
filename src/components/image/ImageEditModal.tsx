@@ -9,6 +9,8 @@ import { nowStamp } from "@/lib/datetime";
 import { imgToDataUrl, displaySrc } from "@/lib/image";
 import { imageTools } from "@/data/image";
 import { DeepEditModal } from "./DeepEditModal";
+import { PointsCost } from "@/components/ui/PointsCost";
+import { POINT_COST } from "@/lib/pointCosts";
 
 /* 活动图「编辑/下载」工作台（全屏，参考稿定/美图的图片编辑器）：
    - 顶栏：返回 / 重新上传 / 重置原图 / 对比原图 / 下载
@@ -305,14 +307,18 @@ export function ImageEditModal({
                     <div className={scale === 2 ? "seg-item on" : "seg-item"} onClick={() => setScale(2)}>2X</div>
                     <div className={scale === 4 ? "seg-item on" : "seg-item"} onClick={() => setScale(4)}>4X</div>
                   </div>
-                  <button className="btn imedit-go" disabled={busy} onClick={runCurrent}>开始放大</button>
+                  <button className="btn imedit-go" disabled={busy} onClick={runCurrent}>
+                    开始放大 <PointsCost amount={POINT_COST.imageEnhance} />
+                  </button>
                 </>
               )}
               {active === "erase" && (
                 <>
                   <span className="imedit-act-label">画笔粗细</span>
                   <input type="range" className="slider imedit-brush" min={10} max={100} value={brush} onChange={(e) => setBrush(Number(e.target.value))} />
-                  <button className="btn imedit-go" disabled={busy} onClick={runCurrent}>开始消除</button>
+                  <button className="btn imedit-go" disabled={busy} onClick={runCurrent}>
+                    开始消除 <PointsCost amount={POINT_COST.imageErase} />
+                  </button>
                 </>
               )}
               {active === "matting" && (
@@ -325,7 +331,9 @@ export function ImageEditModal({
                       </button>
                     ))}
                   </div>
-                  <button className="btn imedit-go" disabled={busy} onClick={runCurrent}>开始抠图</button>
+                  <button className="btn imedit-go" disabled={busy} onClick={runCurrent}>
+                    开始抠图 <PointsCost amount={POINT_COST.imageMatte} />
+                  </button>
                 </>
               )}
               {active === "expand" && (
@@ -334,17 +342,23 @@ export function ImageEditModal({
                   <input className="imedit-num" type="number" value={expandW} onChange={(e) => setExpandW(e.target.value)} />
                   <span className="imedit-act-label">高度</span>
                   <input className="imedit-num" type="number" value={expandH} onChange={(e) => setExpandH(e.target.value)} />
-                  <button className="btn imedit-go" disabled={busy} onClick={runCurrent}>扩图</button>
+                  <button className="btn imedit-go" disabled={busy} onClick={runCurrent}>
+                    扩图 <PointsCost amount={POINT_COST.imageExpand} />
+                  </button>
                 </>
               )}
               {active === "repair" && (
-                <button className="btn imedit-go" disabled={busy} onClick={runCurrent}>开始修复</button>
+                <button className="btn imedit-go" disabled={busy} onClick={runCurrent}>
+                  开始修复 <PointsCost amount={POINT_COST.imageRepair} />
+                </button>
               )}
               {active === "vector" && (
                 <>
                   <button className={vecPro ? "imedit-vecmodel" : "imedit-vecmodel on"} onClick={() => setVecPro(false)}>基础矢量模型</button>
                   <button className={vecPro ? "imedit-vecmodel on" : "imedit-vecmodel"} onClick={() => setVecPro(true)}>增强矢量模型 <b>pro</b></button>
-                  <button className="btn imedit-go" disabled={busy} onClick={runCurrent}>开始转换</button>
+                  <button className="btn imedit-go" disabled={busy} onClick={runCurrent}>
+                    开始转换 <PointsCost amount={vecPro ? POINT_COST.imageVectorPro : POINT_COST.imageVectorBasic} />
+                  </button>
                 </>
               )}
             </div>

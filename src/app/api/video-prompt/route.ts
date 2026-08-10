@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     messages.push({
       role: "system",
       content:
-        `【县域知识库${county ? `·${county}` : ""}】请结合县域特色优化画面描述，不要编造与资料冲突的事实。` +
+        `【本地知识库${county ? `·${county}` : ""}】请结合本地特色优化画面描述，不要编造与资料冲突的事实。` +
         (kbContext ? `\n${kbContext}` : ""),
     });
   }

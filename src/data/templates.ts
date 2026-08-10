@@ -245,7 +245,7 @@ const featuredTemplates: Template[] = [
     img: "/active/yilabao-zhaoshang.png",
     fill: {
       input:
-        "县域招商宣传大片：航拍产业园与田园风光，企业访谈与落地项目镜头，字幕突出「区位优势 · 政策护航 · 共富机遇」",
+        "区县招商宣传大片：航拍产业园与田园风光，企业访谈与落地项目镜头，字幕突出「区位优势 · 政策护航 · 共富机遇」",
     },
   },
   {
@@ -277,7 +277,7 @@ const featuredTemplates: Template[] = [
     fill: {
       eventSub: "易拉宝",
       input:
-        "科技风招商推介易拉宝，浅蓝渐变背景，顶部主标题「汇聚力量 共赴新程」，副标题县域投资峰会。中间分模块展示区位优势、产业政策、落地案例与对接方式，底部配二维码，整体简约高级，信息清晰易读。",
+        "科技风招商推介易拉宝，浅蓝渐变背景，顶部主标题「汇聚力量 共赴新程」，副标题区县投资峰会。中间分模块展示区位优势、产业政策、落地案例与对接方式，底部配二维码，整体简约高级，信息清晰易读。",
     },
   },
   {
@@ -325,7 +325,7 @@ const featuredTemplates: Template[] = [
     img: "/active/changtu-zhengce.png",
     fill: {
       product: "和美乡村政策要点",
-      brand: "县域宣讲",
+      brand: "区县宣讲",
       audience: "农户与村集体",
       advantage: "一图读懂惠民举措，报名线下宣讲会，咨询专员一对一答疑",
       platforms: "微信朋友圈,小红书",

@@ -56,6 +56,8 @@ export interface LogoRunRow {
   results: LogoResult[];
   error?: string; // 生成失败时的原因
   regionEnhance?: boolean;
+  useLora?: boolean;
+  useKB?: boolean;
   regionId?: string;
 }
 
@@ -197,12 +199,13 @@ export function LogoGallery({
                         </button>
                       </div>
                       <div className="lh-imgs">
-                        {shown.map(({ r, key }) => (
+                        {shown.map(({ r, key }, idx) => (
                           <LogoResultCard
                             key={key}
                             result={r}
                             toast={toast}
                             name={it.prompt}
+                            index={idx + 1}
                             fav={isFav(key)}
                             onToggleFav={() => toggleFav(key)}
                           />
@@ -307,7 +310,9 @@ function LogoRunRowView({
           {row.desc && <span className="lh-desc">{row.desc}</span>}
         </span>
         <span className="lg-cat">{row.style}</span>
-        {row.regionEnhance && <RegionEnhanceBadge regionId={row.regionId} />}
+        {row.regionEnhance && (
+          <RegionEnhanceBadge regionId={row.regionId} useLora={row.useLora} useKB={row.useKB} />
+        )}
         {!loading && (
           <>
             <button className="lh-ico lh-tip" data-tip="复制" aria-label="复制" onClick={() => onCopy(row.style, row.prompt)}>
@@ -341,6 +346,7 @@ function LogoRunRowView({
               result={r}
               toast={toast}
               name={row.prompt}
+              index={i + 1}
               fav={isFav(key)}
               onToggleFav={() => onToggleFav(key)}
             />
@@ -355,12 +361,14 @@ function LogoResultCard({
   result,
   toast,
   name = "AI 生成 LOGO",
+  index = 1,
   fav = false,
   onToggleFav,
 }: {
   result: LogoResult;
   toast: (s: string) => void;
   name?: string;
+  index?: number;
   fav?: boolean;
   onToggleFav?: () => void;
 }) {
@@ -374,8 +382,9 @@ function LogoResultCard({
     emoji: result.emoji,
     grad: result.grad as AssetCard["grad"],
     kind,
-    name: `${name} · LOGO`,
+    name: `${name} · LOGO ${index}`,
     sub: "品牌设计 · logo",
+    module: "image",
     img: result.img,
     time: nowStamp(),
   });

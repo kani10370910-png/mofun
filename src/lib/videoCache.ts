@@ -62,3 +62,57 @@ export async function putCachedVideo(key: string, blob: Blob): Promise<void> {
     }
   });
 }
+
+/** 删除缓存条目（仓库删视频时清理孤儿 blob）。 */
+export async function deleteCachedVideo(key: string): Promise<void> {
+  const db = await openDB();
+  if (!db) return;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+/** 从 mediaRef（`idb:runId` / https）解析可播放地址；idb 命中时返回 objectURL（调用方负责 revoke）。 */
+export async function resolveMediaRef(mediaRef?: string): Promise<string | null> {
+  if (!mediaRef?.trim()) return null;
+  const ref = mediaRef.trim();
+  if (/^https?:\/\//i.test(ref) || ref.startsWith("blob:") || ref.startsWith("/")) return ref;
+  if (ref.startsWith("idb:")) {
+    const key = ref.slice(4);
+    const blob = await getCachedVideo(key);
+    if (!blob) return null;
+    return URL.createObjectURL(blob);
+  }
+  // 兜底：当作 IndexedDB key
+  const blob = await getCachedVideo(ref);
+  if (!blob) return null;
+  return URL.createObjectURL(blob);
+}
+
+/** 仓库卡片：优先外链 videoUrl，否则解析 mediaRef。返回 { url, revoke? }。 */
+export async function resolveAssetPlayback(item: {
+  videoUrl?: string;
+  mediaRef?: string;
+}): Promise<{ url: string; revoke?: () => void } | null> {
+  const direct = item.videoUrl?.trim();
+  if (direct && !direct.startsWith("blob:")) {
+    return { url: direct };
+  }
+  if (direct?.startsWith("blob:")) {
+    return { url: direct };
+  }
+  const resolved = await resolveMediaRef(item.mediaRef);
+  if (!resolved) return null;
+  if (resolved.startsWith("blob:")) {
+    return { url: resolved, revoke: () => URL.revokeObjectURL(resolved) };
+  }
+  return { url: resolved };
+}

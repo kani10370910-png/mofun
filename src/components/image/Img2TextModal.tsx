@@ -177,7 +177,7 @@ export function Img2TextModal({
           {busy ? (
             <span className="propose-loading"><Icon name="refresh" size={15} className="ico-spin" /> 转换中</span>
           ) : (
-            "转换成描述词"
+            <>转换成描述词</>
           )}
         </button>
       </div>

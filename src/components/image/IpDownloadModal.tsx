@@ -6,7 +6,11 @@ import { useToast } from "@/components/ui/Toast";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import { imgToDataUrl, displaySrc } from "@/lib/image";
+import { findWorkForSession, mergeBundleItem, primaryBundle } from "@/lib/workBundle";
+import { buildWorkSummaryText } from "@/lib/workMeta";
 import { IpPeriphModal } from "./IpPeriphModal";
+import { PointsCost } from "@/components/ui/PointsCost";
+import { POINT_COST, imageShotPoints } from "@/lib/pointCosts";
 
 /* IP 设计生成信息弹窗（点「编辑/下载」弹出）：
    左侧大图预览（可放大），右侧：生成信息 + 图片处理（AI抠图/生成三视图）+ 生成周边入口 + 2K 高清下载。
@@ -24,7 +28,7 @@ export function IpDownloadModal({
   onClose: () => void;
 }) {
   const toast = useToast();
-  const { addWork } = useLibrary();
+  const { addWork, updateAsset, works } = useLibrary();
   const [zoom, setZoom] = useState(false);
   const [mattingBusy, setMattingBusy] = useState(false); // AI 抠图中（就地处理）
   const [periph, setPeriph] = useState(false); // 生成周边工作台
@@ -50,16 +54,34 @@ export function IpDownloadModal({
     });
   }
 
-  // 把生成的图存入「仓库 · 我的作品」
+  // 把生成的图追加到同一次 IP 作品 bundle（无父作品则新建一条）
   function saveToWorks(url: string, label: string) {
+    const parent = findWorkForSession(works, name);
+    if (parent) {
+      const bundle = mergeBundleItem(primaryBundle(parent), { label, img: url });
+      updateAsset({ ...parent, bundle, updatedAt: new Date().toISOString() });
+      return;
+    }
     addWork({
       emoji: "🧸",
       grad: "thumb-grad-1",
       kind: "图片",
-      name: `${name} · ${label}`,
+      name: `${name} · IP 设计`,
       sub: "品牌设计 · IP 设计",
       img: url,
+      bundle: [{ label, img: url }],
+      module: "image",
       time: nowStamp(),
+      edit: {
+        sub: "ip",
+        title: name,
+        input: desc?.trim() || name,
+      },
+      text: buildWorkSummaryText({
+        sub: "ip",
+        title: name,
+        input: desc?.trim() || name,
+      }),
     });
   }
 
@@ -224,15 +246,15 @@ export function IpDownloadModal({
               <div className="ipdl-tools">
                 <button className="ipdl-tool" onClick={() => img && setPeriph(true)} disabled={!img}>
                   <Icon name="sparkle" size={20} />
-                  <span>生成周边</span>
+                  <span>生成周边 <PointsCost amount={POINT_COST.imageIpPeriph} /></span>
                 </button>
                 <button className="ipdl-tool" onClick={runMatting} disabled={mattingBusy || !img}>
                   {mattingBusy ? <span className="dl-spinner" /> : <Icon name="toolMatting" size={20} />}
-                  <span>{mattingBusy ? "抠图中…" : "AI抠图"}</span>
+                  <span>{mattingBusy ? "抠图中…" : <>AI抠图 <PointsCost amount={POINT_COST.imageMatte} /></>}</span>
                 </button>
                 <button className="ipdl-tool" onClick={genThreeView} disabled={tvBusy || !img}>
                   {tvBusy ? <span className="dl-spinner" /> : <Icon name="toolExpand" size={20} />}
-                  <span>{tvBusy ? "生成中…" : "生成三视图"}</span>
+                  <span>{tvBusy ? "生成中…" : <>生成三视图 <PointsCost amount={imageShotPoints()} /></>}</span>
                 </button>
               </div>
             </div>

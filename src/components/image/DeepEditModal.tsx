@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { displaySrc } from "@/lib/image";
+import { PointsCost } from "@/components/ui/PointsCost";
+import { POINT_COST } from "@/lib/pointCosts";
 
 /* 「深度编辑」：把一张海报变成分层可编辑的平面画布。
    两个阶段：
@@ -170,7 +172,7 @@ export function DeepEditModal({
             <button className={`dcanvas-head-btn ${panel === "text" ? "on" : ""}`} onClick={() => togglePanel("text")}><Icon name="content" size={16} /> 文字</button>
             <button className={`dcanvas-head-btn ${panel === "image" ? "on" : ""}`} onClick={() => togglePanel("image")}><Icon name="image" size={16} /> 图片</button>
             <button className={`dcanvas-head-btn ${panel === "asset" ? "on" : ""}`} onClick={() => togglePanel("asset")}><Icon name="storage" size={16} /> 素材</button>
-            <button className={`dcanvas-head-btn ${panel === "gen" ? "on" : ""}`} onClick={() => togglePanel("gen")}><Icon name="sparkle" size={16} /> 生成</button>
+            <button className={`dcanvas-head-btn ${panel === "gen" ? "on" : ""}`} onClick={() => togglePanel("gen")}>生成</button>
           </div>
           <div className="dcanvas-head-right">
             <button className="btn btn-primary btn-sm" onClick={() => toast("已下载设计文件（演示）")}>下载设计文件</button>
@@ -262,7 +264,9 @@ export function DeepEditModal({
                     <img className="dpanel-gen-ref" src={displaySrc(img)} alt={name} />
                   )}
                   <button className="dpanel-gen-change" onClick={() => toast("换一换（演示）")}>换一换</button>
-                  <button className="dpanel-gen-go" onClick={() => toast("开始生成（演示）")}><Icon name="sparkle" size={15} /> 开始生成</button>
+                  <button className="dpanel-gen-go" onClick={() => toast("开始生成（演示）")}>
+                    开始生成 <PointsCost amount={POINT_COST.imagePerShot} />
+                  </button>
                 </div>
               </div>
             )}

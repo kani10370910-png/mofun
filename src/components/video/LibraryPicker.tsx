@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "@/components/ui/Icon";
-import { useLibrary, assetKey } from "@/lib/store";
+import { useLibrary, assetKey, assetDedupeKey } from "@/lib/store";
 import { myWorks, myMaterials } from "@/data/storage";
 import type { AssetCard } from "@/lib/types";
+import { resolveAssetPlayback } from "@/lib/videoCache";
 
 // 取 sub 最后一段作为来源标签，如 "品牌设计 · IP 设计" → "IP 设计"
 function subLabel(sub: string): string {
@@ -44,11 +45,13 @@ export function LibraryPicker({
 
   // 当前 tab 的卡片：合并种子数据 → 隐藏过滤 → 按 filter 取图片/视频 → 去重
   const allItems = useMemo(() => {
+    const hiddenOf = (hidden: string[], it: AssetCard) =>
+      hidden.includes(assetKey(it)) || hidden.includes(assetDedupeKey(it));
     const src = tab === "works"
-      ? [...works, ...myWorks].filter((w) => !hiddenWorks.includes(assetKey(w)))
-      : [...materials, ...myMaterials].filter((m) => !hiddenMaterials.includes(assetKey(m)));
+      ? [...works, ...myWorks].filter((w) => !hiddenOf(hiddenWorks, w))
+      : [...materials, ...myMaterials].filter((m) => !hiddenOf(hiddenMaterials, m));
     const kept = filter === "video"
-      ? src.filter((it) => it.kind === "视频" && it.videoUrl)
+      ? src.filter((it) => it.kind === "视频" && !!(it.videoUrl || it.mediaRef))
       : src.filter((it) => it.img && it.kind !== "视频");
     const seen = new Set<string>();
     return kept.filter((it) => {
@@ -113,12 +116,24 @@ export function LibraryPicker({
           </div>
         ) : (
           <div className="libpick-grid">
-            {list.map((it, i) => (
+            {list.map((it) => (
               <button
-                key={assetKey(it) + i}
+                key={assetKey(it)}
                 className="libpick-item"
                 title={`选择：${it.name}`}
-                onClick={() => { onPick(it); onClose(); }}
+                onClick={() => {
+                  void (async () => {
+                    if (filter === "video" && !it.videoUrl && it.mediaRef) {
+                      const play = await resolveAssetPlayback(it);
+                      if (!play) return;
+                      onPick({ ...it, videoUrl: play.url });
+                      onClose();
+                      return;
+                    }
+                    onPick(it);
+                    onClose();
+                  })();
+                }}
               >
                 {it.img ? (
                   // eslint-disable-next-line @next/next/no-img-element

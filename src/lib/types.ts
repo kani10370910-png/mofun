@@ -349,6 +349,10 @@ export interface VideoRunRow {
   voice?: string; // 旁白/对白音色（音画管线）
   bgm?: string; // 背景音乐（音画管线）
   withAudio?: boolean; // 是否同时生成声音（false = 静音视频，不生成任何音轨）
+  /** 计价用：生成时选用的视频模型（显示名或 modelId） */
+  model?: string;
+  /** 计价用：生成时选用的画质档 */
+  quality?: string;
   failReason?: string; // 生成失败时的具体原因（来自 API 错误信息）
   regionEnhance?: boolean;
   regionId?: string;
@@ -380,15 +384,36 @@ export interface ResearchType {
 }
 
 /* ---------- 仓库 ---------- */
+/** 同一次生成会话内的单张图/视频条目（主图、变体、三视图、周边等） */
+export interface WorkBundleItem {
+  label: string;
+  img?: string;
+  videoUrl?: string;
+  mediaRef?: string;
+}
+
 export interface AssetCard {
+  /** Schema v2：稳定主键；旧数据加载时会自动补齐 */
+  id?: string;
   emoji: string;
   kind: string;
   name: string;
   sub: string;
   grad: Grad;
   time?: string; // 生成时间「YYYY-MM-DD HH:mm」（自动保存的作品带）
+  /** ISO 时间戳，便于排序/迁移；time 仍作展示 */
+  createdAt?: string;
+  updatedAt?: string;
+  /** 来源模块：content | image | video | research | home */
+  module?: string;
   img?: string; // 真实图片路径，有则优先于 emoji
   videoUrl?: string; // 真实视频地址（视频类作品/素材），供制作大片「从仓库调取视频」复用
+  /** 媒体引用：idb:runId / https://...；优先于易失效的 blob: */
+  mediaRef?: string;
+  /** 文案/报告正文或摘要（统一仓库可回看） */
+  text?: string;
+  /** 同一次生成的多图/衍生图集合；有则卡片代表整批作品 */
+  bundle?: WorkBundleItem[];
   edit?: Record<string, string>; // 二次编辑回填数据（如 { brand, style } / { text, effect } / { input }）
 }
 
@@ -427,13 +452,13 @@ export interface GenerateRequest {
   scene: ContentSceneKey | "research-brand" | "research-industry" | "research-hotsale" | "ip" | "ip-propose" | "ip-story-desc" | "ip-story" | "t2i-associate" | "t2i-event" | "t2i-product" | "studio-script" | "studio-script-pro" | "studio-assets" | "studio-asset-desc" | "studio-char-info" | "studio-idea" | "studio-summary" | "studio-shots" | "studio-safe-rewrite" | "studio-style-match" | "studio-speakers" | "studio-voice-match" | "studio-shot-elements" | "studio-shot-elements-fill" | "avatar-script" | "agent-chat";
   mode?: "outline" | "full";
   styleHint?: string; // 制作大片：项目「视频风格」描述词，注入文本扩写使全片文字基调与画面风格一致（智能匹配为空）
-  useKB?: boolean; // 是否使用县域知识库
-  kbContext?: string; // 县域知识库摘要（开启增强时由前端注入）
+  useKB?: boolean; // 是否使用区县知识库
+  kbContext?: string; // 区县知识库摘要（开启增强时由前端注入）
   /* t2i-event / t2i-product（文生图扩写）专用 */
   eventSub?: string; // 成图类型：海报/长图… 或 白底主图/产地场景…
   imageRatio?: string; // 图片比例（如 3:4）
   artStyle?: string; // 画面风格（如 国潮）
-  county?: string; // 县域/地区（暂为空）
+  county?: string; // 区县/地区（暂为空）
   tone?: string;
   length?: string;
   brandAsset?: string;
@@ -444,6 +469,16 @@ export interface GenerateRequest {
   advantage?: string;
   platforms?: string[];
   outline?: string;
+  /** 今天推什么：上新/促销/种草… */
+  intent?: string;
+  /** 钩子类型 */
+  hook?: string;
+  /** 行动号召 */
+  cta?: string;
+  /** 爆款原文 */
+  rewriteSource?: string;
+  /** 改写模式 */
+  rewriteMode?: string;
   /* official / brand 专用 */
   input?: string;
   title?: string; // 公众号：文章标题

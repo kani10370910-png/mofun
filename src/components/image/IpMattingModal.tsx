@@ -7,6 +7,8 @@ import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import type { AssetCard } from "@/lib/types";
 import { MattingBrushEditor, type BrushApi } from "./MattingBrushEditor";
+import { PointsCost } from "@/components/ui/PointsCost";
+import { POINT_COST } from "@/lib/pointCosts";
 
 /* 加载图片为 HTMLImageElement（同源/已授权 CORS） */
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -335,7 +337,7 @@ export function IpMattingModal({
                 </button>
               </div>
               <button className="iw-foot-soft-btn" onClick={exitBrush}>
-                <Icon name="sparkle" size={15} /> 智能识别
+                智能识别
               </button>
               <button className="iw-foot-soft-btn on" onClick={exitBrush}>
                 <Icon name="search" size={15} /> 退出修整
@@ -356,7 +358,7 @@ export function IpMattingModal({
                 onClick={() => { setRecog("smart"); setEditing(false); }}
                 disabled={!img}
               >
-                <Icon name="sparkle" size={15} /> 智能识别
+                智能识别
               </button>
               <button className="iw-foot-soft-btn" onClick={enterBrush} disabled={!img}>
                 <Icon name="search" size={15} /> 快速选择
@@ -369,7 +371,7 @@ export function IpMattingModal({
                 {phase === "running" ? (
                   <><span className="matting-spinner matting-spinner-sm" /> 抠图中</>
                 ) : (
-                  <>开始抠图 <span className="iw-go-credit">2算力/次</span></>
+                  <>开始抠图 <PointsCost amount={POINT_COST.imageMatte} perTime className="iw-go-credit" /></>
                 )}
               </button>
             </div>

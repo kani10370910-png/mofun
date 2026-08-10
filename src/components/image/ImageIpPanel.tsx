@@ -13,6 +13,8 @@ import { imgToDataUrl } from "@/lib/image";
 import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
 import { accountRegionId, kbFields, notifyRegionEnhance } from "@/lib/regionEnhance";
 import { useAuth } from "@/lib/AuthContext";
+import { PointsCost } from "@/components/ui/PointsCost";
+import { POINT_COST } from "@/lib/pointCosts";
 
 // 参考图/IP 图上传校验
 const ALLOWED_IMG_EXTS = new Set(["jpg", "jpeg", "png", "webp"]);
@@ -102,6 +104,8 @@ export interface IpGenPayload {
   // 因此本地 blob: 上传图也能图生图保一致，不再依赖公网 URL。
   refImage?: string;
   regionEnhance?: boolean;
+  useLora?: boolean;
+  useKB?: boolean;
   regionId?: string;
   // —— 扩展设计的结构化展示信息（生成历史卡片头用，替代裸 prompt 文字）——
   ext?: {
@@ -150,6 +154,8 @@ export function ImageIpPanel({
   const { user } = useAuth();
   const regionId = accountRegionId(user);
   const [regionEnhance, setRegionEnhance] = useState(true);
+  const [useLora, setUseLora] = useState(true);
+  const [useKB, setUseKB] = useState(true);
   // 受控优先：父级传了 designTab 就用它，否则用内部 state（向后兼容）
   const [innerTab, setInnerTab] = useState<"create" | "extend">("create");
   const tab = designTab ?? innerTab;
@@ -166,7 +172,13 @@ export function ImageIpPanel({
 
   const wrapGenerate = (payload?: IpGenPayload) => {
     if (!payload) return onGenerate(payload);
-    onGenerate({ ...payload, regionEnhance, regionId });
+    onGenerate({
+      ...payload,
+      regionEnhance: useLora || useKB,
+      useLora,
+      useKB,
+      regionId,
+    });
   };
 
   return (
@@ -182,8 +194,16 @@ export function ImageIpPanel({
       {tab === "create" ? (
         <IpCreate
           onGenerate={wrapGenerate}
-          regionEnhance={regionEnhance}
-          onRegionEnhanceChange={setRegionEnhance}
+          useLora={useLora}
+          useKB={useKB}
+          onLoraChange={(next) => {
+            setUseLora(next);
+            setRegionEnhance(next || useKB);
+          }}
+          onKBChange={(next) => {
+            setUseKB(next);
+            setRegionEnhance(useLora || next);
+          }}
           regionId={regionId}
           loading={loading}
           onPropose={onPropose}
@@ -194,8 +214,16 @@ export function ImageIpPanel({
       ) : (
         <IpExtend
           onGenerate={wrapGenerate}
-          regionEnhance={regionEnhance}
-          onRegionEnhanceChange={setRegionEnhance}
+          useLora={useLora}
+          useKB={useKB}
+          onLoraChange={(next) => {
+            setUseLora(next);
+            setRegionEnhance(next || useKB);
+          }}
+          onKBChange={(next) => {
+            setUseKB(next);
+            setRegionEnhance(useLora || next);
+          }}
           regionId={regionId}
           loading={loading}
           toast={toast}
@@ -218,8 +246,10 @@ function IpCreate({
   proposeFill,
   copyFill,
   fillSeq,
-  regionEnhance = true,
-  onRegionEnhanceChange,
+  useLora = true,
+  useKB = true,
+  onLoraChange,
+  onKBChange,
   regionId,
 }: {
   onGenerate: (payload?: IpGenPayload) => void;
@@ -228,8 +258,10 @@ function IpCreate({
   proposeFill?: string;
   copyFill?: IpCopyPayload | null;
   fillSeq?: number;
-  regionEnhance?: boolean;
-  onRegionEnhanceChange?: (next: boolean) => void;
+  useLora?: boolean;
+  useKB?: boolean;
+  onLoraChange?: (next: boolean) => void;
+  onKBChange?: (next: boolean) => void;
   regionId?: string;
 }) {
   const toast = useToast();
@@ -336,7 +368,7 @@ function IpCreate({
       preferredColors: colors,
       canvasSize,
       hasReference: uploaded,
-      ...kbFields(regionEnhance, regionId),
+      ...kbFields(useKB, regionId),
     });
     if (opt.state.error) {
       toast(opt.state.error, "warn");
@@ -398,8 +430,10 @@ function IpCreate({
     <>
       <div className="ws-scroll">
       <RegionEnhanceStrip
-        enabled={regionEnhance}
-        onChange={(next) => onRegionEnhanceChange?.(next)}
+        useLora={useLora}
+        onLoraChange={(next) => onLoraChange?.(next)}
+        useKB={useKB}
+        onKBChange={(next) => onKBChange?.(next)}
         regionId={regionId}
         showLora={true}
       />
@@ -415,7 +449,7 @@ function IpCreate({
             placeholder={`例：「稻小金」——拟人化金色稻穗，头戴斗笠，圆眼弯眉，憨厚微笑，身穿汉服马甲，手持丰收镰刀。象征丰收喜悦，专属某县农业局品牌IP。`}
           />
           <button className="ip-propose-btn" onClick={() => onPropose?.(true, desc)}>
-            <Icon name="sparkle" size={14} /> 帮我提案
+            帮我提案
           </button>
           {desc.trim() && (
             <button type="button" className="ta-clear" onClick={() => setDesc("")}>
@@ -550,7 +584,13 @@ function IpCreate({
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading || opt.state.loading} onClick={handleGenerate}>
-          {opt.state.loading ? "正在优化描述…" : "立即生成"} <span className="btn-credit">80算力</span>
+          {opt.state.loading ? (
+            "正在优化描述…"
+          ) : (
+            <>
+              立即生成 <PointsCost amount={POINT_COST.imageIp} />
+            </>
+          )}
         </button>
       </div>
       {brandWarnOpen && (
@@ -711,7 +751,7 @@ export function ProposePanel({
       <div className="propose-panel" ref={panelRef}>
         <div className="propose-head">
           <span className="propose-title">
-            <Icon name="sparkle" size={16} /> 帮我提案
+            帮我提案
           </span>
           <button className="bf-close" onClick={onClose} aria-label="关闭">
             <Icon name="close" size={18} />
@@ -756,7 +796,7 @@ export function ProposePanel({
           {loading ? (
             <span className="propose-loading"><Icon name="refresh" size={15} className="ico-spin" /> 生成中</span>
           ) : (
-            "开始生成"
+            <>开始生成</>
           )}
         </button>
         {errMsg && <div className="propose-err">{errMsg}</div>}
@@ -775,8 +815,10 @@ function IpExtend({
   proposeFill,
   copyFill,
   fillSeq,
-  regionEnhance = true,
-  onRegionEnhanceChange,
+  useLora = true,
+  useKB = true,
+  onLoraChange,
+  onKBChange,
   regionId,
 }: {
   onGenerate: (payload?: IpGenPayload) => void;
@@ -787,8 +829,10 @@ function IpExtend({
   proposeFill?: string;
   copyFill?: IpCopyPayload | null;
   fillSeq?: number;
-  regionEnhance?: boolean;
-  onRegionEnhanceChange?: (next: boolean) => void;
+  useLora?: boolean;
+  useKB?: boolean;
+  onLoraChange?: (next: boolean) => void;
+  onKBChange?: (next: boolean) => void;
   regionId?: string;
 }) {
   // 每个延展项各记一个选中预设（默认未选 = 该项第一个预设「不使用预设」）
@@ -1020,8 +1064,10 @@ function IpExtend({
     <>
       <div className="ws-scroll">
       <RegionEnhanceStrip
-        enabled={regionEnhance}
-        onChange={(next) => onRegionEnhanceChange?.(next)}
+        useLora={useLora}
+        onLoraChange={(next) => onLoraChange?.(next)}
+        useKB={useKB}
+        onKBChange={(next) => onKBChange?.(next)}
         regionId={regionId}
         showLora={true}
       />
@@ -1204,7 +1250,7 @@ function IpExtend({
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={handleExtGenerate}>
-          立即生成 <span className="btn-credit">80算力</span>
+          立即生成 <PointsCost amount={POINT_COST.imageIpExt} />
         </button>
       </div>
 

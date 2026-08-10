@@ -7,7 +7,11 @@ import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import { ipExtendPresets, ipPresetPrompts } from "@/data/image";
 import { imgToDataUrl, displaySrc } from "@/lib/image";
+import { findWorkForSession, mergeBundleItem, primaryBundle } from "@/lib/workBundle";
+import { buildWorkSummaryText } from "@/lib/workMeta";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
+import { PointsCost } from "@/components/ui/PointsCost";
+import { POINT_COST } from "@/lib/pointCosts";
 
 /* 生成周边工作台（全屏，仿 AI 抠图工作台）：
    - 顶栏：左上「返回」（回到 IP设计生成信息弹窗），标题「生成周边」居中
@@ -41,7 +45,7 @@ export function IpPeriphModal({
   onClose: () => void;
 }) {
   const toast = useToast();
-  const { addWork } = useLibrary();
+  const { addWork, updateAsset, works } = useLibrary();
 
   // 周边预设品类（去掉「不使用预设」），默认选中第一个
   const presets = ipExtendPresets["周边"].filter((p) => p !== "不使用预设");
@@ -62,16 +66,27 @@ export function IpPeriphModal({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // 存入「仓库 · 我的作品」
+  // 追加到同一次 IP 作品 bundle
   function saveToWorks(url: string, label: string) {
+    const bundleLabel = `周边·${label}`;
+    const parent = findWorkForSession(works, name);
+    if (parent) {
+      const bundle = mergeBundleItem(primaryBundle(parent), { label: bundleLabel, img: url });
+      updateAsset({ ...parent, bundle, updatedAt: new Date().toISOString() });
+      return;
+    }
     addWork({
       emoji: "🧸",
       grad: "thumb-grad-1",
       kind: "图片",
-      name: `${name} · ${label}`,
+      name: `${name} · IP 设计`,
       sub: "品牌设计 · IP 设计",
       img: url,
+      bundle: [{ label: bundleLabel, img: url }],
+      module: "image",
       time: nowStamp(),
+      edit: { sub: "ip", title: name, input: name },
+      text: buildWorkSummaryText({ sub: "ip", title: name, input: name }),
     });
   }
 
@@ -308,7 +323,7 @@ export function IpPeriphModal({
                 {busy ? (
                   <><span className="dl-spinner" /> 正在生成…</>
                 ) : (
-                  <><Icon name="sparkle" size={15} /> 生成周边 <span className="ipdl-ext-credit">80算力</span></>
+                  <>生成周边 <PointsCost amount={POINT_COST.imageIpPeriph} className="ipdl-ext-credit" /></>
                 )}
               </button>
               <button className="ipdl-foot-dl-sel" onClick={downloadSelected} disabled={selected.size === 0}>

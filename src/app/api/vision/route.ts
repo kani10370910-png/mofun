@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     const county = (body.county || "").trim();
     const kb = (body.kbContext || "").trim();
     prompt +=
-      `\n【县域语境${county ? `·${county}` : ""}】在不违背「忠于原图」的前提下，可自然融入县域风貌与物产表述；` +
+      `\n【区县语境${county ? `·${county}` : ""}】在不违背「忠于原图」的前提下，可自然融入区县风貌与物产表述；` +
       `颜色、手持物与图中没有的主体一律不得臆造。` +
       (kb ? `\n参考资料：\n${kb}` : "");
   }

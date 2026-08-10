@@ -1,0 +1,55 @@
+{
+  "summary": {
+    "total": 5,
+    "ok": 5,
+    "fail": 0,
+    "successRate": "100.0%",
+    "latencyMs": {
+      "min": 2805,
+      "p50": 3527,
+      "p95": 3579,
+      "max": 6242,
+      "avg": 3864
+    },
+    "errors": [],
+    "elapsedMs": 19301,
+    "rps": 0.26
+  },
+  "results": [
+    {
+      "ok": true,
+      "i": 0,
+      "ms": 3169,
+      "status": 200,
+      "chars": 247
+    },
+    {
+      "ok": true,
+      "i": 1,
+      "ms": 3527,
+      "status": 200,
+      "chars": 214
+    },
+    {
+      "ok": true,
+      "i": 2,
+      "ms": 6242,
+      "status": 200,
+      "chars": 241
+    },
+    {
+      "ok": true,
+      "i": 3,
+      "ms": 3579,
+      "status": 200,
+      "chars": 222
+    },
+    {
+      "ok": true,
+      "i": 4,
+      "ms": 2805,
+      "status": 200,
+      "chars": 224
+    }
+  ]
+}

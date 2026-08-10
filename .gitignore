@@ -43,6 +43,7 @@ _verify_online.js
 public/avatars_bak/
 public/avatars_bak_halfbody/
 public/omni-tmp/
+public/phone.dat
 
 tools/*.log
 

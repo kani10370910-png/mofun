@@ -3,7 +3,7 @@ import {
   modelSupportsCountyLora,
   resolveImageModelId,
   QWEN_I2I_LOCAL,
-  UI_QWEN_I2I,
+  QWEN_T2I_LOCAL,
 } from "@/lib/imageModelCatalog";
 
 export const runtime = "nodejs";
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     n?: number;
     model?: string;
     image?: string | string[];
-    lora?: { id?: string; strength?: number }[];
+    lora?: { id?: string; name?: string; strength?: number }[];
   };
   try {
     body = await req.json();
@@ -46,27 +46,23 @@ export async function POST(req: NextRequest) {
     if (!requested) return envModel;
     const id = resolveImageModelId(requested) || requested;
     if (modelSupportsCountyLora(requested)) {
+      // 文生 / 图生 UI 同名「MoFun区域文化大模型」：有参考图或旧图生别名 → 图生通道
       const isI2i =
+        Boolean(body.image) ||
         id === QWEN_I2I_LOCAL ||
-        requested === UI_QWEN_I2I ||
+        requested === "Qwen 图生图" ||
         requested.includes("图生图") ||
+        requested === "区县编辑模型" ||
         requested === "县域编辑模型" ||
         requested === "基础编辑模型";
       if (isI2i) {
-        return process.env.COUNTY_EDIT_IMAGE_MODEL || process.env.QWEN_I2I_MODEL || id;
+        return process.env.COUNTY_EDIT_IMAGE_MODEL || process.env.QWEN_I2I_MODEL || QWEN_I2I_LOCAL;
       }
-      return process.env.COUNTY_IMAGE_MODEL || process.env.QWEN_T2I_MODEL || id;
+      return process.env.COUNTY_IMAGE_MODEL || process.env.QWEN_T2I_MODEL || QWEN_T2I_LOCAL;
     }
     return id;
   }
   const reqModel = resolveUpstream(body.model);
-
-  if (Array.isArray(body.lora) && body.lora.length) {
-    const hint = body.lora
-      .map((l) => `${l.id || "lora"}:${Number(l.strength ?? 0.7).toFixed(2)}`)
-      .join(", ");
-    prompt = `${prompt}\n【lora】${hint}`;
-  }
 
   // 调用上游文生图；连接抖动（ECONNRESET，常见于本机代理）自动重试至多 3 次、退避递增。
   async function callImage(modelId: string): Promise<{ res: Response; text: string } | { err: string; status: number }> {

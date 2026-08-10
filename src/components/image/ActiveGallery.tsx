@@ -25,11 +25,11 @@ export interface EventRunRow {
   imgs: string[]; // 生成的真图 URL（与 grads 等长，空串=该位失败）
   grads: string[];
   error?: string;
-  /** 文生图是否启用了县域增强；仅 true 时展示角标 */
+  /** 文生图是否启用了本地增强；仅 true 时展示角标 */
   regionEnhance?: boolean;
-  /** 本次归属县域 id（角标地名） */
+  /** 本次归属区县 id（角标地名） */
   regionId?: string;
-  /** 本次是否挂载县域 Lora（仅县域模型族为 true） */
+  /** 本次是否挂载区县 Lora（仅区县模型族为 true） */
   regionLora?: boolean;
 }
 
@@ -43,7 +43,7 @@ const EVENT_LOAD_PHASES_BASE = [
 function eventLoadPhases(regionEnhance: boolean, useLora?: boolean) {
   if (!regionEnhance) return EVENT_LOAD_PHASES_BASE;
   return [
-    useLora ? "正在应用县域 Lora 与知识库…" : "正在引用县域知识库…",
+    useLora ? "正在应用本地 Lora 与知识库…" : "正在引用本地知识库…",
     ...EVENT_LOAD_PHASES_BASE,
   ];
 }
@@ -126,6 +126,7 @@ export function ActiveGallery({
   onUseCase,
   onPickCate,
   resultEdit = true,
+  workTag = "活动",
 }: {
   sub: string;
   source?: ActiveGalleryItem[];
@@ -140,6 +141,8 @@ export function ActiveGallery({
   onUseCase?: (it: ActiveGalleryItem) => void; // 套用模版：回填画面描述 + 成图类型 + 尺寸
   onPickCate?: (it: ActiveGalleryItem) => void; // 点卡片：左侧成图类型 + 尺寸跳到该卡（不填描述）
   resultEdit?: boolean; // 生成历史结果卡是否显示编辑/深度编辑（商拍关闭）
+  /** 入库作品名称后缀：活动 / 商拍 / 店招 */
+  workTag?: string;
 }) {
   const toast = useToast();
   const [innerTab, setInnerTab] = useState<"history" | "cases">("history");
@@ -248,6 +251,7 @@ export function ActiveGallery({
                     onCopy={() => onCopyRun?.(row.prompt)}
                     onDelete={() => setPendingDel(row.id)}
                     resultEdit={resultEdit}
+                    workTag={workTag}
                   />
                 ))}
               </div>
@@ -340,6 +344,7 @@ function EventRunRowView({
   onCopy,
   onDelete,
   resultEdit = true,
+  workTag = "活动",
 }: {
   row: EventRunRow;
   highlight?: boolean;
@@ -349,6 +354,7 @@ function EventRunRowView({
   onCopy: () => void;
   onDelete: () => void;
   resultEdit?: boolean;
+  workTag?: string;
 }) {
   const loading = row.pct < 100;
   const useRegion = row.regionEnhance === true;
@@ -406,6 +412,8 @@ function EventRunRowView({
               img={row.imgs[i]}
               grad={g}
               name={row.prompt}
+              index={i + 1}
+              workTag={workTag}
               fav={favs.has(key)}
               onToggleFav={() => onToggleFav(key)}
               resultEdit={resultEdit}
@@ -422,6 +430,8 @@ function EventResultCard({
   img,
   grad,
   name,
+  index = 1,
+  workTag = "活动",
   fav,
   onToggleFav,
   resultEdit = true,
@@ -429,6 +439,8 @@ function EventResultCard({
   img?: string;
   grad: string;
   name: string;
+  index?: number;
+  workTag?: string;
   fav?: boolean;
   onToggleFav?: () => void;
   resultEdit?: boolean;
@@ -444,8 +456,9 @@ function EventResultCard({
     emoji: "🎨",
     grad: grad as AssetCard["grad"],
     kind,
-    name: `${name.slice(0, 12) || "活动图"} · 活动`,
-    sub: "品牌设计 · 活动",
+    name: `${name.slice(0, 12) || `${workTag}图`} · ${workTag} ${index}`,
+    sub: `品牌设计 · ${workTag}`,
+    module: "image",
     img,
     time: nowStamp(),
   });

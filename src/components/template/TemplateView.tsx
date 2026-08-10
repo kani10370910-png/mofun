@@ -13,11 +13,16 @@ import {
 import type { Template } from "@/lib/types";
 import { buildTemplateApplyHref } from "@/lib/templateApply";
 import { asset } from "@/lib/asset";
+import { AutoBgImg } from "@/components/image/AutoBgImg";
 import { TemplateDetail } from "@/components/template/TemplateDetail";
 
 const TYPE_NAME: Record<string, string> = { content: "文案策划", image: "品牌设计", video: "视频宣传" };
 
 type TypeKey = "all" | "content" | "image" | "video";
+
+function isFontTemplate(t: Template) {
+  return t.sub === "AI字体";
+}
 
 function getTplScroller(): HTMLElement | null {
   return (
@@ -33,6 +38,7 @@ export function TemplateView() {
   const [scene, setScene] = useState("全部");
   const [type, setType] = useState<TypeKey>("all");
   const [sub, setSub] = useState("全部");
+  const [kw, setKw] = useState("");
   const [showTop, setShowTop] = useState(false);
   const [detail, setDetail] = useState<Template | null>(null);
 
@@ -54,18 +60,96 @@ export function TemplateView() {
     setSub("全部");
   }
 
-  const match = (t: Template) =>
-    (scene === "全部" || t.scene === scene) &&
-    (type === "all" || t.type === type) &&
-    (sub === "全部" || t.sub === sub);
+  const match = (t: Template) => {
+    const q = kw.trim().toLowerCase();
+    const keywordOk =
+      !q ||
+      t.name.toLowerCase().includes(q) ||
+      t.scene.toLowerCase().includes(q) ||
+      t.sub.toLowerCase().includes(q) ||
+      (TYPE_NAME[t.type] ?? t.type).toLowerCase().includes(q);
+    return (
+      keywordOk &&
+      (scene === "全部" || t.scene === scene) &&
+      (type === "all" || t.type === type) &&
+      (sub === "全部" || t.sub === sub)
+    );
+  };
 
-  const hot = useMemo(() => templates.filter((t) => t.hot && match(t)), [scene, type, sub]);
-  const all = useMemo(() => templates.filter(match), [scene, type, sub]);
+  const hot = useMemo(() => templates.filter((t) => t.hot && match(t)), [scene, type, sub, kw]);
+  const all = useMemo(() => templates.filter(match), [scene, type, sub, kw]);
 
   function applyTpl(t: Template) {
     toast(`已套用模版「${t.name}」，灵感已填入表单`);
     window.setTimeout(() => router.push(buildTemplateApplyHref(t)), 700);
   }
+
+  const hotCard = (t: Template) => (
+    <div
+      key={`hot-${t.type}-${t.sub}-${t.name}`}
+      className="tpl-inspo-card"
+      onClick={() => setDetail(t)}
+    >
+      <div
+        className={
+          !t.img
+            ? `tpl-inspo-media ${t.grad}`
+            : isFontTemplate(t)
+              ? "tpl-inspo-media has-font-img"
+              : "tpl-inspo-media has-cover-img"
+        }
+      >
+        <span className="tpl-hot">🔥 热门</span>
+        {t.img ? (
+          isFontTemplate(t) ? (
+            <AutoBgImg className="tpl-inspo-img" src={asset(t.img)} alt={t.name} ratio={0.93} />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img className="ag-img" src={asset(t.img)} alt={t.name} loading="lazy" />
+          )
+        ) : (
+          <span className="ag-emoji">{t.emoji}</span>
+        )}
+        <div className="case-hover">
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              applyTpl(t);
+            }}
+          >
+            套用模版
+          </button>
+        </div>
+      </div>
+      <div className="tpl-pin-cap">
+        <div className="tpl-name">{t.name}</div>
+        <div className="tpl-meta-row">
+          <div className="tpl-meta">
+            <span className="tag green">{TYPE_NAME[t.type] ?? t.type}</span> · {t.sub}
+          </div>
+          <div className="tpl-actions">
+            <span className="tpl-views" title="多少人看过">
+              <Icon name="eye" size={14} />
+              {t.uses}
+            </span>
+            <button
+              type="button"
+              className="tpl-apply-btn"
+              aria-label="套用模版"
+              onClick={(e) => {
+                e.stopPropagation();
+                applyTpl(t);
+              }}
+            >
+              套用模版
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   const pin = (t: Template) => (
     <div
@@ -112,60 +196,76 @@ export function TemplateView() {
 
   return (
     <div className="page">
-      <div className="tpl-filter">
-        <div className="tpl-filter-row">
-          <span className="tpl-filter-label">场景</span>
-          <div className="chip-row">
-            {templateScenes.map((s) => (
-              <span key={s} className={scene === s ? "sel-chip on" : "sel-chip"} onClick={() => setScene(s)}>
-                {s}
-              </span>
-            ))}
+      <div className="tpl-sticky-head">
+        <div className="tpl-topbar">
+          <h2 className="tpl-topbar-title">
+            灵感<span>库</span>
+          </h2>
+          <div className="tpl-topbar-search">
+            <Icon name="search" size={16} />
+            <input
+              value={kw}
+              onChange={(e) => setKw(e.target.value)}
+              placeholder="输入关键词搜索灵感…"
+            />
           </div>
         </div>
-        <div className="tpl-filter-row">
-          <span className="tpl-filter-label">类型</span>
-          <div className="chip-row">
-            {templateTypes.map((t) => (
-              <span
-                key={t.key}
-                className={type === t.key ? "sel-chip on" : "sel-chip"}
-                onClick={() => pickType(t.key)}
-              >
-                {t.name}
-              </span>
-            ))}
-          </div>
-        </div>
-        {type !== "all" && (
-          <div className="tpl-filter-row tpl-sub-row">
-            <span className="tpl-filter-label">分类</span>
-            <div className="tpl-sub-wrap">
-              <div className="chip-row tpl-sub-group">
-                {templateSubs[type].map((s) => (
-                  <span key={s} className={sub === s ? "sel-chip on" : "sel-chip"} onClick={() => setSub(s)}>
-                    {s}
-                  </span>
-                ))}
-              </div>
+
+        <div className="tpl-filter">
+          <div className="tpl-filter-row">
+            <span className="tpl-filter-label">场景</span>
+            <div className="chip-row">
+              {templateScenes.map((s) => (
+                <span key={s} className={scene === s ? "sel-chip on" : "sel-chip"} onClick={() => setScene(s)}>
+                  {s}
+                </span>
+              ))}
             </div>
           </div>
-        )}
+          <div className="tpl-filter-row">
+            <span className="tpl-filter-label">类型</span>
+            <div className="chip-row">
+              {templateTypes.map((t) => (
+                <span
+                  key={t.key}
+                  className={type === t.key ? "sel-chip on" : "sel-chip"}
+                  onClick={() => pickType(t.key)}
+                >
+                  {t.name}
+                </span>
+              ))}
+            </div>
+          </div>
+          {type !== "all" && (
+            <div className="tpl-filter-row tpl-sub-row">
+              <span className="tpl-filter-label">分类</span>
+              <div className="tpl-sub-wrap">
+                <div className="chip-row tpl-sub-group">
+                  {templateSubs[type].map((s) => (
+                    <span key={s} className={sub === s ? "sel-chip on" : "sel-chip"} onClick={() => setSub(s)}>
+                      {s}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {hot.length > 0 && (
         <>
           <h2 className="section-title">🔥 热门推荐</h2>
-          <div className="tpl-waterfall">{hot.map(pin)}</div>
+          <div className="inspo-grid">{hot.map(hotCard)}</div>
         </>
       )}
 
-      <h2 className="section-title">全部模版</h2>
+      <h2 className="section-title">全部灵感</h2>
       {all.length > 0 ? (
         <div className="tpl-waterfall">{all.map(pin)}</div>
       ) : (
         <p className="tpl-empty empty-note" style={{ textAlign: "center", padding: "30px 0" }}>
-          该筛选条件下暂无模版，换个场景或子类试试～
+          该筛选条件下暂无灵感，换个场景或子类试试～
         </p>
       )}
 

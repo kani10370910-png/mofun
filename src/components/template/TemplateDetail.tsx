@@ -113,7 +113,6 @@ export function TemplateDetail({ template: t, onClose, onApply }: Props) {
   const prompt = useMemo(() => templatePrompt(t), [t]);
   const infoRows = useMemo(() => templateInfoRows(t), [t]);
   const views = parseUses(t.uses);
-  const likes = Math.max(12, Math.round(views * 0.28));
   const imgSrc = t.img ? asset(t.img) : "";
   const zoomPct = Math.round(zoom * 100);
 
@@ -184,21 +183,6 @@ export function TemplateDetail({ template: t, onClose, onApply }: Props) {
       toast("提示词已复制");
     } catch {
       toast("复制失败，请手动选择文本", "warn");
-    }
-  }
-
-  async function shareTpl() {
-    const url = typeof window !== "undefined" ? window.location.href : "";
-    const text = `${t.name}\n${prompt.slice(0, 120)}`;
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: t.name, text, url });
-        return;
-      }
-      await navigator.clipboard.writeText(url || text);
-      toast("链接已复制");
-    } catch {
-      toast("分享已取消");
     }
   }
 
@@ -334,13 +318,6 @@ export function TemplateDetail({ template: t, onClose, onApply }: Props) {
                 <Icon name="eye" size={15} />
                 {formatCount(views)}
               </span>
-              <span className="tpl-detail-stat" title="收藏">
-                <Icon name="heart" size={15} />
-                {formatCount(likes)}
-              </span>
-              <button type="button" className="tpl-detail-ico-btn" onClick={shareTpl} aria-label="分享">
-                <Icon name="share" size={16} />
-              </button>
               <button type="button" className="tpl-detail-ico-btn" onClick={onClose} aria-label="关闭">
                 <Icon name="close" size={16} />
               </button>

@@ -175,9 +175,9 @@ export function IpStoryModal({
                   <Icon name="refresh" size={15} className="ico-spin" /> 生成中
                 </span>
               ) : history.length > 0 ? (
-                "重新生成"
+                <>重新生成</>
               ) : (
-                "生成IP故事"
+                <>生成IP故事</>
               )}
             </button>
           </div>

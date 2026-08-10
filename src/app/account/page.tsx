@@ -1,21 +1,60 @@
 "use client";
 
-import { Suspense, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { AccountShell, useAccountTab } from "@/components/account/AccountShell";
 import { AvatarUpload } from "@/components/account/AvatarUpload";
-import { DEMO_TEAM } from "@/lib/auth";
+import { EnterpriseCertFlow } from "@/components/account/EnterpriseCertFlow";
+import { PersonalCertFlow } from "@/components/account/PersonalCertFlow";
+import { MembershipPanel } from "@/components/account/MembershipPanel";
+import { appConfirm } from "@/components/ui/Confirm";
+import { formatPoints, getUsedPointsForUser } from "@/lib/points";
+import {
+  canDeleteMember,
+  canEditMemberCredentials,
+  canManageSubAccount,
+  createMemberInOu,
+  DEFAULT_MEMBER_PASSWORD,
+  isOrgAdminActor,
+  loadOrgStore,
+  removeMembership,
+  resolveDefaultMemberOuId,
+  resolveMemberAccountRole,
+  roleLabel,
+  setMembershipStatus,
+  syncOrgAdminIdentity,
+  updateMemberAccount,
+  updateMemberAccountRole,
+  updateMemberDisplayName,
+  updateMemberPassword,
+  type AssignableAccountRole,
+  type OrgStore,
+} from "@/lib/org";
 import { useAuth } from "@/lib/AuthContext";
 import { useLibrary } from "@/lib/store";
+import { resolvePlanLabel, resolveLoginAccount, isPhoneLoginUser, hasEnterpriseInfo, revokeEnterprisePatch, DEMO_CODE, isPlaceholderNickname } from "@/lib/auth";
+import { formatAccountRegionGeoLabel } from "@/lib/regionEnhance";
+import { resolveRegionIdFromText } from "@/data/regionAssets";
+import { formatPhoneRegionLabel, resolvePhoneRegionAsync, resolveUserPhoneNumber, resolveUserPhoneRegionAsync } from "@/lib/phoneRegion";
 import { contentScenes } from "@/data/content";
 import { imageTypes } from "@/data/image";
 import { researchTypes } from "@/data/research";
 import { videoTypes } from "@/data/video";
 
-/** 全站二级功能标题（文案 / 品牌设计 / 视频 / 调研） */
-const CREATION_CATS: { name: string; match: RegExp }[] = [
+type CreationGroupKey = "content" | "image" | "video" | "research";
+
+const CREATION_GROUPS: { key: CreationGroupKey; name: string }[] = [
+  { key: "content", name: "文案策划" },
+  { key: "image", name: "品牌设计" },
+  { key: "video", name: "视频宣传" },
+  { key: "research", name: "调研分析" },
+];
+
+/** 创作管理分类：一级分组 + 二级功能 */
+const CREATION_CATS: { group: CreationGroupKey; name: string; match: RegExp }[] = [
   ...contentScenes.map((s) => ({
+    group: "content" as const,
     name: s.title,
     match:
       s.key === "social"
@@ -25,6 +64,7 @@ const CREATION_CATS: { name: string; match: RegExp }[] = [
           : /品牌推广|策划方案|内容创作\s*·\s*品牌/,
   })),
   ...imageTypes.map((t) => ({
+    group: "image" as const,
     name: t.name,
     match:
       t.key === "event"
@@ -40,6 +80,7 @@ const CREATION_CATS: { name: string; match: RegExp }[] = [
                 : /店招|门头|通栏|signage/,
   })),
   ...videoTypes.map((t) => ({
+    group: "video" as const,
     name: t.name,
     match:
       t.key === "oneline"
@@ -49,6 +90,7 @@ const CREATION_CATS: { name: string; match: RegExp }[] = [
           : /数字人|口播|avatar/,
   })),
   ...researchTypes.map((t) => ({
+    group: "research" as const,
     name: t.name,
     match:
       t.key === "brand"
@@ -79,122 +121,17 @@ function ContactModal({ open, onClose }: { open: boolean; onClose: () => void })
   );
 }
 
-function EnterpriseCertModal({
-  open,
-  onClose,
-  defaultName,
-}: {
-  open: boolean;
-  onClose: () => void;
-  defaultName?: string;
-}) {
-  const toast = useToast();
-  const { updateUser } = useAuth();
-  const [companyName, setCompanyName] = useState(defaultName || "");
-  const [creditCode, setCreditCode] = useState("");
-  const [legalName, setLegalName] = useState("");
-  const [legalId, setLegalId] = useState("");
-  const [licenseName, setLicenseName] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  if (!open) return null;
-
-  function onSubmit() {
-    if (!companyName.trim()) {
-      toast("请填写企业名称", "warn");
-      return;
-    }
-    if (!creditCode.trim()) {
-      toast("请填写统一社会信用代码", "warn");
-      return;
-    }
-    if (!legalName.trim()) {
-      toast("请填写法人姓名", "warn");
-      return;
-    }
-    if (!legalId.trim()) {
-      toast("请填写法人身份证号", "warn");
-      return;
-    }
-    setBusy(true);
-    window.setTimeout(() => {
-      updateUser({
-        enterpriseVerified: true,
-        orgName: companyName.trim(),
-        company: companyName.trim(),
-      });
-      setBusy(false);
-      toast("认证信息已提交（演示）");
-      onClose();
-    }, 400);
-  }
-
-  return (
-    <div className="am-cs-overlay" role="dialog" aria-modal="true" aria-labelledby="am-cert-title">
-      <button type="button" className="am-cs-backdrop" aria-label="关闭" onClick={onClose} />
-      <div className="am-cert-card">
-        <button type="button" className="am-cs-close" onClick={onClose} aria-label="关闭">
-          <Icon name="close" size={16} />
-        </button>
-        <h3 id="am-cert-title">企业认证</h3>
-        <div className="am-cert-notice">
-          <span className="am-cert-notice-ico" aria-hidden>
-            ☀
-          </span>
-          <p>
-            感谢您使用魔方智绘平台，为营造安全的环境，根据国家相关法律法规要求，平台需进行企业认证，未完成认证将无法正常使用企业级功能。
-          </p>
-        </div>
-        <div className="am-cert-form">
-          <input
-            value={companyName}
-            onChange={(e) => setCompanyName(e.target.value)}
-            placeholder="企业名称"
-            autoFocus
-          />
-          <input
-            value={creditCode}
-            onChange={(e) => setCreditCode(e.target.value)}
-            placeholder="统一社会信用代码"
-          />
-          <input
-            value={legalName}
-            onChange={(e) => setLegalName(e.target.value)}
-            placeholder="法人姓名"
-          />
-          <input
-            value={legalId}
-            onChange={(e) => setLegalId(e.target.value)}
-            placeholder="法人身份证号"
-          />
-          <label className="am-cert-upload">
-            <input
-              type="file"
-              accept="image/*,.pdf"
-              hidden
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                setLicenseName(f ? f.name : "");
-              }}
-            />
-            <Icon name="upload" size={22} />
-            <span>{licenseName || "点击上传营业执照扫描件"}</span>
-          </label>
-        </div>
-        <button type="button" className="am-cert-submit" disabled={busy} onClick={onSubmit}>
-          {busy ? "提交中…" : "提交信息"}
-        </button>
-        <p className="am-cert-foot">用户须知：平台进行用户实名认证仅用于安全风控</p>
-      </div>
-    </div>
-  );
-}
-
 function OrgPanel({ onGoMembers }: { onGoMembers: () => void }) {
   const toast = useToast();
   const { user, updateUser } = useAuth();
   const [certOpen, setCertOpen] = useState(false);
+  const [personalCertOpen, setPersonalCertOpen] = useState(false);
+  const [addrOpen, setAddrOpen] = useState(false);
+  const [addrDraft, setAddrDraft] = useState("");
   if (!user) return null;
+  const isEnterprise = hasEnterpriseInfo(user);
+  const personalOk = !!user.personalVerified;
+  const regionLabel = isEnterprise ? formatAccountRegionGeoLabel(user) : "";
   return (
     <div className="am-panel">
       <h1 className="am-title">组织信息</h1>
@@ -212,15 +149,15 @@ function OrgPanel({ onGoMembers }: { onGoMembers: () => void }) {
           onError={(m) => toast(m, "warn")}
         />
         <div>
-          <div className="am-org-name">{user.orgName}</div>
+          <div className="am-org-name">{user.orgName || user.nickname || "个人账户"}</div>
           <span className="am-plan-badge">
-            <Icon name="sparkle" size={11} /> {user.planLabel}
+            <Icon name="sparkle" size={11} /> {resolvePlanLabel(user)}
           </span>
         </div>
       </div>
       <div className="am-rows">
         <div className="am-row">
-          <span className="am-row-label">管理员账号</span>
+          <span className="am-row-label">{isEnterprise ? "主账号" : "账号"}</span>
           <span className="am-row-val">{user.username}</span>
         </div>
         <div className="am-row">
@@ -228,37 +165,130 @@ function OrgPanel({ onGoMembers }: { onGoMembers: () => void }) {
           <span className="am-row-val">{user.createdAt}</span>
         </div>
         <div className="am-row">
-          <span className="am-row-label">成员数</span>
-          <span className="am-row-val">{user.memberCount}</span>
-          <button type="button" className="am-row-btn" onClick={onGoMembers}>
-            管理成员
-          </button>
+          <span className="am-row-label">{isEnterprise ? "成员数" : "席位"}</span>
+          <span className="am-row-val">
+            {isEnterprise ? user.memberCount : "1（仅自己，无成员席位）"}
+          </span>
+          {isEnterprise ? (
+            <button type="button" className="am-row-btn" onClick={onGoMembers}>
+              管理成员
+            </button>
+          ) : null}
         </div>
+        {isEnterprise && (
+          <>
+            <div className="am-row">
+              <span className="am-row-label">企业地址</span>
+              <span className="am-row-val">{user.address || "未填写"}</span>
+              <button
+                type="button"
+                className="am-row-btn"
+                onClick={() => {
+                  setAddrDraft(user.address || "");
+                  setAddrOpen(true);
+                }}
+              >
+                编辑
+              </button>
+            </div>
+            <div className="am-row">
+              <span className="am-row-label">所属区县</span>
+              <span className="am-row-val">{regionLabel}</span>
+              <span className="am-op-muted" title="由企业注册地址自动匹配">
+                企业位置
+              </span>
+            </div>
+          </>
+        )}
         <div className="am-row">
           <span className="am-row-label">权益生效日期</span>
-          <span className="am-row-val stacked">
-            <span>开始：{user.benefitStart}</span>
-            <span>到期：{user.expiresAt}</span>
+          <span className="am-row-val">
+            开始：{user.benefitStart} · 到期：{user.expiresAt}
           </span>
+        </div>
+        <div className="am-row">
+          <span className="am-row-label">个人认证</span>
+          <span className="am-row-val">{personalOk ? "已认证" : "未认证"}</span>
+          {personalOk ? (
+            <button type="button" className="am-row-btn" disabled>
+              已认证
+            </button>
+          ) : (
+            <button type="button" className="am-row-btn" onClick={() => setPersonalCertOpen(true)}>
+              认证
+            </button>
+          )}
         </div>
         <div className="am-row">
           <span className="am-row-label">企业认证</span>
           <span className="am-row-val">{user.enterpriseVerified ? "已认证" : "未认证"}</span>
-          <button
-            type="button"
-            className="am-row-btn"
-            onClick={() => setCertOpen(true)}
-            disabled={user.enterpriseVerified}
-          >
-            {user.enterpriseVerified ? "已认证" : "认证"}
-          </button>
+          {user.enterpriseVerified ? (
+            <button
+              type="button"
+              className="am-row-btn"
+              onClick={() => {
+                const ok = window.confirm(
+                  "确认退出企业认证？将恢复为个人版，成员协作入口会隐藏（演示）。"
+                );
+                if (!ok) return;
+                updateUser(revokeEnterprisePatch());
+                toast("已退出企业认证，当前为个人版");
+              }}
+            >
+              退出认证
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="am-row-btn"
+              onClick={() => {
+                if (!personalOk) {
+                  toast("请先完成个人实名认证", "warn");
+                  setPersonalCertOpen(true);
+                  return;
+                }
+                setCertOpen(true);
+              }}
+            >
+              认证
+            </button>
+          )}
         </div>
       </div>
-      <EnterpriseCertModal
+      <PersonalCertFlow open={personalCertOpen} onClose={() => setPersonalCertOpen(false)} />
+      <EnterpriseCertFlow
         open={certOpen}
         onClose={() => setCertOpen(false)}
         defaultName={user.orgName}
       />
+      <PersonEditShell
+        title="编辑企业地址"
+        open={addrOpen}
+        onClose={() => setAddrOpen(false)}
+        onSave={() => {
+          const address = addrDraft.trim();
+          if (!address) {
+            toast("请填写企业注册地址", "warn");
+            return;
+          }
+          updateUser({
+            address,
+            regionId: resolveRegionIdFromText([address, user.company, user.orgName].filter(Boolean).join(" ")),
+          });
+          toast("企业地址已更新，所属区县已同步");
+          setAddrOpen(false);
+        }}
+        saveLabel="保存"
+        showCancel
+      >
+        <p className="am-pedit-hint">填写营业执照上的注册地址，系统将自动匹配所属省 / 市 / 区县。</p>
+        <input
+          value={addrDraft}
+          onChange={(e) => setAddrDraft(e.target.value)}
+          placeholder="如：浙江省湖州市安吉县"
+          autoFocus
+        />
+      </PersonEditShell>
     </div>
   );
 }
@@ -269,18 +299,24 @@ function PersonEditShell({
   onClose,
   children,
   onSave,
+  saveLabel = "保存并生效",
+  showCancel = false,
+  wide = false,
 }: {
   title: string;
   open: boolean;
   onClose: () => void;
   children: React.ReactNode;
   onSave: () => void;
+  saveLabel?: string;
+  showCancel?: boolean;
+  wide?: boolean;
 }) {
   if (!open) return null;
   return (
     <div className="am-cs-overlay" role="dialog" aria-modal="true" aria-label={title}>
       <button type="button" className="am-cs-backdrop" aria-label="关闭" onClick={onClose} />
-      <div className="am-pedit-card">
+      <div className={`am-pedit-card${wide ? " am-pedit-card--wide" : ""}`}>
         <div className="am-pedit-head">
           <h3>{title}</h3>
           <button type="button" className="am-cs-close" onClick={onClose} aria-label="关闭">
@@ -289,8 +325,13 @@ function PersonEditShell({
         </div>
         <div className="am-pedit-body">{children}</div>
         <div className="am-pedit-foot">
+          {showCancel && (
+            <button type="button" className="am-pedit-cancel" onClick={onClose}>
+              取消
+            </button>
+          )}
           <button type="button" className="am-pedit-save" onClick={onSave}>
-            保存并生效
+            {saveLabel}
           </button>
         </div>
       </div>
@@ -310,14 +351,55 @@ function PersonalPanel() {
   const [nickOpen, setNickOpen] = useState(false);
   const [acctOpen, setAcctOpen] = useState(false);
   const [pwdOpen, setPwdOpen] = useState(false);
+  const [phoneOpen, setPhoneOpen] = useState(false);
+  const [personalCertOpen, setPersonalCertOpen] = useState(false);
   const [nick, setNick] = useState("");
   const [acctLocal, setAcctLocal] = useState("");
   const [acctConfirm, setAcctConfirm] = useState("");
   const [acctSuffix, setAcctSuffix] = useState("@test");
   const [pwd1, setPwd1] = useState("");
   const [pwd2, setPwd2] = useState("");
+  const [phoneDraft, setPhoneDraft] = useState("");
+  const [phoneCode, setPhoneCode] = useState("");
+  const [phoneCountdown, setPhoneCountdown] = useState(0);
+
+  const [phoneRegionLabel, setPhoneRegionLabel] = useState("加载中…");
+
+  useEffect(() => {
+    if (phoneCountdown <= 0) return;
+    const t = window.setTimeout(() => setPhoneCountdown((c) => c - 1), 1000);
+    return () => window.clearTimeout(t);
+  }, [phoneCountdown]);
+
+  useEffect(() => {
+    if (!user) return;
+    if (hasEnterpriseInfo(user)) {
+      setPhoneRegionLabel(formatAccountRegionGeoLabel(user));
+      return;
+    }
+    const phone = resolveUserPhoneNumber(user);
+    if (!phone) {
+      setPhoneRegionLabel("请先绑定手机号");
+      return;
+    }
+    let cancelled = false;
+    setPhoneRegionLabel("识别中…");
+    void resolveUserPhoneRegionAsync(user)
+      .then((info) => {
+        if (!cancelled) setPhoneRegionLabel(formatPhoneRegionLabel(info));
+      })
+      .catch(() => {
+        if (!cancelled) setPhoneRegionLabel("号段库加载失败，请刷新重试");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, user?.phone, user?.username, user?.enterpriseVerified, user?.address, user?.company, user?.regionId]);
 
   if (!user) return null;
+  const isEnterprise = hasEnterpriseInfo(user);
+  const phoneLogin = isPhoneLoginUser(user);
+  const loginAccount = resolveLoginAccount(user);
 
   function openNick() {
     setNick(user!.nickname || "");
@@ -334,6 +416,23 @@ function PersonalPanel() {
     setPwd1("");
     setPwd2("");
     setPwdOpen(true);
+  }
+  function openPhone() {
+    setPhoneDraft(user!.phone || "");
+    setPhoneCode("");
+    setPhoneCountdown(0);
+    setPhoneOpen(true);
+  }
+
+  function sendPhoneCode() {
+    if (phoneCountdown > 0) return;
+    if (!/^1\d{10}$/.test(phoneDraft.trim())) {
+      toast("请输入正确的 11 位手机号", "warn");
+      return;
+    }
+    setPhoneCode(DEMO_CODE);
+    setPhoneCountdown(60);
+    toast(`验证码已发送（演示码：${DEMO_CODE}）`);
   }
 
   return (
@@ -354,9 +453,57 @@ function PersonalPanel() {
       <div className="am-rows">
         <div className="am-row">
           <span className="am-row-label">用户昵称</span>
-          <span className="am-row-val">{user.nickname}</span>
+          <span className="am-row-val">
+            {user.nickname?.trim() && !isPlaceholderNickname(user)
+              ? user.nickname
+              : "未设置"}
+          </span>
           <button type="button" className="am-row-btn" onClick={openNick}>
             编辑
+          </button>
+        </div>
+        <div className="am-row">
+          <span className="am-row-label">登录账户</span>
+          <span className="am-row-val">{loginAccount || "未绑定手机号"}</span>
+          <button
+            type="button"
+            className="am-row-btn"
+            onClick={phoneLogin ? openPhone : openAcct}
+          >
+            {phoneLogin ? (user.phone ? "修改手机号" : "绑定手机号") : "修改"}
+          </button>
+        </div>
+        <div className="am-row">
+          <span className="am-row-label">县域信息</span>
+          <span className="am-row-val">{phoneRegionLabel}</span>
+          <span
+            className="am-op-muted"
+            title={isEnterprise ? "根据企业注册地址确定区县" : "根据手机号号段自动识别省、市"}
+          >
+            {isEnterprise ? "企业位置" : "自动"}
+          </span>
+        </div>
+        {!phoneLogin && (
+          <div className="am-row">
+            <span className="am-row-label">绑定手机</span>
+            <span className="am-row-val">{user.phone || "未绑定"}</span>
+            <button type="button" className="am-row-btn" onClick={openPhone}>
+              {user.phone ? "修改" : "绑定"}
+            </button>
+          </div>
+        )}
+        <div className="am-row">
+          <span className="am-row-label">实名认证</span>
+          <span className="am-row-val">
+            {user.personalVerified ? `已认证 · ${user.realName}` : "未认证"}
+          </span>
+          <button
+            type="button"
+            className="am-row-btn"
+            disabled={!!user.personalVerified}
+            onClick={() => setPersonalCertOpen(true)}
+          >
+            {user.personalVerified ? "已认证" : "认证"}
           </button>
         </div>
         <div className="am-row">
@@ -377,20 +524,15 @@ function PersonalPanel() {
             复制
           </button>
         </div>
-        <div className="am-row">
-          <span className="am-row-label">登录账户</span>
-          <span className="am-row-val">{user.username}</span>
-          <button type="button" className="am-row-btn" onClick={openAcct}>
-            修改
-          </button>
-        </div>
-        <div className="am-row">
-          <span className="am-row-label">登录密码</span>
-          <span className="am-row-val">{user.loginPasswordMasked}</span>
-          <button type="button" className="am-row-btn" onClick={openPwd}>
-            修改
-          </button>
-        </div>
+        {!phoneLogin && (
+          <div className="am-row">
+            <span className="am-row-label">登录密码</span>
+            <span className="am-row-val">{user.loginPasswordMasked}</span>
+            <button type="button" className="am-row-btn" onClick={openPwd}>
+              修改
+            </button>
+          </div>
+        )}
       </div>
 
       <PersonEditShell
@@ -403,7 +545,7 @@ function PersonalPanel() {
             toast("请输入昵称", "warn");
             return;
           }
-          updateUser({ nickname: next, realName: next });
+          updateUser({ nickname: next });
           toast("昵称已保存并生效");
           setNickOpen(false);
         }}
@@ -469,6 +611,81 @@ function PersonalPanel() {
       </PersonEditShell>
 
       <PersonEditShell
+        title={user.phone ? "修改绑定手机" : "绑定手机号"}
+        open={phoneOpen}
+        onClose={() => setPhoneOpen(false)}
+        onSave={() => {
+          const next = phoneDraft.trim();
+          if (!/^1\d{10}$/.test(next)) {
+            toast("请输入正确的 11 位手机号", "warn");
+            return;
+          }
+          if (phoneCode.trim() !== DEMO_CODE) {
+            toast(`验证码错误（演示码：${DEMO_CODE}）`, "warn");
+            return;
+          }
+          if (next === user.phone) {
+            toast("手机号未变更", "warn");
+            return;
+          }
+          const patch: Parameters<typeof updateUser>[0] = {
+            phone: next,
+            username: next,
+            email: `${next}@phone.demo`,
+            loginMethod: "phone",
+            loginPasswordMasked: "手机验证码登录",
+          };
+          void resolvePhoneRegionAsync(next)
+            .then((region) => {
+              if (hasEnterpriseInfo(user)) {
+                updateUser(patch);
+                return;
+              }
+              if (region?.regionId) updateUser({ ...patch, regionId: region.regionId });
+              else updateUser(patch);
+            })
+            .catch(() => updateUser(patch));
+          toast("登录手机号已更新，请使用新手机号验证码登录");
+          setPhoneOpen(false);
+        }}
+      >
+        <div className="am-pedit-acct">
+          {user.phone ? (
+            <p className="am-pedit-hint">登录账户即手机号，当前：{user.phone}</p>
+          ) : (
+            <p className="am-pedit-hint">绑定手机号后将作为登录账户，使用验证码登录</p>
+          )}
+          <input
+            value={phoneDraft}
+            onChange={(e) => setPhoneDraft(e.target.value.replace(/\D/g, "").slice(0, 11))}
+            placeholder="请输入新手机号"
+            inputMode="numeric"
+            maxLength={11}
+            autoFocus
+            autoComplete="tel"
+          />
+          <div className="am-pedit-code-row">
+            <input
+              value={phoneCode}
+              onChange={(e) => setPhoneCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="请输入验证码"
+              inputMode="numeric"
+              maxLength={6}
+              autoComplete="one-time-code"
+            />
+            <button
+              type="button"
+              className="am-row-btn"
+              disabled={phoneCountdown > 0}
+              onClick={sendPhoneCode}
+            >
+              {phoneCountdown > 0 ? `${phoneCountdown}s` : "获取验证码"}
+            </button>
+          </div>
+        </div>
+      </PersonEditShell>
+
+      <PersonEditShell
         title="修改登录密码"
         open={pwdOpen}
         onClose={() => setPwdOpen(false)}
@@ -508,6 +725,11 @@ function PersonalPanel() {
           />
         </div>
       </PersonEditShell>
+
+      <PersonalCertFlow
+        open={personalCertOpen}
+        onClose={() => setPersonalCertOpen(false)}
+      />
     </div>
   );
 }
@@ -515,7 +737,7 @@ function PersonalPanel() {
 function MembersPanel({ onContact }: { onContact: () => void }) {
   const toast = useToast();
   const { user, updateUser } = useAuth();
-  const [members, setMembers] = useState(() => DEMO_TEAM.map((m) => ({ ...m })));
+  const [members, setMembers] = useState(() => loadOrgStore(user).members.map((m) => ({ ...m })));
   const [editId, setEditId] = useState<string | null>(null);
   const [acctOpen, setAcctOpen] = useState(false);
   const [pwdOpen, setPwdOpen] = useState(false);
@@ -524,10 +746,75 @@ function MembersPanel({ onContact }: { onContact: () => void }) {
   const [acctSuffix, setAcctSuffix] = useState("@test");
   const [pwd1, setPwd1] = useState("");
   const [pwd2, setPwd2] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
+  const [addAccount, setAddAccount] = useState("");
+  const [addName, setAddName] = useState("");
+  const [addPassword, setAddPassword] = useState(DEFAULT_MEMBER_PASSWORD);
+  const [addRole, setAddRole] = useState<AssignableAccountRole>("member");
+  const [rowEditOpen, setRowEditOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editAccount, setEditAccount] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+  const [editStatus, setEditStatus] = useState<"正常" | "停用">("正常");
+  const [editRole, setEditRole] = useState<AssignableAccountRole>("member");
+  const isEnterprise = hasEnterpriseInfo(user);
+  const actorUserId = user?.userId;
+
+  const usedPointsMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const m of members) {
+      const uid = m.userId || user?.userId || "";
+      if (!uid) continue;
+      map[m.id] = getUsedPointsForUser(uid, { enterprise: isEnterprise });
+    }
+    return map;
+  }, [members, user?.userId, isEnterprise]);
+
+  function syncMemberCount(next: OrgStore) {
+    if (!hasEnterpriseInfo(user)) {
+      updateUser({ orgName: next.organization.name, memberCount: "1/1" });
+      return;
+    }
+    updateUser({
+      memberCount: `${next.memberships.filter((m) => m.status === "active").length}/${Math.max(
+        next.memberships.length,
+        10,
+      )}`,
+      orgName: next.organization.name,
+    });
+  }
+
+  function reloadMembers(next?: OrgStore) {
+    let store = next ?? loadOrgStore(user);
+    store = syncOrgAdminIdentity(store, user);
+    const list = store.members.map((m) => ({ ...m }));
+    if (!isEnterprise) {
+      const self =
+        list.find((m) => m.isPrimary || m.account === user?.username || m.userId === user?.userId) ||
+        list[0];
+      setMembers(self ? [self] : []);
+      return;
+    }
+    setMembers(list);
+  }
+
+  useEffect(() => {
+    reloadMembers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅随企业身份 / 用户切换重载
+  }, [user, isEnterprise]);
 
   const editing = members.find((m) => m.id === editId) || null;
+  const permStore = useMemo(
+    () => syncOrgAdminIdentity(loadOrgStore(user), user),
+    [user, members],
+  );
 
   function openAcct(m: (typeof members)[0]) {
+    const store = syncOrgAdminIdentity(loadOrgStore(user), user);
+    if (!canEditMemberCredentials(store, actorUserId, m, user)) {
+      toast("无权修改该成员账号", "warn");
+      return;
+    }
     const { local, suffix } = splitAccount(m.account);
     setEditId(m.id);
     setAcctLocal(local);
@@ -537,6 +824,11 @@ function MembersPanel({ onContact }: { onContact: () => void }) {
   }
 
   function openPwd(m: (typeof members)[0]) {
+    const store = syncOrgAdminIdentity(loadOrgStore(user), user);
+    if (!canEditMemberCredentials(store, actorUserId, m, user)) {
+      toast("无权修改该成员密码", "warn");
+      return;
+    }
     setEditId(m.id);
     setPwd1("");
     setPwd2("");
@@ -547,9 +839,207 @@ function MembersPanel({ onContact }: { onContact: () => void }) {
     setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
   }
 
+  function openAdd() {
+    setAddAccount("");
+    setAddName("");
+    setAddPassword(DEFAULT_MEMBER_PASSWORD);
+    setAddRole("member");
+    setAddOpen(true);
+  }
+
+  function submitAdd() {
+    const store = loadOrgStore(user);
+    const ouId = resolveDefaultMemberOuId(store, user);
+    const account = addAccount.trim();
+    const name = addName.trim() || account;
+    if (!account) {
+      toast("请填写成员账号", "warn");
+      return;
+    }
+    if (!ouId) {
+      toast("组织数据未就绪，请刷新页面或联系企业客服", "warn");
+      return;
+    }
+    const role: AssignableAccountRole =
+      addRole === "ou_admin" && isOrgAdminActor(store, actorUserId, user) ? "ou_admin" : "member";
+    if (addRole === "ou_admin" && role !== "ou_admin") {
+      toast("仅主账号可新建管理员账号", "warn");
+      return;
+    }
+    const pwd = addPassword.trim();
+    if (pwd.length < 6) {
+      toast("初始密码至少 6 位", "warn");
+      return;
+    }
+    const r = createMemberInOu(store, ouId, {
+      name,
+      account,
+      role,
+      passwordPlain: pwd,
+      createdByUserId: user?.userId,
+    });
+    if (r.error) {
+      toast(r.error, "warn");
+      return;
+    }
+    syncMemberCount(r.store);
+    reloadMembers(r.store);
+    setAddOpen(false);
+    toast(role === "ou_admin" ? "已创建管理员账号" : "已创建成员账号");
+  }
+
+  function openRowEdit(m: (typeof members)[0]) {
+    const store = syncOrgAdminIdentity(loadOrgStore(user), user);
+    const canEdit = canEditMemberCredentials(store, actorUserId, m, user);
+    const isAdmin = isOrgAdminActor(store, actorUserId, user);
+    const canManage = canManageSubAccount(store, actorUserId, m, user);
+    if (!canEdit && !canManage && !(m.isPrimary && isAdmin)) {
+      toast("无权编辑该成员", "warn");
+      return;
+    }
+    const accountRole = resolveMemberAccountRole(store, m);
+    setEditId(m.id);
+    setEditName(m.name);
+    setEditAccount(m.account);
+    setEditPassword(m.passwordPlain || "");
+    setEditStatus(m.status === "停用" ? "停用" : "正常");
+    setEditRole(accountRole === "ou_admin" ? "ou_admin" : "member");
+    setRowEditOpen(true);
+  }
+
+  function submitRowEdit() {
+    if (!editing) return;
+    let store = syncOrgAdminIdentity(loadOrgStore(user), user);
+    const canEdit = canEditMemberCredentials(store, actorUserId, editing, user);
+    const isAdmin = isOrgAdminActor(store, actorUserId, user);
+    const canManage = canManageSubAccount(store, actorUserId, editing, user);
+    if (!canEdit && !canManage && !(editing.isPrimary && isAdmin)) {
+      toast("无权编辑该成员", "warn");
+      return;
+    }
+    const name = editName.trim();
+    const account = editAccount.trim();
+    const pwd = editPassword.trim();
+    if (!name) {
+      toast("请填写显示名称", "warn");
+      return;
+    }
+    if (!account) {
+      toast("请填写成员账号", "warn");
+      return;
+    }
+    if (pwd && pwd.length < 6) {
+      toast("密码至少 6 位", "warn");
+      return;
+    }
+
+    let r = updateMemberDisplayName(store, editing.id, name);
+    if (r.error) {
+      toast(r.error, "warn");
+      return;
+    }
+    store = r.store;
+
+    r = updateMemberAccount(store, editing.id, account, name);
+    if (r.error) {
+      toast(r.error, "warn");
+      return;
+    }
+    store = r.store;
+
+    if (pwd) {
+      r = updateMemberPassword(store, editing.id, pwd);
+      if (r.error) {
+        toast(r.error, "warn");
+        return;
+      }
+      store = r.store;
+    }
+
+    if (!editing.isPrimary) {
+      if (isAdmin && canManageSubAccount(store, actorUserId, editing, user)) {
+        const rr = updateMemberAccountRole(store, editing.id, editRole);
+        if (rr.error) {
+          toast(rr.error, "warn");
+          return;
+        }
+        store = rr.store;
+      }
+
+      const ms = store.memberships.find((x) => x.memberId === editing.id);
+      if (ms) {
+        const nextStatus = editStatus === "停用" ? "disabled" : "active";
+        if (ms.status !== nextStatus) {
+          const sr = setMembershipStatus(store, ms.id, nextStatus);
+          if (sr.error) {
+            toast(sr.error, "warn");
+            return;
+          }
+          store = sr.store;
+        }
+      }
+    }
+
+    if (editing.isPrimary && user) {
+      updateUser({
+        nickname: name,
+        username: account.includes("@") || /^1\d{10}$/.test(account) ? account : user.username,
+        email: account.includes("@") ? account : user.email,
+        ...(pwd
+          ? { loginPasswordMasked: "*".repeat(Math.min(20, Math.max(8, pwd.length))) }
+          : {}),
+      });
+    }
+
+    syncMemberCount(store);
+    reloadMembers(store);
+    setRowEditOpen(false);
+    setEditId(null);
+    toast("成员信息已保存");
+  }
+
+  async function removeSubAccount(m: (typeof members)[0]) {
+    const store = syncOrgAdminIdentity(loadOrgStore(user), user);
+    if (!canDeleteMember(store, actorUserId, m, user)) {
+      toast(m.isPrimary ? "不可删除主账号" : "无权删除该成员", "warn");
+      return;
+    }
+    const ok = await appConfirm({
+      title: "删除子账号",
+      message: `确定删除成员「${m.name}」（${m.account}）？删除后不可恢复。`,
+      confirmText: "删除",
+      danger: true,
+    });
+    if (!ok) return;
+    const ms = store.memberships.find((x) => x.memberId === m.id);
+    if (!ms) {
+      toast("成员关系不存在，请刷新后重试", "warn");
+      return;
+    }
+    if (ms.role === "admin") {
+      toast("不可移除主账号", "warn");
+      return;
+    }
+    const r = removeMembership(store, ms.id);
+    if (r.error) {
+      toast(r.error, "warn");
+      return;
+    }
+    syncMemberCount(r.store);
+    reloadMembers(r.store);
+    toast("已删除成员");
+  }
+
   return (
     <div className="am-panel">
-      <h1 className="am-title">成员管理</h1>
+      <div className="am-title-row">
+        <h1 className="am-title">成员管理</h1>
+        {isEnterprise && (
+          <button type="button" className="btn btn-primary btn-sm am-title-add" onClick={openAdd}>
+            新增成员
+          </button>
+        )}
+      </div>
       <div className="am-table-wrap">
         <table className="am-table">
           <thead>
@@ -558,10 +1048,19 @@ function MembersPanel({ onContact }: { onContact: () => void }) {
               <th>用户ID</th>
               <th>账号</th>
               <th>登录密码</th>
+              <th>状态</th>
+              <th>已用算力</th>
+              {isEnterprise && <th>编辑</th>}
             </tr>
           </thead>
           <tbody>
-            {members.map((m) => (
+            {members.map((m) => {
+              const canEdit = canEditMemberCredentials(permStore, actorUserId, m, user);
+              const isAdmin = isOrgAdminActor(permStore, actorUserId, user);
+              const canManage = canManageSubAccount(permStore, actorUserId, m, user);
+              const canOpenEdit = canEdit || canManage || (m.isPrimary && isAdmin);
+              const accountRole = resolveMemberAccountRole(permStore, m);
+              return (
               <tr key={m.id}>
                 <td>
                   <div className="am-member">
@@ -569,8 +1068,9 @@ function MembersPanel({ onContact }: { onContact: () => void }) {
                       className="am-member-av"
                       src={m.isPrimary ? user?.avatarUrl || m.avatarUrl : m.avatarUrl}
                       fallback={m.name}
-                      title="点击上传头像"
+                      title={canEdit ? "点击上传头像" : m.name}
                       onUploaded={(url) => {
+                        if (!canEdit) return;
                         patchMember(m.id, { avatarUrl: url });
                         if (m.isPrimary) {
                           updateUser({ avatarUrl: url });
@@ -580,28 +1080,222 @@ function MembersPanel({ onContact }: { onContact: () => void }) {
                       onError={(msg) => toast(msg, "warn")}
                     />
                     <span>{m.name}</span>
-                    {m.isPrimary && <span className="am-primary-badge">主账号</span>}
+                    <span
+                      className={`am-account-badge am-account-badge--${accountRole}`}
+                      title={roleLabel(accountRole)}
+                    >
+                      {roleLabel(accountRole)}
+                    </span>
                   </div>
                 </td>
                 <td className="mono">{m.userId || user?.userId}</td>
-                <td>
-                  <button type="button" className="am-cell-edit" onClick={() => openAcct(m)} title="修改账号">
-                    {m.account}
-                  </button>
+                <td>{m.account}</td>
+                <td className="mono">{canOpenEdit ? m.passwordPlain : "••••••••"}</td>
+                <td>{m.status}</td>
+                <td className="mono am-points-used" title="累计消耗算力">
+                  {formatPoints(usedPointsMap[m.id] ?? 0)}
                 </td>
-                <td>
-                  <button type="button" className="am-cell-edit mono" onClick={() => openPwd(m)} title="修改登录密码">
-                    {m.passwordPlain}
-                  </button>
-                </td>
+                {isEnterprise && (
+                  <td>
+                    {canOpenEdit ? (
+                      <button
+                        type="button"
+                        className="am-row-btn"
+                        onClick={() => openRowEdit(m)}
+                      >
+                        编辑
+                      </button>
+                    ) : (
+                      <span className="am-op-muted">—</span>
+                    )}
+                  </td>
+                )}
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
-      <button type="button" className="am-add-hint" onClick={onContact}>
-        请联系企业客服添加成员
-      </button>
+      {isEnterprise ? (
+        <p className="am-add-hint-line">
+          账号分主账号、管理员账号、成员账号：主账号可管理修改管理员账号与成员账号；管理员账号可管理修改成员账号。需要扩容席位时
+          <button type="button" className="am-add-hint" onClick={onContact}>
+            联系企业客服
+          </button>
+        </p>
+      ) : (
+        <button type="button" className="am-add-hint" onClick={onContact}>
+          企业认证后可在此添加成员
+        </button>
+      )}
+
+      <PersonEditShell
+        title="新增成员"
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onSave={submitAdd}
+        saveLabel="提交"
+        showCancel
+        wide
+      >
+        <div className="am-add-form">
+          <label className="am-add-field">
+            <span className="am-add-label">
+              账号类型 <em>*</em>
+            </span>
+            <select
+              value={addRole}
+              onChange={(e) =>
+                setAddRole(e.target.value === "ou_admin" ? "ou_admin" : "member")
+              }
+            >
+              <option value="member">成员账号</option>
+              {isOrgAdminActor(permStore, actorUserId, user) && (
+                <option value="ou_admin">管理员账号</option>
+              )}
+            </select>
+            <span className="am-pedit-hint">
+              主账号唯一且不可新建；管理员可管理成员，成员仅能管理自己新增的下级。
+            </span>
+          </label>
+          <label className="am-add-field">
+            <span className="am-add-label">
+              成员账号 <em>*</em>
+            </span>
+            <input
+              value={addAccount}
+              onChange={(e) => setAddAccount(e.target.value)}
+              placeholder="推荐手机号，也可邮箱等，如 13800138000"
+              autoFocus
+            />
+            <span className="am-pedit-hint">推荐使用手机号，也可使用邮箱等作为登录账号。</span>
+          </label>
+          <label className="am-add-field">
+            <span className="am-add-label">
+              显示名称 <em>*</em>
+            </span>
+            <input
+              value={addName}
+              onChange={(e) => setAddName(e.target.value)}
+              placeholder="成员昵称，默认与账号相同"
+            />
+          </label>
+          <label className="am-add-field">
+            <span className="am-add-label">
+              初始密码 <em>*</em>
+            </span>
+            <input
+              type="text"
+              value={addPassword}
+              onChange={(e) => setAddPassword(e.target.value)}
+              placeholder="至少 6 位"
+              autoComplete="new-password"
+            />
+          </label>
+        </div>
+      </PersonEditShell>
+
+      <PersonEditShell
+        title={
+          editing
+            ? `编辑${roleLabel(resolveMemberAccountRole(permStore, editing))}`
+            : "编辑成员"
+        }
+        open={rowEditOpen}
+        onClose={() => {
+          setRowEditOpen(false);
+          setEditId(null);
+        }}
+        onSave={submitRowEdit}
+        saveLabel="保存"
+        showCancel
+        wide
+      >
+        <div className="am-add-form">
+          <label className="am-add-field">
+            <span className="am-add-label">
+              显示名称 <em>*</em>
+            </span>
+            <input
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              placeholder="成员昵称"
+              autoFocus
+            />
+          </label>
+          <label className="am-add-field">
+            <span className="am-add-label">
+              账号类型 <em>*</em>
+            </span>
+            {editing?.isPrimary ? (
+              <>
+                <input value="主账号" disabled />
+                <span className="am-pedit-hint">主账号唯一，类型不可更改。</span>
+              </>
+            ) : isOrgAdminActor(permStore, actorUserId, user) ? (
+              <select
+                value={editRole}
+                onChange={(e) =>
+                  setEditRole(e.target.value === "ou_admin" ? "ou_admin" : "member")
+                }
+              >
+                <option value="member">成员账号</option>
+                <option value="ou_admin">管理员账号</option>
+              </select>
+            ) : (
+              <input value={roleLabel(editRole)} disabled />
+            )}
+          </label>
+          <label className="am-add-field">
+            <span className="am-add-label">
+              成员账号 <em>*</em>
+            </span>
+            <input
+              value={editAccount}
+              onChange={(e) => setEditAccount(e.target.value)}
+              placeholder="推荐手机号，也可邮箱等，如 13800138000"
+            />
+          </label>
+          <label className="am-add-field">
+            <span className="am-add-label">
+              登录密码 <em>*</em>
+            </span>
+            <input
+              type="text"
+              value={editPassword}
+              onChange={(e) => setEditPassword(e.target.value)}
+              placeholder="至少 6 位"
+              autoComplete="new-password"
+            />
+          </label>
+          {!editing?.isPrimary && (
+            <label className="am-add-field">
+              <span className="am-add-label">状态</span>
+              <select
+                value={editStatus}
+                onChange={(e) => setEditStatus(e.target.value === "停用" ? "停用" : "正常")}
+              >
+                <option value="正常">正常</option>
+                <option value="停用">停用</option>
+              </select>
+            </label>
+          )}
+          {editing && !editing.isPrimary && canDeleteMember(permStore, actorUserId, editing, user) && (
+            <div className="am-edit-danger">
+              <button
+                type="button"
+                className="am-row-btn am-row-btn--danger"
+                onClick={() => {
+                  setRowEditOpen(false);
+                  void removeSubAccount(editing);
+                }}
+              >
+                删除该成员
+              </button>
+            </div>
+          )}
+        </div>
+      </PersonEditShell>
 
       <PersonEditShell
         title="修改账号"
@@ -623,10 +1317,18 @@ function MembersPanel({ onContact }: { onContact: () => void }) {
             return;
           }
           const full = `${a}${acctSuffix}`;
-          patchMember(editing.id, {
-            account: full,
-            name: editing.isPrimary ? full : editing.name,
-          });
+          const store = loadOrgStore(user);
+          if (!canEditMemberCredentials(store, actorUserId, editing, user)) {
+            toast("无权修改该成员账号", "warn");
+            return;
+          }
+          const r = updateMemberAccount(store, editing.id, full, editing.isPrimary ? full : editing.name);
+          if (r.error) {
+            toast(r.error, "warn");
+            return;
+          }
+          syncMemberCount(r.store);
+          reloadMembers(r.store);
           if (editing.isPrimary && user) {
             updateUser({
               username: full,
@@ -681,7 +1383,17 @@ function MembersPanel({ onContact }: { onContact: () => void }) {
             toast("两次输入的密码不一致", "warn");
             return;
           }
-          patchMember(editing.id, { passwordPlain: pwd1 });
+          const store = loadOrgStore(user);
+          if (!canEditMemberCredentials(store, actorUserId, editing, user)) {
+            toast("无权修改该成员密码", "warn");
+            return;
+          }
+          const r = updateMemberPassword(store, editing.id, pwd1);
+          if (r.error) {
+            toast(r.error, "warn");
+            return;
+          }
+          reloadMembers(r.store);
           if (editing.isPrimary) {
             updateUser({
               loginPasswordMasked: "*".repeat(Math.min(20, Math.max(8, pwd1.length))),
@@ -722,12 +1434,21 @@ function workDay(time?: string): string | null {
 
 function CreationsPanel() {
   const { works, isFavorite } = useLibrary();
-  const [cat, setCat] = useState(CREATION_CATS[0]?.name || "全部");
+  const [group, setGroup] = useState<CreationGroupKey>("content");
+  const groupCats = useMemo(() => CREATION_CATS.filter((c) => c.group === group), [group]);
+  const [cat, setCat] = useState(groupCats[0]?.name || "");
   const [favOnly, setFavOnly] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const fromRef = useRef<HTMLInputElement>(null);
   const toRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!groupCats.length) return;
+    if (!groupCats.some((c) => c.name === cat)) {
+      setCat(groupCats[0].name);
+    }
+  }, [groupCats, cat]);
 
   const list = useMemo(() => {
     let items = works;
@@ -755,17 +1476,31 @@ function CreationsPanel() {
     <div className="am-panel">
       <h1 className="am-title">创作管理</h1>
       <div className="am-create-toolbar">
-        <div className="am-create-tabs">
-          {CREATION_CATS.map((c) => (
-            <button
-              key={c.name}
-              type="button"
-              className={cat === c.name ? "am-create-tab on" : "am-create-tab"}
-              onClick={() => setCat(c.name)}
-            >
-              {c.name}
-            </button>
-          ))}
+        <div className="am-create-tabs-wrap">
+          <div className="am-create-groups">
+            {CREATION_GROUPS.map((g) => (
+              <button
+                key={g.key}
+                type="button"
+                className={group === g.key ? "am-create-group on" : "am-create-group"}
+                onClick={() => setGroup(g.key)}
+              >
+                {g.name}
+              </button>
+            ))}
+          </div>
+          <div className="am-create-tabs">
+            {groupCats.map((c) => (
+              <button
+                key={c.name}
+                type="button"
+                className={cat === c.name ? "am-create-tab on" : "am-create-tab"}
+                onClick={() => setCat(c.name)}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="am-create-filters">
           <label className="am-fav-switch">
@@ -867,11 +1602,16 @@ function CreationsPanel() {
 function AccountInner() {
   const [tab, setTab] = useAccountTab();
   const [csOpen, setCsOpen] = useState(false);
+  const { user } = useAuth();
+  const isEnterprise = hasEnterpriseInfo(user);
+  const safeTab = !isEnterprise && tab === "members" ? "personal" : tab;
 
   const body = (() => {
-    switch (tab) {
+    switch (safeTab) {
       case "personal":
         return <PersonalPanel />;
+      case "member":
+        return <MembershipPanel />;
       case "members":
         return <MembersPanel onContact={() => setCsOpen(true)} />;
       case "creations":
@@ -883,7 +1623,7 @@ function AccountInner() {
 
   return (
     <>
-      <AccountShell active={tab} onTabChange={setTab} onContact={() => setCsOpen(true)}>
+      <AccountShell active={safeTab} onTabChange={setTab} onContact={() => setCsOpen(true)}>
         {body}
       </AccountShell>
       <ContactModal open={csOpen} onClose={() => setCsOpen(false)} />

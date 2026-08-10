@@ -22,7 +22,7 @@ function LoginQueryOpener() {
   useEffect(() => {
     if (!ready || user) return;
     if (sp.get("login") === "1") {
-      openLogin("enterprise");
+      openLogin("phone");
       const next = sp.get("next");
       router.replace(next && next.startsWith("/") ? next : "/");
     }
@@ -51,8 +51,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      {!hideTop && <TopBar />}
-      <main className={hideTop ? "main main-flush" : "main"} id="main">
+      {!hideTop && (
+        <Suspense fallback={null}>
+          <TopBar />
+        </Suspense>
+      )}
+      <main
+        className={
+          hideTop ? "main main-flush" : pathname === "/" ? "main main-home-lock" : "main"
+        }
+        id="main"
+      >
         {children}
       </main>
       {pathname !== "/" && !pathname.startsWith("/account") && <SiteBeian />}

@@ -9,6 +9,8 @@ import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import { getProject, upsertProject, uniqueProjectName } from "@/lib/studioProjects";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
+import { PointsCost } from "@/components/ui/PointsCost";
+import { videoSecondsPoints } from "@/lib/pointCosts";
 import { PlayerAudio, buildExportAudio, type ExportAudio } from "@/lib/playerAudio";
 import { asset as assetUrl } from "@/lib/asset";
 import {
@@ -42,8 +44,7 @@ import { RegionEnhanceBadge } from "@/components/image/RegionEnhanceStrip";
 import { useAuth } from "@/lib/AuthContext";
 
 /* F10 一句话视频：文生视频(T2V) / 图生视频(I2V) 双 Tab。
-   演示骨架：场景引导词库 + 参数 + 首尾帧 + 内容安全预检/复检 + 进度状态机 + 后处理/审核流。
-   出片为演示占位（无真视频模型）；额度/RAG变量/安全检测/审核/通知均为前端模拟。 */
+   出片走 /api/video；提示词扩写走 /api/video-prompt、/api/video-generate。 */
 
 const GRADS: Grad[] = ["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-grad-4"];
 // 敏感词演示：命中则安全预检拦截
@@ -186,7 +187,7 @@ async function genVideoFrames(prompt: string, ratio: string, regionEnhance = tru
     fetch("/api/image", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(imageRequestBody({ prompt: p, size, regionEnhance, regionId })),
+      body: JSON.stringify(imageRequestBody({ prompt: p, size, useLora: regionEnhance, useKB: regionEnhance, regionId })),
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((j: { images?: string[] }) => j.images?.[0] ?? null);
@@ -493,6 +494,8 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
   const { user } = useAuth();
   const regionId = accountRegionId(user);
   const [regionEnhance, setRegionEnhance] = useState(true);
+  const [useLora, setUseLora] = useState(true);
+  const [useKB, setUseKB] = useState(true);
 
   // 二次编辑：读取暂存的视频作品，重建为最新历史记录并高亮定位
   const reeditCard = useMemo(() => {
@@ -561,15 +564,13 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
   const [safe, setSafe] = useState<null | "checking" | "blocked">(null); // 安全预检状态
   const [quotaOpen, setQuotaOpen] = useState(false); // 每日生成次数耗尽弹层
 
-  // 写入「我的作品」：捕获 localStorage 配额溢出，存储失败不中断生成/收藏流程
+  // 写入「我的作品」：返回成败，配额失败时 toast 提示
   function safeAddWork(a: AssetCard) {
-    try {
-      addWork(a);
-    } catch (e) {
-      if (e instanceof DOMException && e.name === "QuotaExceededError") {
-        toast("本地存储空间不足，历史记录可能无法保存", "warn");
-      }
+    const res = addWork(a);
+    if (!res.ok) {
+      toast(res.reason === "quota" ? "本地存储空间不足，历史记录可能无法保存" : "存入仓库失败", "warn");
     }
+    return res;
   }
   const timers = useRef<number[]>([]);
   const seq = useRef(0); // 自增序号，保证新生成记录 id 唯一
@@ -593,6 +594,21 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!reeditCard?.edit) return;
+    const e = reeditCard.edit;
+    if (e.input) setPrompt(e.input);
+    if (e.ratio && videoRatios.includes(e.ratio as (typeof videoRatios)[number])) {
+      setRatio(e.ratio);
+    }
+    if (e.style) setStyle(e.style);
+    if (e.dur) {
+      const n = parseInt(e.dur, 10);
+      if (n > 0) setDurSec(n);
+    }
+    if (e.model) setModel(e.model);
+  }, [reeditCard]);
+
   // 运动预设词开关：已在描述中则移除该词，否则追加（按「，」分词，顺带去重）
   function toggleMotionWord(w: string) {
     setMotion((cur) => {
@@ -611,7 +627,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
     setSceneCat(tpl.cat);
     setPrompt(tpl.prompt);
     setPresetCleared(false); // 选了具体预设，取消「不使用预设」高亮
-    if (/【.+?】/.test(tpl.prompt)) toast("引导词含县域变量，发布时将从县域知识库自动填充（演示）");
+    if (/【.+?】/.test(tpl.prompt)) toast("引导词含地区变量，发布时将从本地知识库自动填充（演示）");
   }
 
   // 套用右栏参考灵感：切到文生视频并填入对应场景提示词
@@ -652,9 +668,9 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       toast("请先输入或选择一个场景引导词", "warn");
       return;
     }
-    notifyRegionEnhance(toast, regionEnhance);
+    notifyRegionEnhance(toast, { useLora, useKB });
     setExpanding(true);
-    optimizeVideoPrompt(base, style === "智能匹配" ? undefined : style, kbFields(regionEnhance, regionId)).then((optimized) => {
+    optimizeVideoPrompt(base, style === "智能匹配" ? undefined : style, kbFields(useKB, regionId)).then((optimized) => {
       if (optimized) {
         setPrompt(optimized);
         toast("提示词已优化");
@@ -709,7 +725,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       return;
     }
 
-    notifyRegionEnhance(toast, regionEnhance);
+    notifyRegionEnhance(toast, { useLora, useKB });
 
     // F10-07 安全预检（演示：命中敏感词阻断）
     setSafe("checking");
@@ -737,7 +753,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       const result = await callVideoGenerate({
         scene, sceneCat, prompt: text, model, ratio, durSec,
         quality, style, genAudio, count,
-        ...kbFields(regionEnhance, regionId),
+        ...kbFields(useKB, regionId),
       });
       if (result) {
         finalText = result.finalPrompt;
@@ -757,9 +773,13 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
         } else if (styleObj?.stylePrompt) {
           finalText = `${text}，${styleObj.stylePrompt}`;
         }
-        if (regionEnhance) {
+        if (useKB) {
           const kb = kbFields(true, regionId);
-          if (kb.kbContext) finalText = `${finalText}\n【县域知识库·${kb.county}】\n${kb.kbContext}`;
+          if (kb.kbContext) {
+            finalText =
+              `${finalText}\n【在地视觉参考·${kb.county}】将下列气质融入画面氛围与物产意象，` +
+              `不要朗读或显示「本地知识库」「区县知识库」「县域知识库」等系统标签：\n${kb.kbContext}`;
+          }
         }
       }
     } else {
@@ -776,9 +796,13 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       } else if (styleObj?.stylePrompt) {
         finalText = `${text}，${styleObj.stylePrompt}`;
       }
-      if (regionEnhance) {
+      if (useKB) {
         const kb = kbFields(true, regionId);
-        if (kb.kbContext) finalText = `${finalText}\n【县域知识库·${kb.county}】\n${kb.kbContext}`;
+        if (kb.kbContext) {
+          finalText =
+            `${finalText}\n【在地视觉参考·${kb.county}】将下列气质融入画面氛围与物产意象，` +
+            `不要朗读或显示「本地知识库」「区县知识库」「县域知识库」等系统标签：\n${kb.kbContext}`;
+        }
       }
     }
 
@@ -829,6 +853,8 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       tailPoster: p.tailPoster,
       grad,
       withAudio: p.withAudio !== false, // 默认 true，显式传 false 时关闭
+      model: p.videoModel,
+      quality: p.quality,
       regionEnhance,
       regionId,
     };
@@ -886,8 +912,10 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
           kind: "视频",
           name: `${p.text.slice(0, 12) || "一句话视频"} · ${p.dur}`,
           sub: p.withAudio !== false ? "视频生成 · 一句话成片 · 有声" : "视频生成 · 一句话成片",
+          module: "video",
           img: poster ?? p.poster, // 优先用捕获的首帧（t2v 无传入 poster 时也有封面）
           videoUrl, // 存真实视频地址，供作品封面显示首帧 & 二次编辑重建可播放记录
+          mediaRef: videoUrl && !videoUrl.startsWith("blob:") ? videoUrl : undefined,
           time: nowStamp(),
           edit: { sub: "oneline", input: p.text, model, ratio: p.ratio, dur: p.dur, style: p.style },
         });
@@ -952,13 +980,17 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
 
   // 视频记录 → 作品卡（收藏/存库口径一致；assetKey 取 类型+名称，name 对单条稳定）
   function videoAsset(row: VideoRunRow): AssetCard {
+    const url = row.videoUrl;
     return {
       emoji: "🎬",
       grad: row.grad,
       kind: "视频",
       name: `${row.prompt.slice(0, 12) || "一句话视频"} · ${row.dur}`,
       sub: "视频生成 · 一句话成片",
+      module: "video",
       img: row.poster || posterFor(row),
+      videoUrl: url && !url.startsWith("blob:") ? url : undefined,
+      mediaRef: url && !url.startsWith("blob:") ? url : undefined,
       time: nowStamp(),
       edit: { sub: "oneline", input: row.prompt },
     };
@@ -1009,7 +1041,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
         stepKey: "clips",
         script: row.prompt,
         studioIdea: row.prompt,
-        settings: { 模型: "Seedance 1.5 Pro", 视频比例: ratio, 视频风格: "智能匹配", 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示", 县域增强: "使用" },
+        settings: { 模型: "Seedance 1.5 Pro", 视频比例: ratio, 视频风格: "智能匹配", 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示", 本地增强: "使用" },
         totalSec: dur,
         targetShots: 1,
         assets: [],
@@ -1243,8 +1275,16 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
               </div>
 
               <RegionEnhanceStrip
-                enabled={regionEnhance}
-                onChange={setRegionEnhance}
+                useLora={useLora}
+                onLoraChange={(next) => {
+                  setUseLora(next);
+                  setRegionEnhance(next || useKB);
+                }}
+                useKB={useKB}
+                onKBChange={(next) => {
+                  setUseKB(next);
+                  setRegionEnhance(useLora || next);
+                }}
                 regionId={regionId}
                 showLora={false}
               />
@@ -1300,7 +1340,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
                           {expanding ? (
                             <><Icon name="refresh" size={14} className="ico-spin" /> 扩写中…</>
                           ) : (
-                            <><Icon name="sparkle" size={14} /> AI 扩写</>
+                            <>AI 扩写</>
                           )}
                         </button>
                       }
@@ -1481,7 +1521,9 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
                     );
                   })}
                 </div>
-                {quality === "1080P" && <div className="field-hint">高清消耗 2 倍额度</div>}
+                {(quality === "1080P" || quality.includes("2K") || quality.includes("4K")) && (
+                  <div className="field-hint">更高分辨率会按模型档位提高算力消耗</div>
+                )}
               </div>
               <div className="field">
                 <div className="ws-label">视频风格</div>
@@ -1544,7 +1586,19 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
                 {safe === "checking" ? (
                   <><Icon name="shield" size={16} /> 内容安全检测中…</>
                 ) : (
-                  <><Icon name="sparkle" size={16} /> 立即生成</>
+                  <>
+                    立即生成{" "}
+                    {!busy && (
+                      <PointsCost
+                        amount={videoSecondsPoints(durSec, {
+                          model,
+                          quality,
+                          withAudio: genAudio && canNativeAudio,
+                          count: tab === "t2v" ? count : 1,
+                        })}
+                      />
+                    )}
+                  </>
                 )}
               </button>
               {safe === "blocked" && <p className="ov-block-note">⚠ 内容安全预检未通过，请修改提示词</p>}
@@ -1904,7 +1958,14 @@ function VideoRunCard({
             <Icon name="edit" size={13} /> 重新编辑
           </button>
           <button className="btn btn-ghost btn-sm" onClick={onRegenerate}>
-            <Icon name="refresh" size={13} /> 再次生成
+            <Icon name="refresh" size={13} /> 再次生成{" "}
+            <PointsCost
+              amount={videoSecondsPoints(Number(row.dur.match(/\d+/)?.[0] || 5), {
+                model: row.model,
+                quality: row.quality,
+                withAudio: row.withAudio !== false,
+              })}
+            />
           </button>
         </div>
       )}
@@ -1916,7 +1977,14 @@ function VideoRunCard({
             <Icon name="edit" size={13} /> 重新编辑
           </button>
           <button className="btn btn-ghost btn-sm" onClick={onRegenerate}>
-            <Icon name="refresh" size={13} /> 再次生成
+            <Icon name="refresh" size={13} /> 再次生成{" "}
+            <PointsCost
+              amount={videoSecondsPoints(Number(row.dur.match(/\d+/)?.[0] || 5), {
+                model: row.model,
+                quality: row.quality,
+                withAudio: row.withAudio !== false,
+              })}
+            />
           </button>
           <button className="btn btn-primary btn-sm ov-run-studio" onClick={onStudio}>
             去制作大片 <Icon name="chevron" size={14} />

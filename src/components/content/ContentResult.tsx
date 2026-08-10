@@ -3,6 +3,8 @@
 import { Icon } from "@/components/ui/Icon";
 import { CONTENT_ICON } from "@/data/icons";
 import { useToast } from "@/components/ui/Toast";
+import { useLibrary } from "@/lib/store";
+import { nowStamp } from "@/lib/datetime";
 import type { ContentScene } from "@/lib/types";
 import { RegionEnhanceBadge } from "@/components/image/RegionEnhanceStrip";
 
@@ -16,6 +18,7 @@ export function ContentResult({
   onToFull,
   regionEnhance,
   regionId,
+  product,
 }: {
   scene: ContentScene;
   text: string;
@@ -25,8 +28,41 @@ export function ContentResult({
   onToFull?: () => void;
   regionEnhance?: boolean;
   regionId?: string;
+  /** 可选产品名，写入作品标题 */
+  product?: string;
 }) {
   const toast = useToast();
+  const { addWork } = useLibrary();
+
+  function saveToLibrary() {
+    const body = (text || "").trim();
+    if (!body) {
+      toast("暂无文案可存入", "warn");
+      return;
+    }
+    const titleBase = (product || "").trim() || scene.title;
+    const name = `${titleBase} · ${scene.title}`.slice(0, 40);
+    const res = addWork({
+      emoji: "📝",
+      grad: "thumb-grad-3",
+      kind: "文案",
+      name,
+      sub: `内容创作 · ${scene.title}`,
+      module: "content",
+      text: body,
+      time: nowStamp(),
+      edit: {
+        sub: scene.key,
+        input: titleBase,
+        ...(product ? { product } : {}),
+      },
+    });
+    if (!res.ok) {
+      toast(res.reason === "quota" ? "本地空间不足，存入失败" : "存入失败", "warn");
+      return;
+    }
+    toast(res.action === "updated" ? "已更新仓库中的同名文案" : "已存入个人仓库");
+  }
 
   if (isOutline) {
     return (
@@ -92,7 +128,7 @@ export function ContentResult({
             <Icon name="copy" size={15} /> 复制
           </button>
           <button className="btn btn-ghost btn-sm" disabled={!text} onClick={() => toast("已对文案执行「润色」（演示）")}>
-            <Icon name="sparkle" size={15} /> 润色
+            润色
           </button>
           <button className="btn btn-ghost btn-sm" disabled={!text} onClick={() => toast("已对文案执行「续写」（演示）")}>
             <Icon name="plus" size={15} /> 续写
@@ -100,13 +136,13 @@ export function ContentResult({
           <button className="btn btn-ghost btn-sm" disabled={!text} onClick={() => toast("已对文案执行「改写」（演示）")}>
             <Icon name="refresh" size={15} /> 改写
           </button>
-          <button className="btn btn-primary btn-sm" disabled={!text} onClick={() => toast("已存入个人仓库（演示）")}>
+          <button className="btn btn-primary btn-sm" disabled={!text || loading} onClick={saveToLibrary}>
             <Icon name="storage" size={15} /> 存入个人仓库
           </button>
         </div>
       </div>
       <p className="empty-note" style={{ marginTop: 10 }}>
-        提示：文案为真实 AI 生成结果，可复制后二次编辑；润色 / 续写 / 改写为演示操作。
+        提示：文案为真实 AI 生成结果，可复制后二次编辑；也可一键存入仓库回看全文。
       </p>
     </>
   );

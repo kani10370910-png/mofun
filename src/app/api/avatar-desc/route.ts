@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
           ? [{
               role: "system" as const,
               content:
-                `【县域知识库${county ? `·${county}` : ""}】可融入县域人物气质与服饰符号，勿编造真人。` +
+                `【本地知识库${county ? `·${county}` : ""}】可融入本地人物气质与服饰符号，勿编造真人。` +
                 (kbContext ? `\n${kbContext}` : ""),
             }]
           : []),
