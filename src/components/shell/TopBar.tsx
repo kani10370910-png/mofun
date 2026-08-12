@@ -30,6 +30,8 @@ const NAV: { view: string; href: string; label: string }[] = [
   { view: "research", href: "/research", label: "市场调研" },
   { view: "storage", href: "/storage", label: "仓库" },
 ];
+const NAV_DEV_DISABLED = new Set(["content", "research"]);
+const MEMBER_DEV_TIP = "该功能正在开发中";
 
 export function TopBar() {
   const pathname = usePathname();
@@ -129,20 +131,29 @@ export function TopBar() {
         </div>
 
         <nav className="nav">
-          {NAV.map((n) => (
-            <Link
-              key={n.view}
-              href={n.href}
-              className={isActive(n.href) ? "nav-item active" : "nav-item"}
-              onClick={(e) => {
-                if (n.href !== "/" || !homeChat) return;
-                e.preventDefault();
-                window.dispatchEvent(new CustomEvent(HOME_CHAT_EXIT_EVENT));
-              }}
-            >
-              <span>{n.label}</span>
-            </Link>
-          ))}
+          {NAV.map((n) => {
+            const disabled = NAV_DEV_DISABLED.has(n.view);
+            return (
+              <Link
+                key={n.view}
+                href={n.href}
+                className={`${isActive(n.href) ? "nav-item active" : "nav-item"}${disabled ? " is-disabled" : ""}`}
+                title={disabled ? "该功能正在开发中" : undefined}
+                aria-disabled={disabled}
+                onClick={(e) => {
+                  if (disabled) {
+                    e.preventDefault();
+                    return;
+                  }
+                  if (n.href !== "/" || !homeChat) return;
+                  e.preventDefault();
+                  window.dispatchEvent(new CustomEvent(HOME_CHAT_EXIT_EVENT));
+                }}
+              >
+                <span>{n.label}</span>
+              </Link>
+            );
+          })}
         </nav>
 
         <div className="topbar-right">
@@ -232,15 +243,6 @@ export function TopBar() {
                     </div>
 
                     <div className="acct-benefit">
-                      <div className="acct-benefit-top">
-                        <span className="acct-benefit-ico">
-                          <Icon name="sparkle" size={16} />
-                        </span>
-                        <div>
-                          <div className="acct-benefit-title">{resolvePlanLabel(user)}权益</div>
-                          <div className="acct-benefit-exp">{user.expiresAt} 到期</div>
-                        </div>
-                      </div>
                       <div className="acct-balance">
                         <div className="acct-bal-label">算力余额</div>
                         <div className="acct-bal-cols">
@@ -255,8 +257,12 @@ export function TopBar() {
                         </div>
                         <button
                           type="button"
-                          className="acct-bal-link"
-                          onClick={() => goAccount("member")}
+                          className="acct-bal-link is-disabled"
+                          title={MEMBER_DEV_TIP}
+                          aria-disabled="true"
+                          onClick={(e) => {
+                            e.preventDefault();
+                          }}
                         >
                           会员中心 / 算力明细
                         </button>
@@ -264,17 +270,25 @@ export function TopBar() {
                     </div>
 
                     <div className="acct-pop-actions">
-                      <button type="button" onClick={() => goAccount("member")}>
-                        <Icon name="sparkle" size={18} />
-                        <span>会员中心</span>
-                      </button>
                       <button type="button" onClick={() => goAccount("personal")}>
                         <Icon name="building" size={18} />
                         <span>管理账户</span>
                       </button>
                       <button type="button" onClick={() => goAccount("creations")}>
                         <Icon name="image" size={18} />
-                        <span>企业资产</span>
+                        <span>品牌资产</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="is-disabled"
+                        title={MEMBER_DEV_TIP}
+                        aria-disabled="true"
+                        onClick={(e) => {
+                          e.preventDefault();
+                        }}
+                      >
+                        <Icon name="sparkle" size={18} />
+                        <span>会员中心</span>
                       </button>
                       <button type="button" className="danger" onClick={onLogout}>
                         <Icon name="logout" size={18} />

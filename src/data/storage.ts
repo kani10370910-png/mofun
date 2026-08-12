@@ -92,6 +92,7 @@ export const brandTypes: BrandType[] = [
   { type: "color", name: "标准色", emoji: "🎨" },
   { type: "font", name: "字体", emoji: "🔤" },
   { type: "slogan", name: "Slogan", emoji: "💬" },
+  { type: "custom", name: "自定义", emoji: "✨" },
 ];
 
 // 自增 id 起始值（运行时在组件内维护）

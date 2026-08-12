@@ -5,6 +5,8 @@ import {
   QWEN_I2I_LOCAL,
   QWEN_T2I_LOCAL,
 } from "@/lib/imageModelCatalog";
+import { applyKbToImagePrompt, retrieveKnowledge } from "@/lib/kbServer";
+import { resolveUpstreamLoras } from "@/lib/loraResolve";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +22,11 @@ export async function POST(req: NextRequest) {
     n?: number;
     model?: string;
     image?: string | string[];
+    useKB?: boolean;
+    useLora?: boolean;
+    regionId?: string;
+    county?: string;
+    kbContext?: string;
     lora?: { id?: string; name?: string; strength?: number }[];
   };
   try {
@@ -30,6 +37,17 @@ export async function POST(req: NextRequest) {
 
   let prompt = (body.prompt || "").trim();
   if (!prompt) return Response.json({ error: "缺少 prompt" }, { status: 400 });
+
+  if (body.useKB) {
+    const kb = await retrieveKnowledge({
+      useKB: true,
+      regionId: body.regionId,
+      county: body.county,
+      query: prompt,
+      kbContext: body.kbContext,
+    });
+    prompt = applyKbToImagePrompt(prompt, kb);
+  }
 
   const apiKey = process.env.IMAGE_API_KEY || "";
   if (!apiKey) {
@@ -63,11 +81,19 @@ export async function POST(req: NextRequest) {
     return id;
   }
   const reqModel = resolveUpstream(body.model);
+  const upstreamLoras = resolveUpstreamLoras(body.lora, {
+    model: body.model || reqModel,
+    regionId: body.regionId,
+    useLora: body.useLora ?? Boolean(body.lora?.length),
+  });
 
   // 调用上游文生图；连接抖动（ECONNRESET，常见于本机代理）自动重试至多 3 次、退避递增。
   async function callImage(modelId: string): Promise<{ res: Response; text: string } | { err: string; status: number }> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const loraForModel = modelSupportsCountyLora(modelId) || modelSupportsCountyLora(body.model)
+      ? upstreamLoras
+      : [];
     const init: RequestInit = {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
@@ -79,7 +105,7 @@ export async function POST(req: NextRequest) {
         size: body.size || "2048x2048",
         // 图生图：传参考图（公网 URL）保持一致性；不传则纯文生图。
         ...(body.image ? { image: body.image } : {}),
-        ...(body.lora?.length ? { lora: body.lora } : {}),
+        ...(loraForModel.length ? { lora: loraForModel } : {}),
       }),
       signal: ctrl.signal,
     };

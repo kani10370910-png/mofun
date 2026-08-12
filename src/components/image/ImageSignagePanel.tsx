@@ -72,7 +72,7 @@ export function initSignageStudio(): SignageStudioState {
     model: SIGNAGE_IMAGE_MODEL,
     extraDesc: "",
     regionEnhance: true,
-    useLora: true,
+    useLora: false,
     useKB: true,
   };
 }
@@ -197,16 +197,11 @@ export function ImageSignagePanel({
         </div>
 
         <RegionEnhanceStrip
-          useLora={state.useLora}
-          onLoraChange={(next) =>
-            setState({ ...state, useLora: next, regionEnhance: next || state.useKB })
-          }
           useKB={state.useKB}
           onKBChange={(next) =>
             setState({ ...state, useKB: next, regionEnhance: state.useLora || next })
           }
           regionId={regionId}
-          showLora={true}
         />
 
         {state.channel === "online" ? (

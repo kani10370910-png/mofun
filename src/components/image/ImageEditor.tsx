@@ -31,7 +31,6 @@ import {
   QWEN_I2I_LOCAL,
   QWEN_T2I_LOCAL,
   accountRegionId,
-  applyRegionToImagePrompt,
   imageRequestBody,
   kbFields,
   modelSupportsCountyLora,
@@ -517,6 +516,10 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
 
   function switchType(key: string) {
     const k = key as ImageTypeKey;
+    if (k === "signage") {
+      toast("该功能正在开发中", "warn");
+      return;
+    }
     setActive(k);
     setHasResult(false);
     setProposeOpen(false);
@@ -781,7 +784,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     setLogoRuns((prev) => prev.filter((r) => r.id !== id));
   }
 
-  // AI字体：MoFun区域文化大模型真出图（与 Logo 同通道；本模块不挂本地增强）
+  // AI字体：MoFun区域文化大模型真出图（不挂载 Lora / 知识库）
   async function runFontGenerate() {
     if (fontBusy) return;
     const text = fontForm.text.trim();
@@ -820,7 +823,6 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       pct: 8,
       loadingPhase: 0,
       results: grads.map((g) => ({ grad: g })),
-      regionEnhance: false,
     };
     setFontRuns((prev) => [row, ...prev]);
 
@@ -870,7 +872,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
               size,
               n: 1,
               model: QWEN_T2I_LOCAL,
-              regionEnhance: false,
+              useLora: false,
+              useKB: false,
             }),
           ),
         });
@@ -1250,6 +1253,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       regionEnhance: eventForm.useLora || eventForm.useKB,
       regionId,
       regionLora: eventForm.useLora && modelSupportsCountyLora(isI2i ? eventForm.editModel : eventForm.model),
+      useLora: eventForm.useLora,
+      useKB: eventForm.useKB,
     };
     setEventRuns((prev) => [row, ...prev]);
 
@@ -1568,6 +1573,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       regionEnhance: productForm.useLora || productForm.useKB,
       regionId,
       regionLora: productForm.useLora && modelSupportsCountyLora(PRODUCT_IMAGE_MODEL),
+      useLora: productForm.useLora,
+      useKB: productForm.useKB,
     };
     setProductRuns((prev) => [row, ...prev]);
 
@@ -1624,7 +1631,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
             size: finalSize,
             model: PRODUCT_IMAGE_MODEL,
             image: refDataUrl || undefined,
-            useLora: productForm.useLora,
+            useLora: false,
             useKB: productForm.useKB,
             regionId,
           })),
@@ -1866,6 +1873,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       regionEnhance: signageForm.useLora || signageForm.useKB,
       regionId,
       regionLora: signageForm.useLora && modelSupportsCountyLora(SIGNAGE_IMAGE_MODEL),
+      useLora: signageForm.useLora,
+      useKB: signageForm.useKB,
     };
     setSignageRuns((prev) => [row, ...prev]);
 
@@ -1931,7 +1940,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
             size: finalSize,
             model: SIGNAGE_IMAGE_MODEL,
             image: refDataUrl || undefined,
-            useLora: signageForm.useLora,
+            useLora: false,
             useKB: signageForm.useKB,
             regionId,
           })),

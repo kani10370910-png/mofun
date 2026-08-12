@@ -610,9 +610,9 @@ export const SKILL_CATALOG: SkillDef[] = [
   },
   {
     id: "skill.storage.brand",
-    name: "仓库 · 品牌资产",
+    name: "账户 · 品牌资产",
     description: "读取品牌记忆事实，注入后续创作填槽",
-    workbench: wb("storage", undefined, "tab=brand"),
+    workbench: wb("account", undefined, "tab=creations"),
     triggerKeywords: ["品牌资产", "品牌记忆", "品牌库"],
     requiredSlotKeys: [],
     exits: [],

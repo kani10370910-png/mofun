@@ -88,7 +88,7 @@ export function initProductStudio(): ProductStudioState {
     fusionLabels: ["", "", ""],
     sceneMore: false,
     regionEnhance: true,
-    useLora: true,
+    useLora: false,
     useKB: true,
   };
 }
@@ -269,16 +269,11 @@ export function ImageProductPanel({
     <>
       <div className="ws-scroll">
         <RegionEnhanceStrip
-          useLora={state.useLora}
-          onLoraChange={(next) =>
-            setState({ ...state, useLora: next, regionEnhance: next || state.useKB })
-          }
           useKB={state.useKB}
           onKBChange={(next) =>
             setState({ ...state, useKB: next, regionEnhance: state.useLora || next })
           }
           regionId={regionId}
-          showLora={true}
         />
         {showProductUpload && (
           <div className="field">

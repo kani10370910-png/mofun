@@ -26,19 +26,20 @@ export function PersonalCertFlow({
   onDone?: () => void;
 }) {
   const toast = useToast();
-  const { updateUser } = useAuth();
+  const { user, updateUser } = useAuth();
   const [realName, setRealName] = useState("");
   const [idNumber, setIdNumber] = useState("");
   const [busy, setBusy] = useState(false);
   const [formErr, setFormErr] = useState("");
+  const editing = !!user.personalVerified;
 
   useEffect(() => {
     if (!open) return;
-    setRealName("");
+    setRealName(user.realName?.trim() || "");
     setIdNumber("");
     setBusy(false);
     setFormErr("");
-  }, [open]);
+  }, [open, user.realName]);
 
   if (!open) return null;
 
@@ -63,7 +64,7 @@ export function PersonalCertFlow({
         updateUser({
           ...applyPersonalCertPatch({ realName: realName.trim(), idNumber: idNumber.trim() }),
         });
-        toast("实名认证已完成");
+        toast(editing ? "实名认证已更新" : "实名认证已完成");
         onDone?.();
         onClose();
       } catch (e) {
@@ -81,13 +82,15 @@ export function PersonalCertFlow({
         <button type="button" className="am-cs-close" onClick={onClose} aria-label="关闭">
           <Icon name="close" size={16} />
         </button>
-        <h3 id="am-pcert-title">实名认证</h3>
+        <h3 id="am-pcert-title">{editing ? "修改实名认证" : "实名认证"}</h3>
         <div className="am-cert-notice">
           <span className="am-cert-notice-ico" aria-hidden>
             ☀
           </span>
           <p>
-            感谢您使用魔方智绘平台，为配合国家相关法律法规、维护网络安全环境，更好地提供健康、文明、合法的服务，我们需要您进行实名认证。对未完成实名认证的用户，平台将默认开启青少年模式。
+            {editing
+              ? "您已完成实名认证。如信息有误，可在此更新真实姓名与证件号；平台仅用于安全风控。"
+              : "感谢您使用魔方智绘平台，为配合国家相关法律法规、维护网络安全环境，更好地提供健康、文明、合法的服务，我们需要您进行实名认证。"}
           </p>
         </div>
         <div className="am-cert-form">
@@ -106,12 +109,12 @@ export function PersonalCertFlow({
               setIdNumber(e.target.value);
               setFormErr("");
             }}
-            placeholder="中国大陆居民身份证"
+            placeholder={editing ? "请重新填写身份证号（演示可填 DEMO）" : "中国大陆居民身份证"}
           />
         </div>
         {formErr ? <div className="am-cert-form-err">{formErr}</div> : null}
         <button type="button" className="am-cert-submit" disabled={busy} onClick={onSubmit}>
-          {busy ? "提交中…" : "提交信息"}
+          {busy ? "提交中…" : editing ? "保存修改" : "提交信息"}
         </button>
         <p className="am-cert-foot">用户须知：平台进行实名认证仅用于安全风控</p>
       </div>

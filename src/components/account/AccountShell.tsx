@@ -6,7 +6,7 @@ import { Icon } from "@/components/ui/Icon";
 import { AvatarUpload } from "@/components/account/AvatarUpload";
 import { useAuth } from "@/lib/AuthContext";
 import { useToast } from "@/components/ui/Toast";
-import { resolvePlanLabel, hasEnterpriseInfo } from "@/lib/auth";
+import { resolvePlanLabel, hasEnterpriseInfo, resolveDisplayName } from "@/lib/auth";
 import { accountReturnPath, accountTabHref } from "@/lib/accountNav";
 import type { IconName } from "@/data/icons";
 
@@ -14,10 +14,10 @@ export type AccountTab = "org" | "personal" | "members" | "creations" | "member"
 
 const TABS: { key: AccountTab; label: string; ico: IconName; enterpriseOnly?: boolean }[] = [
   { key: "personal", label: "个人信息", ico: "user" },
-  { key: "member", label: "会员中心", ico: "sparkle" },
   { key: "org", label: "组织信息", ico: "building" },
   { key: "members", label: "成员管理", ico: "user", enterpriseOnly: true },
-  { key: "creations", label: "创作管理", ico: "image" },
+  { key: "creations", label: "品牌资产", ico: "image" },
+  { key: "member", label: "会员中心", ico: "sparkle" },
 ];
 
 export function AccountShell({
@@ -45,8 +45,11 @@ export function AccountShell({
     }
   }, [ready, user, router, openLogin, returnTo]);
 
-  const orgName = user?.orgName || user?.nickname || user?.company || "个人账户";
-  const avatarText = (user?.nickname || orgName).slice(0, 1);
+  // 与顶栏、组织信息统一：优先自定义昵称
+  const displayName = user ? resolveDisplayName(user) : "个人账户";
+  const avatarText = /^1\d{10}$/.test(displayName)
+    ? displayName.slice(-1)
+    : displayName.slice(0, 1);
   const planLabel = resolvePlanLabel(user);
   const isEnterprise = hasEnterpriseInfo(user);
   const visibleTabs = TABS.filter((t) => isEnterprise || !t.enterpriseOnly);
@@ -74,7 +77,7 @@ export function AccountShell({
           />
           <div className="am-side-meta">
             <div className="am-side-name-row">
-              <span className="am-side-name">{orgName}</span>
+              <span className="am-side-name">{displayName}</span>
               <button type="button" className="am-exit" onClick={() => router.push(returnTo)}>
                 <Icon name="chevron" size={14} className="am-exit-ico" /> 退出管理
               </button>
@@ -90,8 +93,13 @@ export function AccountShell({
             <button
               key={t.key}
               type="button"
-              className={active === t.key ? "am-nav-item on" : "am-nav-item"}
-              onClick={() => onTabChange(t.key)}
+              className={`${active === t.key ? "am-nav-item on" : "am-nav-item"}${t.key === "member" ? " is-disabled" : ""}`}
+              onClick={() => {
+                if (t.key === "member") return;
+                onTabChange(t.key);
+              }}
+              title={t.key === "member" ? "该功能正在开发中" : undefined}
+              aria-disabled={t.key === "member"}
             >
               <Icon name={t.ico} size={16} />
               <span>{t.label}</span>
@@ -118,12 +126,15 @@ export function useAccountTab(): [AccountTab, (t: AccountTab) => void] {
     raw === "personal" ||
     raw === "members" ||
     raw === "creations" ||
+    raw === "brand" ||
     raw === "org" ||
     raw === "member" ||
     raw === "membershipCard"
       ? raw === "membershipCard"
         ? "member"
-        : raw
+        : raw === "brand"
+          ? "creations"
+          : raw
       : raw === "team"
         ? "members"
         : "personal";
@@ -134,12 +145,15 @@ export function useAccountTab(): [AccountTab, (t: AccountTab) => void] {
       raw === "personal" ||
       raw === "members" ||
       raw === "creations" ||
+      raw === "brand" ||
       raw === "org" ||
       raw === "member" ||
       raw === "membershipCard"
         ? raw === "membershipCard"
           ? "member"
-          : raw
+          : raw === "brand"
+            ? "creations"
+            : raw
         : raw === "team"
           ? "members"
           : "personal";

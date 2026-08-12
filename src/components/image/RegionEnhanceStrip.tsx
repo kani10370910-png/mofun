@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "@/components/ui/Icon";
 import {
@@ -8,8 +8,7 @@ import {
   getRegionPack,
 } from "@/data/regionAssets";
 import { useAuth } from "@/lib/AuthContext";
-import { hasEnterpriseInfo } from "@/lib/auth";
-import { accountCityRegionLabel, accountRegionId } from "@/lib/regionEnhance";
+import { accountRegionId } from "@/lib/regionEnhance";
 import { asset } from "@/lib/asset";
 
 type DetailKind = "lora" | "kb";
@@ -23,8 +22,14 @@ function RegionDetailModal({
 }) {
   const isLora = kind === "lora";
   const title = isLora ? "Lora" : "知识库";
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   const node = (
     <div className="re-overlay" role="dialog" aria-modal="true" aria-labelledby="re-detail-title">
@@ -44,7 +49,7 @@ function RegionDetailModal({
                 <h4>本地物产形态更准</h4>
               </div>
               <p className="re-diff-lead">
-                同一提示词「生成甲鱼」：未开 Lora 常被画成硬壳「乌龟」；挂载本地 Lora 后，才按甲鱼软壳形态正确出图。
+                同一描述「生成甲鱼」：未开 Lora 可能被画成硬壳「乌龟」；挂载本地 Lora 后，能够按甲鱼软壳形态正确出图。
               </p>
               <div className="re-diff-visual">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -55,18 +60,18 @@ function RegionDetailModal({
                   loading="lazy"
                 />
                 <div className="re-diff-caps" aria-hidden>
-                  <span>未开 Lora · 易识别成乌龟</span>
+                  <span>未开 Lora · 可能识别为乌龟</span>
                   <span>开启 Lora · 正确生成甲鱼</span>
                 </div>
               </div>
               <ul className="re-diff-points">
                 <li>强化本地物产、物种在画面上的正确形态</li>
-                <li>减少「名实不符」（如甲鱼被画成乌龟）</li>
+                <li>减少「名不符实」（如甲鱼被画成乌龟）</li>
                 <li>仅部分出图模型支持（如区域文化大模型）</li>
               </ul>
               <div className="re-diff-tip">
                 <strong>说明：</strong>
-                Lora 管「画得对不对、像不像本地物产」。要文案/地标等在地说法，请用知识库。
+                Lora 确保物产形态准确，要图片，文案等是否是本地特色，请开启知识库。
               </div>
             </section>
           ) : (
@@ -76,7 +81,7 @@ function RegionDetailModal({
                 <h4>画面元素全面本地化</h4>
               </div>
               <p className="re-diff-lead">
-                未开知识库时，茶叶品类、建筑风貌、场景氛围常是「通用/非本地」样子；开启后，提示会注入本地知识，生成图里的物产、建筑、背景等元素都会往本地靠。
+                未开启知识库时，茶叶品类、建筑风貌、场景氛围等通常是按照随机地区生成；开启后，描述内容会注入本地知识，生成图片的物产、建筑、背景等都会按照本地元素生成。
               </p>
               <div className="re-diff-visual">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -87,18 +92,18 @@ function RegionDetailModal({
                   loading="lazy"
                 />
                 <div className="re-diff-caps" aria-hidden>
-                  <span>未开 · 非本地茶叶与建筑</span>
+                  <span>未开 · 元素与本地无关</span>
                   <span>开启 · 元素均为本地相关</span>
                 </div>
               </div>
               <ul className="re-diff-points">
-                <li>茶叶等物产：从泛化/外地品类 → 本地特产形态与说法</li>
-                <li>建筑与场景：从非本地风貌 → 本地街景、竹海、茶园等在地符号</li>
-                <li>文案/脚本/出图提示均可引用知识库，不依赖是否挂载 Lora</li>
+                <li>茶叶等物产：从泛化的各地品类 → 本地特产形态与描述</li>
+                <li>建筑与场景：从非本地风貌 → 本地街景、竹海、茶园等本地符号</li>
+                <li>文案/脚本/出图提示均可引用知识库</li>
               </ul>
               <div className="re-diff-tip">
                 <strong>说明：</strong>
-                知识库管「画什么本地内容」。要物产形态更准（如甲鱼别画成乌龟），请用 Lora。
+                知识库确保生成为本地内容，物产形态准确（如甲鱼别画成乌龟），请开启 Lora。
               </div>
             </section>
           )}
@@ -107,7 +112,7 @@ function RegionDetailModal({
     </div>
   );
 
-  if (!mounted) return null;
+  if (typeof document === "undefined") return null;
   return createPortal(node, document.body);
 }
 
@@ -148,7 +153,15 @@ function SwitchRow({
           />
           <span className="re-switch-track" />
         </label>
-        <button type="button" className="re-detail-btn" onClick={onDetail}>
+        <button
+          type="button"
+          className="re-detail-btn"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onDetail();
+          }}
+        >
           详情
         </button>
       </div>
@@ -156,21 +169,22 @@ function SwitchRow({
   );
 }
 
-/** 左栏能力条：本地增强 = Lora + 知识库（可分别开关） */
+/** 左栏：仅知识库开关行（无「本地增强」标题 / 区县 pill / 企业说明） */
 export function RegionEnhanceStrip({
-  useLora,
-  onLoraChange,
+  useLora: _useLora,
+  onLoraChange: _onLoraChange,
   useKB,
   onKBChange,
-  /** @deprecated 兼容旧单开关：同步控制 Lora+知识库 */
+  /** @deprecated 兼容旧单开关：现仅控制知识库 */
   enabled,
   onChange,
   loraIds: _loraIds = DEFAULT_LORA_IDS,
   onLoraIdsChange: _onLoraIdsChange,
   strengths: _strengths = {},
   onStrengthChange: _onStrengthChange,
-  regionId,
-  showLora = false,
+  regionId: _regionId,
+  /** @deprecated Lora 已移至模型下拉下方，此 prop 忽略 */
+  showLora: _showLora = false,
 }: {
   useLora?: boolean;
   onLoraChange?: (next: boolean) => void;
@@ -183,108 +197,79 @@ export function RegionEnhanceStrip({
   strengths?: Record<string, number>;
   onStrengthChange?: (id: string, v: number) => void;
   regionId?: string;
-  /** 当前调用模型支持本地 Lora 时允许操作 Lora 开关 */
   showLora?: boolean;
 }) {
-  const { user } = useAuth();
-  const effectiveRegion = regionId || accountRegionId(user);
-  const pack = getRegionPack(effectiveRegion);
-  const regionLabel = pack.regionName;
-  const isEnterprise = hasEnterpriseInfo(user);
-  const cityLabel = isEnterprise ? accountCityRegionLabel(user) : regionLabel;
   const [detailKind, setDetailKind] = useState<DetailKind | null>(null);
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  const legacy = onChange != null && onLoraChange == null && onKBChange == null;
-  const loraOn = useLora ?? enabled ?? true;
+  const legacy = onChange != null && onKBChange == null;
   const kbOn = useKB ?? enabled ?? true;
-  const anyOn = (showLora && loraOn) || kbOn;
-
-  const summaryParts: string[] = [];
-  if (showLora && loraOn) summaryParts.push("Lora");
-  if (kbOn) summaryParts.push("知识库");
-  const summary = summaryParts.length ? summaryParts.join(" · ") : "未开启";
-
-  // 展开后点击面板外任意处（成图类型、模型、立即生成等）自动收起；详情弹层内点击不收起
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(e: PointerEvent) {
-      const t = e.target;
-      if (!(t instanceof Node)) return;
-      if (rootRef.current?.contains(t)) return;
-      if (t instanceof Element && t.closest(".re-overlay")) return;
-      setOpen(false);
-    }
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [open]);
-
-  function setLora(next: boolean) {
-    if (onLoraChange) onLoraChange(next);
-    else if (legacy) onChange?.(next || kbOn);
-  }
 
   function setKB(next: boolean) {
     if (onKBChange) onKBChange(next);
-    else if (legacy) onChange?.(loraOn || next);
+    else if (legacy) onChange?.(next);
   }
 
   return (
     <>
-      <div
-        ref={rootRef}
-        className={`re-strip${anyOn ? "" : " is-off"}${open ? " is-open" : ""}`}
-      >
-        <div className="re-strip-top">
-          <div className="re-strip-title">
-            <span>本地增强</span>
-            <span className="re-region-pill" title={isEnterprise ? `企业所属市：${cityLabel}` : undefined}>
-              {isEnterprise ? `${cityLabel}市` : regionLabel}
-            </span>
-            {!open && <span className="re-strip-summary">{summary}</span>}
-          </div>
-          <button
-            type="button"
-            className="re-drop-btn"
-            aria-expanded={open}
-            aria-label={open ? "收起本地增强选项" : "展开本地增强选项"}
-            onClick={() => setOpen((v) => !v)}
-          >
-            <Icon name="chevron" size={14} />
-          </button>
+      <div className={`re-strip re-strip-kb-only${kbOn ? "" : " is-off"}`}>
+        <div className="re-rows">
+          <SwitchRow
+            label="知识库"
+            hint={kbOn ? "将引用本地知识库" : "本次不引用本地知识库"}
+            enabled={kbOn}
+            onChange={setKB}
+            onDetail={() => setDetailKind("kb")}
+          />
         </div>
-        {open && (
-          <div className="re-rows">
-            {isEnterprise && (
-              <p className="re-city-scope-hint">
-                企业账号仅可调用「{cityLabel}市」及下辖区县的知识库与 Lora；当前成员单元匹配「{regionLabel}」。
-              </p>
-            )}
-            {showLora && (
-              <SwitchRow
-                label="Lora"
-                hint={loraOn ? "将应用本地风格模型" : "本次不挂载本地 Lora"}
-                enabled={loraOn}
-                onChange={setLora}
-                onDetail={() => setDetailKind("lora")}
-              />
-            )}
-            <SwitchRow
-              label="知识库"
-              hint={kbOn ? "将引用本地知识库" : "本次不引用本地知识库"}
-              enabled={kbOn}
-              onChange={setKB}
-              onDetail={() => setDetailKind("kb")}
-            />
-          </div>
-        )}
       </div>
       {detailKind && (
         <RegionDetailModal
           kind={detailKind}
           onClose={() => setDetailKind(null)}
         />
+      )}
+    </>
+  );
+}
+
+/** 生图模型下方：仅当前模型支持本地 Lora 时显示开关 */
+export function ModelLoraSwitch({
+  enabled,
+  onChange,
+  visible,
+}: {
+  enabled: boolean;
+  onChange: (next: boolean) => void;
+  /** 选中 MoFun区域文化大模型等支持 Lora 的模型时为 true */
+  visible: boolean;
+}) {
+  const [detailOpen, setDetailOpen] = useState(false);
+  if (!visible) return null;
+  return (
+    <>
+      <div className={`re-model-lora${enabled ? "" : " is-off"}`}>
+        <div className="re-model-lora-main">
+          <span className="re-model-lora-label">挂载本地 Lora</span>
+          <p className="re-model-lora-hint">
+            {enabled ? "将应用本地风格模型" : "本次不引用本地Lora"}
+          </p>
+        </div>
+        <div className="re-model-lora-side">
+          <label className="re-switch" title={enabled ? "关闭 Lora" : "开启 Lora"}>
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => onChange(e.target.checked)}
+              aria-label="Lora开关"
+            />
+            <span className="re-switch-track" />
+          </label>
+          <button type="button" className="re-detail-btn" onClick={() => setDetailOpen(true)}>
+            详情
+          </button>
+        </div>
+      </div>
+      {detailOpen && (
+        <RegionDetailModal kind="lora" onClose={() => setDetailOpen(false)} />
       )}
     </>
   );

@@ -15,19 +15,26 @@ function subLabel(sub: string): string {
 // 固定来源标签顺序（与左侧导航栏一致）
 const SOURCE_ORDER = ["活动", "商拍", "logo", "IP设计", "AI字体", "店招设计"];
 
-/* 从「仓库」选一张图：展示我的作品 + 我的素材里带图的卡片，选中回填
-   tab：作品 / 素材，只显示有 img 的项；点击某张 → onPick(img, name) */
+export type LibraryPickItem = { img: string; name: string };
+
+/* 从「仓库」选图：展示我的作品 + 我的素材里带图的卡片
+   multiple=false：点选一张即回填；multiple=true：可多选后确认上传 */
 export function LibraryPickerModal({
   onPick,
+  onPickMany,
   onClose,
+  multiple = false,
 }: {
-  onPick: (img: string, name: string) => void;
+  onPick?: (img: string, name: string) => void;
+  onPickMany?: (items: LibraryPickItem[]) => void;
   onClose: () => void;
+  multiple?: boolean;
 }) {
   const { works, materials } = useLibrary();
   const [tab, setTab] = useState<"works" | "materials">("works");
   const [source, setSource] = useState<string>("全部");
   const [mounted, setMounted] = useState(false);
+  const [selected, setSelected] = useState<Record<string, LibraryPickItem>>({});
 
   useEffect(() => setMounted(true), []);
 
@@ -37,8 +44,10 @@ export function LibraryPickerModal({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // 切 tab 时重置来源筛选
-  useEffect(() => { setSource("全部"); }, [tab]);
+  // 切 tab 时重置来源筛选；多选时保留已选
+  useEffect(() => {
+    setSource("全部");
+  }, [tab]);
 
   // 当前 tab 下所有有图片的卡片（按 url 去重）
   const allItems = useMemo(() => {
@@ -60,12 +69,29 @@ export function LibraryPickerModal({
     return allItems.filter((a) => subLabel(a.sub) === source);
   }, [allItems, source]);
 
+  const selectedList = useMemo(() => Object.values(selected), [selected]);
+
+  function toggleItem(a: AssetCard & { img: string }) {
+    setSelected((prev) => {
+      const next = { ...prev };
+      if (next[a.img]) delete next[a.img];
+      else next[a.img] = { img: a.img, name: a.name };
+      return next;
+    });
+  }
+
+  function confirmMany() {
+    if (!selectedList.length) return;
+    onPickMany?.(selectedList);
+    onClose();
+  }
+
   if (!mounted) return null;
 
   // 用 Portal 渲染到 body，脱离右侧画廊所在的 stacking context，确保稳压全屏之上
   return createPortal(
     <div className="libpick-mask" onClick={onClose}>
-      <div className="libpick-panel" onClick={(e) => e.stopPropagation()}>
+      <div className={`libpick-panel${multiple ? " libpick-panel--multi" : ""}`} onClick={(e) => e.stopPropagation()}>
         <div className="libpick-head">
           <div className="libpick-tabs">
             <button className={tab === "works" ? "libpick-tab on" : "libpick-tab"} onClick={() => setTab("works")}>
@@ -113,21 +139,50 @@ export function LibraryPickerModal({
           </div>
         ) : (
           <div className="libpick-grid">
-            {list.map((a, i) => (
-              <button
-                key={`${a.img}-${i}`}
-                className="libpick-item"
-                title={`选择：${a.name}`}
-                onClick={() => {
-                  onPick(a.img, a.name);
-                  onClose();
-                }}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={a.img} alt={a.name} loading="lazy" />
-                <span className="libpick-name">{a.name}</span>
+            {list.map((a, i) => {
+              const on = !!selected[a.img];
+              return (
+                <button
+                  key={`${a.img}-${i}`}
+                  type="button"
+                  className={on ? "libpick-item selected" : "libpick-item"}
+                  title={multiple ? (on ? `取消选择：${a.name}` : `选择：${a.name}`) : `选择：${a.name}`}
+                  aria-pressed={multiple ? on : undefined}
+                  onClick={() => {
+                    if (multiple) {
+                      toggleItem(a);
+                      return;
+                    }
+                    onPick?.(a.img, a.name);
+                    onClose();
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={a.img} alt={a.name} loading="lazy" />
+                  <span className="libpick-name">{a.name}</span>
+                  {multiple && on ? <span className="libpick-check" aria-hidden>✓</span> : null}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {multiple && (
+          <div className="libpick-footer">
+            <span className="libpick-count">已选 {selectedList.length} 张</span>
+            <div className="libpick-footer-actions">
+              <button type="button" className="btn btn-ghost" onClick={onClose}>
+                取消
               </button>
-            ))}
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!selectedList.length}
+                onClick={confirmMany}
+              >
+                确认上传{selectedList.length ? `（${selectedList.length}）` : ""}
+              </button>
+            </div>
           </div>
         )}
       </div>

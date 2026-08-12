@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { resolveProvider, buildMessages } from "@/lib/llm";
 import type { GenerateRequest } from "@/lib/types";
+import { generateKbQuery, hydrateKbFields } from "@/lib/kbServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,7 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: msg }, { status: 503 });
   }
 
+  body = await hydrateKbFields(body, generateKbQuery(body));
   const messages = buildMessages(body);
 
   // 调上游 OpenAI 兼容 /chat/completions（流式）

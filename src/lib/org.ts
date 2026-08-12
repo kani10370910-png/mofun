@@ -181,7 +181,7 @@ export const TRUSTED_MODULE_DEFS: Array<{
   { key: "content", name: "文案策划", description: "社媒/公众号等内容创作" },
   { key: "video", name: "视频宣传", description: "一句话成片/制作大片/数字人" },
   { key: "research", name: "市场调研", description: "品牌/产业/爆款分析" },
-  { key: "storage", name: "仓库与下发", description: "品牌资产、组织素材下发回收" },
+  { key: "storage", name: "仓库", description: "组织素材与作品管理" },
   { key: "regionEnhance", name: "本地增强", description: "Lora / 知识库按 OU 注入" },
 ];
 
@@ -1510,6 +1510,28 @@ export function updateMemberDisplayName(
   };
   saveOrgStore(next);
   return { store: next };
+}
+
+/** 改昵称后：组织名称 + 主账号成员名一并同步，避免侧栏 / 组织信息 / 成员表不一致 */
+export function syncOrgDisplayName(user: AuthUser | null | undefined, name: string): OrgStore | null {
+  if (!user) return null;
+  const nextName = name.trim();
+  if (!nextName) return null;
+  let store = syncOrgAdminIdentity(loadOrgStore(user), user);
+  store = {
+    ...store,
+    organization: { ...store.organization, name: nextName },
+  };
+  saveOrgStore(store);
+  const primary =
+    store.members.find((m) => m.isPrimary) ||
+    store.members.find((m) => m.userId === user.userId) ||
+    (user.username ? store.members.find((m) => m.account === user.username) : undefined) ||
+    (user.phone ? store.members.find((m) => m.account === user.phone) : undefined);
+  if (primary) {
+    return updateMemberDisplayName(store, primary.id, nextName).store;
+  }
+  return store;
 }
 
 /** 更新成员账号（同步 TeamMember + Membership） */

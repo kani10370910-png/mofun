@@ -190,7 +190,13 @@ export function LogoGallery({
                           {it.desc && <span className="lh-desc">{it.desc}</span>}
                         </span>
                         <span className="lg-cat">{it.style}</span>
-                        {it.regionEnhance && <RegionEnhanceBadge regionId={it.regionId} />}
+                        {it.regionEnhance && (
+                          <RegionEnhanceBadge
+                            regionId={it.regionId}
+                            useLora={it.useLora ?? it.regionEnhance}
+                            useKB={it.useKB ?? it.regionEnhance}
+                          />
+                        )}
                         <button className="lh-ico lh-tip" data-tip="复制" aria-label="复制" onClick={() => onCopy(it.style, it.prompt)}>
                           <Icon name="copy" size={14} />
                         </button>

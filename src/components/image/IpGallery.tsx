@@ -63,6 +63,8 @@ export interface IpRunRow {
   imgs: string[]; // 完成后的图片 URL；与 grads 等长
   error?: string; // 出错信息（加载失败时展示）
   regionEnhance?: boolean;
+  useLora?: boolean;
+  useKB?: boolean;
   regionId?: string;
 }
 
@@ -338,7 +340,13 @@ function IpRunRowView({
             {row.desc && <span className="lh-desc">{row.desc}</span>}
           </span>
         )}
-        {row.regionEnhance && <RegionEnhanceBadge regionId={row.regionId} />}
+        {row.regionEnhance && (
+          <RegionEnhanceBadge
+            regionId={row.regionId}
+            useLora={row.useLora ?? row.regionEnhance}
+            useKB={row.useKB ?? row.regionEnhance}
+          />
+        )}
         {!loading && (
           <>
             {/* 复制：创新设计复制创意描述；扩展设计仅当填了图片描述词时显示 */}

@@ -146,12 +146,19 @@ export function regionMeta(regionId?: string) {
 
 export function kbFields(enabled: boolean, regionId?: string): {
   useKB?: boolean;
+  regionId?: string;
   county?: string;
   kbContext?: string;
 } {
   if (!enabled) return { useKB: false };
   const meta = regionMeta(regionId);
-  return { useKB: true, county: meta.county, kbContext: meta.kbContext };
+  return {
+    useKB: true,
+    regionId: meta.regionId,
+    county: meta.county,
+    /** 前端摘要仅作兜底；服务端会按 query + regionId 再检索 */
+    kbContext: meta.kbContext,
+  };
 }
 
 export function loraPromptSuffix(ids: string[], strengths: Record<string, number> = {}): string {
@@ -218,7 +225,8 @@ export function imageRequestBody(opts: {
   regionId?: string;
 }) {
   const flags = resolveFlags(opts);
-  const prompt = applyRegionToImagePrompt({ ...opts, ...flags });
+  /** 原始 prompt 交给 /api/image，由服务端检索知识库后再注入，避免双写 */
+  const prompt = opts.prompt;
   /** 开启 Lora 但当前模型不支持时，自动改用区域文化大模型，保证 lora 能挂上 */
   let modelName = opts.model;
   if (flags.useLora && !modelSupportsCountyLora(modelName)) {
@@ -232,6 +240,9 @@ export function imageRequestBody(opts: {
   const model = modelName ? resolveImageModelId(modelName) : undefined;
   return {
     prompt,
+    useKB: flags.useKB,
+    useLora,
+    regionId: baseRegion,
     ...(opts.size ? { size: opts.size } : {}),
     ...(opts.n ? { n: opts.n } : {}),
     ...(opts.image ? { image: opts.image } : {}),
@@ -242,7 +253,7 @@ export function imageRequestBody(opts: {
             const l = getLoraById(id);
             return {
               id: l.id,
-              name: l.name,
+              name: l.upstream || l.name,
               strength: opts.loraStrengths?.[id] ?? defaultStrengthMap([id])[id] ?? l.strength,
             };
           }),

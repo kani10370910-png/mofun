@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { SYSTEM_VIDEO_GENERATE } from "@/lib/prompts";
+import { hydrateKbFields } from "@/lib/kbServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ interface VideoGenerateInput {
   bgm?: string;
   count?: number;
   useKB?: boolean;
+  regionId?: string;
   county?: string;
   kbContext?: string;
 }
@@ -36,8 +38,9 @@ interface VideoGenerateOutput {
 }
 
 export async function POST(req: NextRequest) {
-  const body = (await req.json()) as VideoGenerateInput;
+  let body = (await req.json()) as VideoGenerateInput;
   if (!body.prompt?.trim()) return Response.json({ error: "prompt required" }, { status: 400 });
+  body = await hydrateKbFields(body, `${body.prompt} ${body.scene || ""} ${body.style || ""}`);
 
   const apiKey = process.env.IMAGE_API_KEY || process.env.LLM_API_KEY || "";
   const baseURL = (process.env.IMAGE_BASE_URL || process.env.LLM_BASE_URL || "").replace(/\/$/, "");

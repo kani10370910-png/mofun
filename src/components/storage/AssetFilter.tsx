@@ -69,7 +69,7 @@ const MATERIAL_CATEGORIES: { key: MaterialCategory; name: string }[] = [
   { key: "ip", name: "IP设计" },
   { key: "font", name: "AI字体" },
   { key: "signage", name: "店招设计" },
-  { key: "upload", name: "个人上传" },
+  { key: "upload", name: "其他" },
 ];
 
 type SimpleSortKey = "recent" | "earliest";
@@ -241,14 +241,17 @@ export function matchWorksCategory(
 export function isPersonalUpload(it: AssetCard): boolean {
   if (it.module === "upload") return true;
   if (it.edit?.source === "upload") return true;
+  // 从他人品牌同步的文件归入「其他」，不混入品牌设计子类
+  if (it.edit?.source === "brand") return true;
+  if (/^来源公司/.test(it.sub || "")) return true;
   const blob = `${it.sub || ""} ${it.name || ""} ${it.kind || ""}`;
-  return /个人上传/.test(blob);
+  return /个人上传|其他/.test(blob);
 }
 
 export function matchMaterialCategory(it: AssetCard, cat: MaterialCategory): boolean {
   if (cat === "all") return true;
   if (cat === "upload") return isPersonalUpload(it);
-  // 品牌设计子类不混入个人上传
+  // 品牌设计子类不混入「其他」上传
   if (isPersonalUpload(it)) return false;
   return matchImageSub(blobOf(it), cat);
 }

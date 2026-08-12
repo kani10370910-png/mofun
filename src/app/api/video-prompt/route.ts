@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { SYSTEM_VIDEO_PROMPT_OPTIMIZE } from "@/lib/prompts";
+import { hydrateKbFields } from "@/lib/kbServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,16 +10,20 @@ export const dynamic = "force-dynamic";
    返回：{ text: string | null } */
 
 export async function POST(req: NextRequest) {
-  const { input, style, targetChars, prevContext, useKB, county, kbContext } = (await req.json()) as {
+  let body = (await req.json()) as {
     input?: string;
     style?: string;
     targetChars?: number;
     prevContext?: string; // 上一镜头画面内容，用于镜头间叙事衔接
     useKB?: boolean;
+    regionId?: string;
     county?: string;
     kbContext?: string;
   };
+  const { input, style, targetChars, prevContext } = body;
   if (!input?.trim()) return Response.json({ text: null }, { status: 400 });
+  body = await hydrateKbFields(body, `${input} ${style || ""}`);
+  const { useKB, county, kbContext } = body;
   const userContent = style ? `${input.trim()}，风格：${style}` : input.trim();
 
   const apiKey = process.env.IMAGE_API_KEY || process.env.LLM_API_KEY || "";

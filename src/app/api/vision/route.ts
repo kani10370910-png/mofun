@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { hydrateKbFields } from "@/lib/kbServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +15,14 @@ export const dynamic = "force-dynamic";
    入参：{ image: string(URL 或 data URL), prompt?: string }
    返回：{ text: string } —— 模型对图片的文字描述。 */
 export async function POST(req: NextRequest) {
-  let body: { image?: string; prompt?: string; useKB?: boolean; county?: string; kbContext?: string };
+  let body: {
+    image?: string;
+    prompt?: string;
+    useKB?: boolean;
+    regionId?: string;
+    county?: string;
+    kbContext?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -40,6 +48,7 @@ export async function POST(req: NextRequest) {
     "请用一段话客观描述这张图里的IP/卡通形象的外观特征（造型、配色、服饰、表情、标志性元素、风格定位等），" +
       "便于据此撰写IP故事。80字以内，只输出描述本身，不要标题、不要换行。";
   if (body.useKB) {
+    body = await hydrateKbFields(body, prompt);
     const county = (body.county || "").trim();
     const kb = (body.kbContext || "").trim();
     prompt +=

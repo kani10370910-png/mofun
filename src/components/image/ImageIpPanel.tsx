@@ -10,7 +10,7 @@ import { imageRatios, ipExtendTabs, ipExtendPresets, ipPresetPrompts, type IpExt
 import { LibraryPickerModal } from "./LibraryPickerModal";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 import { imgToDataUrl } from "@/lib/image";
-import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
+import { RegionEnhanceStrip, ModelLoraSwitch } from "@/components/image/RegionEnhanceStrip";
 import { accountRegionId, kbFields, notifyRegionEnhance } from "@/lib/regionEnhance";
 import { useAuth } from "@/lib/AuthContext";
 import { PointsCost } from "@/components/ui/PointsCost";
@@ -430,12 +430,14 @@ function IpCreate({
     <>
       <div className="ws-scroll">
       <RegionEnhanceStrip
-        useLora={useLora}
-        onLoraChange={(next) => onLoraChange?.(next)}
         useKB={useKB}
         onKBChange={(next) => onKBChange?.(next)}
         regionId={regionId}
-        showLora={true}
+      />
+      <ModelLoraSwitch
+        visible={true}
+        enabled={!!useLora}
+        onChange={(next) => onLoraChange?.(next)}
       />
       <div className="field">
         <div className="ws-label">创意描述 <span className="req">*</span></div>
@@ -1064,18 +1066,20 @@ function IpExtend({
     <>
       <div className="ws-scroll">
       <RegionEnhanceStrip
-        useLora={useLora}
-        onLoraChange={(next) => onLoraChange?.(next)}
         useKB={useKB}
         onKBChange={(next) => onKBChange?.(next)}
         regionId={regionId}
-        showLora={true}
+      />
+      <ModelLoraSwitch
+        visible={true}
+        enabled={!!useLora}
+        onChange={(next) => onLoraChange?.(next)}
       />
       <div className="field">
         <div className="ws-label-row">
           <div className="ws-label">上传 IP 图 <span className="req">*</span></div>
           <button type="button" className="ws-chip" onClick={() => setLibOpen(true)}>
-            自 仓库
+            仓库
           </button>
         </div>
         <input

@@ -11,6 +11,21 @@ import { spawnSync } from "node:child_process";
 import { existsSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
+/** Windows 上 renameSync 常被 dev/杀毒占用 → EPERM，改用 PowerShell Move-Item */
+function moveDirSync(from, to) {
+  if (process.platform === "win32") {
+    if (existsSync(to)) rmSync(to, { recursive: true, force: true });
+    const r = spawnSync(
+      "powershell",
+      ["-NoProfile", "-Command", `Move-Item -LiteralPath '${from.replace(/'/g, "''")}' -Destination '${to.replace(/'/g, "''")}' -Force`],
+      { stdio: "inherit" },
+    );
+    if (r.status !== 0) throw new Error(`Move-Item failed: ${from} -> ${to}`);
+    return;
+  }
+  renameSync(from, to);
+}
+
 const root = process.cwd();
 const apiDir = join(root, "src", "app", "api");
 const apiStash = join(root, "src", "app", "_api_stashed");
@@ -21,14 +36,14 @@ if (existsSync(typesDir)) rmSync(typesDir, { recursive: true, force: true });
 
 let moved = false;
 if (existsSync(apiDir)) {
-  renameSync(apiDir, apiStash);
+  moveDirSync(apiDir, apiStash);
   moved = true;
   console.log("[build-static] 已临时移走 src/app/api（静态导出不支持后端路由）");
 }
 
 function restore() {
   if (moved && existsSync(apiStash)) {
-    renameSync(apiStash, apiDir);
+    moveDirSync(apiStash, apiDir);
     console.log("[build-static] 已恢复 src/app/api");
   }
 }

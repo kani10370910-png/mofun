@@ -31,6 +31,10 @@ export interface EventRunRow {
   regionId?: string;
   /** 本次是否挂载区县 Lora（仅区县模型族为 true） */
   regionLora?: boolean;
+  /** 本次是否开启 Lora（用于历史角标展示） */
+  useLora?: boolean;
+  /** 本次是否开启知识库（用于历史角标展示） */
+  useKB?: boolean;
 }
 
 const EVENT_LOAD_PHASES_BASE = [
@@ -378,7 +382,13 @@ function EventRunRowView({
           <b className="lh-prompt"><ClampText text={row.prompt} lines={2} /></b>
         </span>
         <span className="lg-cat">{row.sub}</span>
-        {useRegion && <RegionEnhanceBadge regionId={row.regionId} />}
+        {useRegion && (
+          <RegionEnhanceBadge
+            regionId={row.regionId}
+            useLora={row.useLora ?? row.regionLora ?? row.regionEnhance}
+            useKB={row.useKB ?? row.regionEnhance}
+          />
+        )}
         {!loading && (
           <>
             <button className="lh-ico lh-tip" data-tip="复制" aria-label="复制" onClick={onCopy}>

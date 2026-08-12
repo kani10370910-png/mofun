@@ -151,7 +151,7 @@ export function withPlanFromEnterprise(user: AuthUser): AuthUser {
     planLabel: enterprise ? "企业版" : "个人版",
     roleBadge: enterprise ? "企业版" : "个人版",
     /** 个人版只有自己，不展示团队成员额度 */
-    memberCount: enterprise ? user.memberCount || "1/10" : "1/1",
+    memberCount: enterprise ? user.memberCount || "1/20" : "1/1",
     ...(usePhoneLogin
       ? {
           phone: loginPhone,

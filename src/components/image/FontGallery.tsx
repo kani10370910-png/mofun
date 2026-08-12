@@ -28,8 +28,6 @@ export interface FontRunRow {
   loadingPhase?: number; // 加载阶段（0-3），用于切换加载文案
   error?: string;
   results: { grad: Grad; img?: string }[];
-  regionEnhance?: boolean;
-  regionId?: string;
 }
 
 const FONT_LOAD_PHASES = [

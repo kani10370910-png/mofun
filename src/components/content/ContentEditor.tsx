@@ -498,7 +498,8 @@ export function ContentEditor({
             prompt,
             size: "2048x2048",
             n: 1,
-            regionEnhance,
+            useLora: false,
+            useKB,
             regionId,
           }),
         ),
@@ -576,7 +577,8 @@ export function ContentEditor({
             prompt,
             size: "2048x2048",
             n: 1,
-            regionEnhance,
+            useLora: false,
+            useKB,
             regionId,
           }),
         ),
@@ -632,18 +634,12 @@ export function ContentEditor({
         <div className="workspace">
           <div className="ws-panel sticky">
           <RegionEnhanceStrip
-            useLora={useLora}
-            onLoraChange={(next) => {
-              setUseLora(next);
-              setRegionEnhance(next || useKB);
-            }}
             useKB={useKB}
             onKBChange={(next) => {
               setUseKB(next);
               setRegionEnhance(useLora || next);
             }}
             regionId={regionId}
-            showLora={false}
           />
           {panel}
         </div>

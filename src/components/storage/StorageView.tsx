@@ -4,14 +4,13 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
-import { myWorks, myMaterials, brands as seedBrands, BRAND_SEQ_START } from "@/data/storage";
+import { myWorks, myMaterials } from "@/data/storage";
 import type { AssetCard } from "@/lib/types";
 import { useLibrary, assetKey, assetDedupeKey } from "@/lib/store";
 import { asset } from "@/lib/asset";
 import { nowStamp } from "@/lib/datetime";
 import { stashReedit } from "@/lib/reedit";
 import { deleteCachedVideo, resolveAssetPlayback } from "@/lib/videoCache";
-import { BrandPane } from "./BrandPane";
 import {
   MaterialsFilterBar,
   StorageNewUpload,
@@ -45,8 +44,13 @@ function formatAssetTime(item: AssetCard): string {
 }
 
 function materialSubLabel(item: AssetCard): string {
-  if (item.module === "upload" || item.edit?.source === "upload" || /个人上传/.test(item.sub || "")) {
-    return "个人上传";
+  if (item.edit?.source === "brand") {
+    const company = item.edit.company?.trim() || item.edit.sub?.trim();
+    return company ? `来源公司 · ${company}` : "来源公司";
+  }
+  if (/^来源公司/.test(item.sub || "")) return item.sub!;
+  if (item.module === "upload" || item.edit?.source === "upload" || /个人上传|其他/.test(item.sub || "")) {
+    return "其他";
   }
   const sub = item.edit?.sub?.trim();
   if (sub) return `品牌设计 · ${sub}`;
@@ -113,15 +117,14 @@ export function editTargetOf(item: AssetCard): { href: string; label: string } {
   return { href: base, label };
 }
 
-type Tab = "works" | "materials" | "brand";
+type Tab = "works" | "materials";
 const TABS: { key: Tab; name: string }[] = [
   { key: "works", name: "我的作品" },
   { key: "materials", name: "我的素材" },
-  { key: "brand", name: "品牌资产" },
 ];
 
 export function StorageView({ initialTab = "works" }: { initialTab?: Tab }) {
-  const [tab, setTab] = useState<Tab>(initialTab);
+  const [tab, setTab] = useState<Tab>(initialTab === "materials" ? "materials" : "works");
   const toast = useToast();
   const { addMaterial } = useLibrary();
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -153,15 +156,15 @@ export function StorageView({ initialTab = "works" }: { initialTab?: Tab }) {
               const saved = addMaterial({
                 emoji: "图",
                 kind: "图片",
-                name: file.name.replace(/\.[^.]+$/, "") || "个人上传",
-                sub: "个人上传",
+                name: file.name.replace(/\.[^.]+$/, "") || "其他",
+                sub: "其他",
                 grad: grads[ok % grads.length],
                 img: dataUrl,
                 module: "upload",
                 time,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
-                edit: { source: "upload", sub: "个人上传" },
+                edit: { source: "upload", sub: "其他" },
               });
               if (saved.ok) ok += 1;
               else fail += 1;
@@ -178,7 +181,7 @@ export function StorageView({ initialTab = "works" }: { initialTab?: Tab }) {
       if (ok) {
         setMaterialJumpCat("upload");
         setTab("materials");
-        toast(ok > 1 ? `已上传 ${ok} 张到「个人上传」` : "已上传到「个人上传」");
+        toast(ok > 1 ? `已上传 ${ok} 张到「其他」` : "已上传到「其他」");
       }
       if (fail) toast(`${fail} 个文件上传失败`, "warn");
       if (uploadInputRef.current) uploadInputRef.current.value = "";
@@ -240,12 +243,6 @@ export function StorageView({ initialTab = "works" }: { initialTab?: Tab }) {
             jumpCategory={materialJumpCat}
             onJumpConsumed={() => setMaterialJumpCat(null)}
           />
-        )}
-        {tab === "brand" && (
-          <>
-            {stickyHead()}
-            <BrandPane seed={seedBrands} seqStart={BRAND_SEQ_START} />
-          </>
         )}
       </div>
     </div>
@@ -618,6 +615,7 @@ export function AssetCardView({
   subLabel,
   timeLabel,
   onEdit,
+  onUse,
   onDownload,
   onDelete,
   fav,
@@ -627,12 +625,14 @@ export function AssetCardView({
   onToggleSelect,
   onOpen,
   bundleCount,
+  editLabel = "编辑",
 }: {
   item: AssetCard;
   kindLabel?: string;
   subLabel?: string;
   timeLabel?: string;
   onEdit?: () => void;
+  onUse?: () => void;
   onDownload?: () => void;
   onDelete?: () => void;
   fav?: boolean;
@@ -642,6 +642,7 @@ export function AssetCardView({
   onToggleSelect?: () => void;
   onOpen?: () => void;
   bundleCount?: number;
+  editLabel?: string;
 }) {
   const [playUrl, setPlayUrl] = useState<string | null>(null);
   const [mediaLost, setMediaLost] = useState(false);
@@ -683,7 +684,7 @@ export function AssetCardView({
     };
   }, [item.videoUrl, item.mediaRef, item.kind]);
 
-  const showMenu = !batchMode && (onEdit || onDownload || onDelete);
+  const showMenu = !batchMode && (onEdit || onUse || onDownload || onDelete);
   const cardKindLabel = kindLabel || (item.kind === "素材" ? "图片" : item.kind);
 
   return (
@@ -756,6 +757,19 @@ export function AssetCardView({
             </button>
             {menuOpen && (
               <div className="asset-card-menu" role="menu" onClick={(e) => e.stopPropagation()}>
+                {onUse && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onUse();
+                    }}
+                  >
+                    <Icon name="check" size={16} />
+                    保存到素材
+                  </button>
+                )}
                 {onEdit && (
                   <button
                     type="button"
@@ -766,7 +780,7 @@ export function AssetCardView({
                     }}
                   >
                     <Icon name="pencil" size={16} />
-                    编辑
+                    {editLabel}
                   </button>
                 )}
                 {onDownload && (

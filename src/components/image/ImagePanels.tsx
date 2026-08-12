@@ -12,14 +12,11 @@ import { asset } from "@/lib/asset";
 import { AutoBgImg } from "./AutoBgImg";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 import { useGenerateStream } from "@/lib/useGenerateStream";
-import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
+import { RegionEnhanceStrip, ModelLoraSwitch } from "@/components/image/RegionEnhanceStrip";
 import { PointsCost } from "@/components/ui/PointsCost";
 import { POINT_COST, eventImagePoints, multiImagePoints } from "@/lib/pointCosts";
-import { defaultStrengthMap, DEFAULT_LORA_IDS } from "@/data/regionAssets";
 import {
   accountRegionId,
-  COUNTY_EDIT_MODEL,
-  COUNTY_T2I_MODEL,
   kbFields,
   modelSupportsCountyLora,
   notifyRegionEnhance,
@@ -29,20 +26,6 @@ import { useAuth } from "@/lib/AuthContext";
 
 const modelOpts: DropdownOption[] = imageModels.map((m) => ({ name: m.name, desc: m.desc }));
 const editOpts: DropdownOption[] = editModels.map((m) => ({ name: m.name, desc: m.desc }));
-
-/** 开启 Lora 时：不支持的模型标记为不可选 */
-function modelOptsForLora(useLora: boolean, base: DropdownOption[] = modelOpts): DropdownOption[] {
-  if (!useLora) return base;
-  return base.map((o) =>
-    modelSupportsCountyLora(o.name)
-      ? o
-      : {
-          ...o,
-          disabled: true,
-          desc: (o.desc ? `${o.desc} · ` : "") + "需关闭 Lora 后可选",
-        },
-  );
-}
 
 // SizePreset[] → DropdownOption[]（保留各自形状图标；name=="自定义" 标记 custom）
 const toRatioOpts = (list: SizePreset[]): DropdownOption[] =>
@@ -407,7 +390,7 @@ export function ImageEventPanel({
   return (
     <>
       <div className="ws-scroll">
-      {/* 固定在顶部：文生图/图生图 tab + 成图类型（仅文生图），其余内容向下滚动 */}
+      {/* 顶部仅固定文生图/图生图 Tab；知识库、成图类型随表单滚动 */}
       <div className="ev-sticky-top">
         <div className="ev-tabs">
           <span className={state.tab === "t2i" ? "ev-tab on" : "ev-tab"} onClick={() => set("tab", "t2i")}>
@@ -417,51 +400,20 @@ export function ImageEventPanel({
             图生图
           </span>
         </div>
-        <RegionEnhanceStrip
-          useLora={state.useLora}
-          onLoraChange={(next) => {
-            if (next) {
-              const t2iOk = modelSupportsCountyLora(state.model);
-              const i2iOk = modelSupportsCountyLora(state.editModel);
-              setState({
-                ...state,
-                useLora: true,
-                regionEnhance: true,
-                model: t2iOk ? state.model : COUNTY_T2I_MODEL,
-                editModel: i2iOk ? state.editModel : COUNTY_EDIT_MODEL,
-              });
-              return;
-            }
-            setState({ ...state, useLora: false, regionEnhance: state.useKB });
-          }}
-          useKB={state.useKB}
-          onKBChange={(next) =>
-            setState({ ...state, useKB: next, regionEnhance: state.useLora || next })
-          }
-          regionId={regionId}
-          showLora={true}
-          loraIds={state.loraIds}
-          onLoraIdsChange={(ids) => {
-            setState({
-              ...state,
-              loraIds: ids,
-              loraStrengths: (() => {
-                const nextStrengths: Record<string, number> = {};
-                for (const id of ids) {
-                  nextStrengths[id] = state.loraStrengths[id] ?? defaultStrengthMap([id])[id];
-                }
-                return nextStrengths;
-              })(),
-            });
-          }}
-          strengths={state.loraStrengths}
-          onStrengthChange={(id, v) => set("loraStrengths", { ...state.loraStrengths, [id]: v })}
-        />
-        {state.tab === "t2i" && (
-          <>
-            <div className="field">
-              <div className="ws-label">成图类型</div>
-              <div className="preset-grid" id="iEventSub">
+      </div>
+      <RegionEnhanceStrip
+        useKB={state.useKB}
+        onKBChange={(next) =>
+          setState({ ...state, useKB: next, regionEnhance: state.useLora || next })
+        }
+        regionId={regionId}
+      />
+
+      {state.tab === "t2i" ? (
+        <>
+          <div className="field">
+            <div className="ws-label">成图类型</div>
+            <div className="preset-grid" id="iEventSub">
               <button
                 className={state.sub === "自定义" ? "preset-chip on" : "preset-chip"}
                 onClick={() => setState({ ...state, sub: "自定义", fromCase: false })}
@@ -483,14 +435,8 @@ export function ImageEventPanel({
                   {s.name}
                 </button>
               ))}
-              </div>
             </div>
-          </>
-        )}
-      </div>
-
-      {state.tab === "t2i" ? (
-        <>
+          </div>
           <div className="field">
             <div className="ws-label">
               画面描述 <span className="req">*</span>
@@ -522,24 +468,30 @@ export function ImageEventPanel({
             <Dropdown
               title="模型选择"
               triggerIcon="storage"
-              options={modelOptsForLora(state.useLora)}
+              options={modelOpts}
               value={toUiImageModelName(state.model) || state.model}
               onChange={(o) => {
                 const loraOk = modelSupportsCountyLora(o.name);
                 setState({
                   ...state,
                   model: o.name,
-                  // 选不支持 Lora 的模型时自动关闭 Lora
-                  useLora: loraOk ? state.useLora : false,
-                  regionEnhance: (loraOk ? state.useLora : false) || state.useKB,
+                  // 选中区域文化大模型时默认开启 Lora；切走则关闭
+                  useLora: loraOk,
+                  regionEnhance: loraOk || state.useKB,
                 });
               }}
             />
-            {state.useLora && (
-              <p className="re-off-hint" style={{ marginTop: 6 }}>
-                已开启 Lora，仅可选支持本地风格的区域文化大模型
-              </p>
-            )}
+            <ModelLoraSwitch
+              visible={modelSupportsCountyLora(state.model)}
+              enabled={state.useLora}
+              onChange={(next) =>
+                setState({
+                  ...state,
+                  useLora: next,
+                  regionEnhance: next || state.useKB,
+                })
+              }
+            />
           </div>
           <div className="field">
             <div className="ws-label">图片尺寸</div>
@@ -611,7 +563,7 @@ export function ImageEventPanel({
                 参考图片 <span className="req">*</span>
               </div>
               <button type="button" className="ws-chip" onClick={() => onOpenLibrary?.()}>
-                自 仓库
+                仓库
               </button>
             </div>
             <input
@@ -784,23 +736,30 @@ export function ImageEventPanel({
             <Dropdown
               title="编辑模型"
               triggerIcon="storage"
-              options={modelOptsForLora(state.useLora, editOpts)}
+              options={editOpts}
               value={toUiImageModelName(state.editModel) || state.editModel}
               onChange={(o) => {
                 const loraOk = modelSupportsCountyLora(o.name);
                 setState({
                   ...state,
                   editModel: o.name,
-                  useLora: loraOk ? state.useLora : false,
-                  regionEnhance: (loraOk ? state.useLora : false) || state.useKB,
+                  // 选中区域文化大模型时默认开启 Lora；切走则关闭
+                  useLora: loraOk,
+                  regionEnhance: loraOk || state.useKB,
                 });
               }}
             />
-            {state.useLora && (
-              <p className="re-off-hint" style={{ marginTop: 6 }}>
-                已开启 Lora，仅可选支持本地风格的区域文化大模型
-              </p>
-            )}
+            <ModelLoraSwitch
+              visible={modelSupportsCountyLora(state.editModel)}
+              enabled={state.useLora}
+              onChange={(next) =>
+                setState({
+                  ...state,
+                  useLora: next,
+                  regionEnhance: next || state.useKB,
+                })
+              }
+            />
           </div>
         </>
       )}
@@ -852,16 +811,18 @@ export function ImageLogoPanel({
     <>
       <div className="ws-scroll">
       <RegionEnhanceStrip
-        useLora={state.useLora}
-        onLoraChange={(next) =>
-          setState({ ...state, useLora: next, regionEnhance: next || state.useKB })
-        }
         useKB={state.useKB}
         onKBChange={(next) =>
           setState({ ...state, useKB: next, regionEnhance: state.useLora || next })
         }
         regionId={regionId}
-        showLora={true}
+      />
+      <ModelLoraSwitch
+        visible={true}
+        enabled={state.useLora}
+        onChange={(next) =>
+          setState({ ...state, useLora: next, regionEnhance: next || state.useKB })
+        }
       />
       <div className="field">
         <div className="ws-label">logo 风格</div>

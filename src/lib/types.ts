@@ -419,11 +419,17 @@ export interface AssetCard {
 
 export interface BrandAsset {
   id: string;
-  type: "logo" | "color" | "font" | "slogan";
+  type: "logo" | "color" | "font" | "slogan" | "custom";
   name: string;
   sub: string;
   emoji?: string;
   colors?: string[];
+  /** LOGO / 自定义 主图（兼容旧数据；多图时等于 imgs[0]） */
+  img?: string;
+  /** LOGO / 自定义 多图（data URL 或站点路径） */
+  imgs?: string[];
+  /** 自定义类型名称（type === "custom" 时） */
+  customLabel?: string;
 }
 
 export interface Brand {
@@ -453,7 +459,8 @@ export interface GenerateRequest {
   mode?: "outline" | "full";
   styleHint?: string; // 制作大片：项目「视频风格」描述词，注入文本扩写使全片文字基调与画面风格一致（智能匹配为空）
   useKB?: boolean; // 是否使用区县知识库
-  kbContext?: string; // 区县知识库摘要（开启增强时由前端注入）
+  regionId?: string; // 账号区县包 id（服务端检索知识库）
+  kbContext?: string; // 区县知识库摘要（前端兜底；服务端会按 query 再检索）
   /* t2i-event / t2i-product（文生图扩写）专用 */
   eventSub?: string; // 成图类型：海报/长图… 或 白底主图/产地场景…
   imageRatio?: string; // 图片比例（如 3:4）

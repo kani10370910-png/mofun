@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { AccountShell, useAccountTab } from "@/components/account/AccountShell";
@@ -18,12 +18,14 @@ import {
   DEFAULT_MEMBER_PASSWORD,
   isOrgAdminActor,
   loadOrgStore,
+  ORG_QUOTAS,
   removeMembership,
   resolveDefaultMemberOuId,
   resolveMemberAccountRole,
   roleLabel,
   setMembershipStatus,
   syncOrgAdminIdentity,
+  syncOrgDisplayName,
   updateMemberAccount,
   updateMemberAccountRole,
   updateMemberDisplayName,
@@ -32,74 +34,21 @@ import {
   type OrgStore,
 } from "@/lib/org";
 import { useAuth } from "@/lib/AuthContext";
-import { useLibrary } from "@/lib/store";
-import { resolvePlanLabel, resolveLoginAccount, isPhoneLoginUser, hasEnterpriseInfo, revokeEnterprisePatch, DEMO_CODE, isPlaceholderNickname } from "@/lib/auth";
+import {
+  resolvePlanLabel,
+  resolveLoginAccount,
+  isPhoneLoginUser,
+  hasEnterpriseInfo,
+  revokeEnterprisePatch,
+  DEMO_CODE,
+  isPlaceholderNickname,
+  resolveDisplayName,
+} from "@/lib/auth";
 import { formatAccountRegionGeoLabel } from "@/lib/regionEnhance";
 import { resolveRegionIdFromText } from "@/data/regionAssets";
 import { formatPhoneRegionLabel, resolvePhoneRegionAsync, resolveUserPhoneNumber, resolveUserPhoneRegionAsync } from "@/lib/phoneRegion";
-import { contentScenes } from "@/data/content";
-import { imageTypes } from "@/data/image";
-import { researchTypes } from "@/data/research";
-import { videoTypes } from "@/data/video";
-
-type CreationGroupKey = "content" | "image" | "video" | "research";
-
-const CREATION_GROUPS: { key: CreationGroupKey; name: string }[] = [
-  { key: "content", name: "文案策划" },
-  { key: "image", name: "品牌设计" },
-  { key: "video", name: "视频宣传" },
-  { key: "research", name: "调研分析" },
-];
-
-/** 创作管理分类：一级分组 + 二级功能 */
-const CREATION_CATS: { group: CreationGroupKey; name: string; match: RegExp }[] = [
-  ...contentScenes.map((s) => ({
-    group: "content" as const,
-    name: s.title,
-    match:
-      s.key === "social"
-        ? /社媒|朋友圈|小红书|抖音|推文|配图|推广海报/
-        : s.key === "official"
-          ? /公众号|帮写/
-          : /品牌推广|策划方案|内容创作\s*·\s*品牌/,
-  })),
-  ...imageTypes.map((t) => ({
-    group: "image" as const,
-    name: t.name,
-    match:
-      t.key === "event"
-        ? /活动|海报|长图|菜单|易拉宝|宣传单|event/
-        : t.key === "product"
-          ? /商拍|商品|白底|主图|product/
-          : t.key === "logo"
-            ? /logo|标志/
-            : t.key === "ip"
-              ? /ip|吉祥物/
-              : t.key === "font"
-                ? /字体|font|艺术字/
-                : /店招|门头|通栏|signage/,
-  })),
-  ...videoTypes.map((t) => ({
-    group: "video" as const,
-    name: t.name,
-    match:
-      t.key === "oneline"
-        ? /一句话成片|视频生成\s*·\s*一句话/
-        : t.key === "studio"
-          ? /制作大片|大片|studio/
-          : /数字人|口播|avatar/,
-  })),
-  ...researchTypes.map((t) => ({
-    group: "research" as const,
-    name: t.name,
-    match:
-      t.key === "brand"
-        ? /品牌市场调研|品牌调研/
-        : t.key === "industry"
-          ? /产业调研/
-          : /爆款分析|爆款/,
-  })),
-];
+import { BrandPane } from "@/components/storage/BrandPane";
+import { brands as seedBrands, BRAND_SEQ_START } from "@/data/storage";
 
 function ContactModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   if (!open) return null;
@@ -128,10 +77,29 @@ function OrgPanel({ onGoMembers }: { onGoMembers: () => void }) {
   const [personalCertOpen, setPersonalCertOpen] = useState(false);
   const [addrOpen, setAddrOpen] = useState(false);
   const [addrDraft, setAddrDraft] = useState("");
+  const isEnterprise = !!user && hasEnterpriseInfo(user);
+  const memberCountLabel = useMemo(() => {
+    if (!user) return "—";
+    if (!hasEnterpriseInfo(user)) return "1（仅自己，无成员席位）";
+    const store = loadOrgStore(user);
+    return `${store.members.length}/${ORG_QUOTAS.maxAccounts}`;
+  }, [user, user?.memberCount]);
+
+  useEffect(() => {
+    if (!user || !hasEnterpriseInfo(user)) return;
+    const store = loadOrgStore(user);
+    const next = `${store.members.length}/${ORG_QUOTAS.maxAccounts}`;
+    if (user.memberCount !== next) {
+      updateUser({ memberCount: next });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 进入组织信息时校正成员数
+  }, [user?.userId, isEnterprise]);
+
   if (!user) return null;
-  const isEnterprise = hasEnterpriseInfo(user);
   const personalOk = !!user.personalVerified;
   const regionLabel = isEnterprise ? formatAccountRegionGeoLabel(user) : "";
+  const displayName = resolveDisplayName(user);
+
   return (
     <div className="am-panel">
       <h1 className="am-title">组织信息</h1>
@@ -140,7 +108,7 @@ function OrgPanel({ onGoMembers }: { onGoMembers: () => void }) {
           className="am-org-logo"
           rounded="md"
           src={user.avatarUrl}
-          fallback={user.orgName}
+          fallback={displayName}
           title="点击上传组织头像"
           onUploaded={(url) => {
             updateUser({ avatarUrl: url });
@@ -149,7 +117,7 @@ function OrgPanel({ onGoMembers }: { onGoMembers: () => void }) {
           onError={(m) => toast(m, "warn")}
         />
         <div>
-          <div className="am-org-name">{user.orgName || user.nickname || "个人账户"}</div>
+          <div className="am-org-name">{displayName}</div>
           <span className="am-plan-badge">
             <Icon name="sparkle" size={11} /> {resolvePlanLabel(user)}
           </span>
@@ -167,7 +135,7 @@ function OrgPanel({ onGoMembers }: { onGoMembers: () => void }) {
         <div className="am-row">
           <span className="am-row-label">{isEnterprise ? "成员数" : "席位"}</span>
           <span className="am-row-val">
-            {isEnterprise ? user.memberCount : "1（仅自己，无成员席位）"}
+            {memberCountLabel}
           </span>
           {isEnterprise ? (
             <button type="button" className="am-row-btn" onClick={onGoMembers}>
@@ -209,15 +177,9 @@ function OrgPanel({ onGoMembers }: { onGoMembers: () => void }) {
         <div className="am-row">
           <span className="am-row-label">个人认证</span>
           <span className="am-row-val">{personalOk ? "已认证" : "未认证"}</span>
-          {personalOk ? (
-            <button type="button" className="am-row-btn" disabled>
-              已认证
-            </button>
-          ) : (
-            <button type="button" className="am-row-btn" onClick={() => setPersonalCertOpen(true)}>
-              认证
-            </button>
-          )}
+          <button type="button" className="am-row-btn" onClick={() => setPersonalCertOpen(true)}>
+            {personalOk ? "修改" : "认证"}
+          </button>
         </div>
         <div className="am-row">
           <span className="am-row-label">企业认证</span>
@@ -281,13 +243,15 @@ function OrgPanel({ onGoMembers }: { onGoMembers: () => void }) {
         saveLabel="保存"
         showCancel
       >
-        <p className="am-pedit-hint">填写营业执照上的注册地址，系统将自动匹配所属省 / 市 / 区县。</p>
-        <input
-          value={addrDraft}
-          onChange={(e) => setAddrDraft(e.target.value)}
-          placeholder="如：浙江省湖州市安吉县"
-          autoFocus
-        />
+        <div className="am-pedit-acct">
+          <p className="am-pedit-hint">填写营业执照上的注册地址，系统将自动匹配所属省 / 市 / 区县。</p>
+          <input
+            value={addrDraft}
+            onChange={(e) => setAddrDraft(e.target.value)}
+            placeholder="如：浙江省湖州市安吉县"
+            autoFocus
+          />
+        </div>
       </PersonEditShell>
     </div>
   );
@@ -500,10 +464,9 @@ function PersonalPanel() {
           <button
             type="button"
             className="am-row-btn"
-            disabled={!!user.personalVerified}
             onClick={() => setPersonalCertOpen(true)}
           >
-            {user.personalVerified ? "已认证" : "认证"}
+            {user.personalVerified ? "修改" : "认证"}
           </button>
         </div>
         <div className="am-row">
@@ -545,7 +508,8 @@ function PersonalPanel() {
             toast("请输入昵称", "warn");
             return;
           }
-          updateUser({ nickname: next });
+          updateUser({ nickname: next, orgName: next });
+          syncOrgDisplayName(user, next);
           toast("昵称已保存并生效");
           setNickOpen(false);
         }}
@@ -776,10 +740,7 @@ function MembersPanel({ onContact }: { onContact: () => void }) {
       return;
     }
     updateUser({
-      memberCount: `${next.memberships.filter((m) => m.status === "active").length}/${Math.max(
-        next.memberships.length,
-        10,
-      )}`,
+      memberCount: `${next.members.length}/${ORG_QUOTAS.maxAccounts}`,
       orgName: next.organization.name,
     });
   }
@@ -793,9 +754,11 @@ function MembersPanel({ onContact }: { onContact: () => void }) {
         list.find((m) => m.isPrimary || m.account === user?.username || m.userId === user?.userId) ||
         list[0];
       setMembers(self ? [self] : []);
+      syncMemberCount(store);
       return;
     }
     setMembers(list);
+    syncMemberCount(store);
   }
 
   useEffect(() => {
@@ -1426,175 +1389,11 @@ function MembersPanel({ onContact }: { onContact: () => void }) {
   );
 }
 
-function workDay(time?: string): string | null {
-  if (!time) return null;
-  const m = time.trim().match(/^(\d{4}-\d{2}-\d{2})/);
-  return m ? m[1] : null;
-}
-
-function CreationsPanel() {
-  const { works, isFavorite } = useLibrary();
-  const [group, setGroup] = useState<CreationGroupKey>("content");
-  const groupCats = useMemo(() => CREATION_CATS.filter((c) => c.group === group), [group]);
-  const [cat, setCat] = useState(groupCats[0]?.name || "");
-  const [favOnly, setFavOnly] = useState(false);
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const fromRef = useRef<HTMLInputElement>(null);
-  const toRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!groupCats.length) return;
-    if (!groupCats.some((c) => c.name === cat)) {
-      setCat(groupCats[0].name);
-    }
-  }, [groupCats, cat]);
-
-  const list = useMemo(() => {
-    let items = works;
-    if (favOnly) items = items.filter((w) => isFavorite(w));
-    const rule = CREATION_CATS.find((c) => c.name === cat);
-    if (rule) {
-      items = items.filter((w) => {
-        const hay = `${w.sub || ""} ${w.name || ""} ${w.kind || ""}`;
-        return rule.match.test(hay);
-      });
-    }
-    if (dateFrom || dateTo) {
-      items = items.filter((w) => {
-        const d = workDay(w.time);
-        if (!d) return false;
-        if (dateFrom && d < dateFrom) return false;
-        if (dateTo && d > dateTo) return false;
-        return true;
-      });
-    }
-    return items.slice(0, 48);
-  }, [works, favOnly, isFavorite, cat, dateFrom, dateTo]);
-
+function BrandAssetsPanel() {
   return (
-    <div className="am-panel">
-      <h1 className="am-title">创作管理</h1>
-      <div className="am-create-toolbar">
-        <div className="am-create-tabs-wrap">
-          <div className="am-create-groups">
-            {CREATION_GROUPS.map((g) => (
-              <button
-                key={g.key}
-                type="button"
-                className={group === g.key ? "am-create-group on" : "am-create-group"}
-                onClick={() => setGroup(g.key)}
-              >
-                {g.name}
-              </button>
-            ))}
-          </div>
-          <div className="am-create-tabs">
-            {groupCats.map((c) => (
-              <button
-                key={c.name}
-                type="button"
-                className={cat === c.name ? "am-create-tab on" : "am-create-tab"}
-                onClick={() => setCat(c.name)}
-              >
-                {c.name}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="am-create-filters">
-          <label className="am-fav-switch">
-            <input
-              type="checkbox"
-              checked={favOnly}
-              onChange={(e) => setFavOnly(e.target.checked)}
-            />
-            <span className="am-fav-track" aria-hidden />
-            <span>只显示收藏</span>
-          </label>
-          <div className="am-date-range">
-            <span className="am-date-label">时间范围：</span>
-            <div className="am-date-box">
-              <button
-                type="button"
-                className={dateFrom ? "am-date-part has" : "am-date-part"}
-                onClick={() => fromRef.current?.showPicker?.() || fromRef.current?.focus()}
-              >
-                {dateFrom || "开始日期"}
-              </button>
-              <span className="am-date-arrow">→</span>
-              <button
-                type="button"
-                className={dateTo ? "am-date-part has" : "am-date-part"}
-                onClick={() => toRef.current?.showPicker?.() || toRef.current?.focus()}
-              >
-                {dateTo || "结束日期"}
-              </button>
-              <button
-                type="button"
-                className="am-date-cal"
-                aria-label="选择日期"
-                onClick={() => fromRef.current?.showPicker?.() || fromRef.current?.focus()}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                  <rect x="3.5" y="5" width="17" height="15" rx="2" />
-                  <path d="M8 3.5v3M16 3.5v3M3.5 10h17" />
-                </svg>
-              </button>
-              <input
-                ref={fromRef}
-                type="date"
-                className="am-date-native"
-                value={dateFrom}
-                max={dateTo || undefined}
-                onChange={(e) => setDateFrom(e.target.value)}
-                aria-label="开始日期"
-              />
-              <input
-                ref={toRef}
-                type="date"
-                className="am-date-native"
-                value={dateTo}
-                min={dateFrom || undefined}
-                onChange={(e) => setDateTo(e.target.value)}
-                aria-label="结束日期"
-              />
-            </div>
-            {(dateFrom || dateTo) && (
-              <button
-                type="button"
-                className="am-date-clear"
-                onClick={() => {
-                  setDateFrom("");
-                  setDateTo("");
-                }}
-              >
-                清除
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-      {list.length === 0 ? (
-        <div className="am-empty">该筛选条件下暂无创作资产</div>
-      ) : (
-        <div className="am-create-grid">
-          {list.map((w, i) => (
-            <div key={`${w.kind}-${w.name}-${i}`} className="am-create-card">
-              {w.img ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={w.img} alt={w.name} />
-              ) : (
-                <div className={`am-create-emoji ${w.grad || ""}`}>
-                  {w.emoji || "🖼"}
-                </div>
-              )}
-              <div className="am-create-name">{w.name}</div>
-              {w.time ? <div className="am-create-time">{w.time}</div> : null}
-            </div>
-          ))}
-        </div>
-      )}
+    <div className="am-panel am-panel-wide am-brand-panel">
+      <h1 className="am-title">品牌资产</h1>
+      <BrandPane seed={seedBrands} seqStart={BRAND_SEQ_START} mode="mine" />
     </div>
   );
 }
@@ -1615,7 +1414,7 @@ function AccountInner() {
       case "members":
         return <MembersPanel onContact={() => setCsOpen(true)} />;
       case "creations":
-        return <CreationsPanel />;
+        return <BrandAssetsPanel />;
       default:
         return <OrgPanel onGoMembers={() => setTab("members")} />;
     }

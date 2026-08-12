@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { SYSTEM_AVATAR_DESC_OPTIMIZE } from "@/lib/prompts";
+import { hydrateKbFields } from "@/lib/kbServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,15 +10,19 @@ export const dynamic = "force-dynamic";
    返回：{ text: string | null } */
 
 export async function POST(req: NextRequest) {
-  const { input, gender, age, useKB, county, kbContext } = (await req.json()) as {
+  let body = (await req.json()) as {
     input?: string;
     gender?: string; // 男/女
     age?: string; // 儿童/青年/老年
     useKB?: boolean;
+    regionId?: string;
     county?: string;
     kbContext?: string;
   };
+  const { input, gender, age } = body;
   if (!input?.trim()) return Response.json({ text: null }, { status: 400 });
+  body = await hydrateKbFields(body, input);
+  const { useKB, county, kbContext } = body;
 
   const apiKey = process.env.IMAGE_API_KEY || process.env.LLM_API_KEY || "";
   const baseURL = (process.env.IMAGE_BASE_URL || process.env.LLM_BASE_URL || "").replace(/\/$/, "");

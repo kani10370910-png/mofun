@@ -11,6 +11,8 @@ export type RegionLora = {
   emoji?: string;
   /** 所属地域名，便于搜索与列表展示 */
   regionName: string;
+  /** 上游 Comfy / 网关挂载名；缺省用 id，可用 env LORA_UPSTREAM_MAP 覆盖 */
+  upstream?: string;
 };
 
 export type RegionKnowledge = { id: string; title: string; summary: string };
