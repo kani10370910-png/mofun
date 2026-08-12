@@ -192,6 +192,8 @@ export interface LogoHistoryRow {
   desc?: string; // 当时用户填的创意描述
   results: LogoResult[];
   regionEnhance?: boolean;
+  useLora?: boolean;
+  useKB?: boolean;
   regionId?: string;
 }
 

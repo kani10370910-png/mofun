@@ -31,15 +31,15 @@ export function PersonalCertFlow({
   const [idNumber, setIdNumber] = useState("");
   const [busy, setBusy] = useState(false);
   const [formErr, setFormErr] = useState("");
-  const editing = !!user.personalVerified;
+  const editing = !!user?.personalVerified;
 
   useEffect(() => {
     if (!open) return;
-    setRealName(user.realName?.trim() || "");
+    setRealName(user?.realName?.trim() || "");
     setIdNumber("");
     setBusy(false);
     setFormErr("");
-  }, [open, user.realName]);
+  }, [open, user?.realName]);
 
   if (!open) return null;
 
