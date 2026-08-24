@@ -1823,9 +1823,14 @@ function VideoRunCard({
           <span className="lg-cat">{row.style} · {row.ratio} · {row.dur}</span>
           {row.regionEnhance && <RegionEnhanceBadge regionId={row.regionId} />}
           {!loading && (
-            <button className="lh-ico lh-tip" data-tip="删除" aria-label="删除" onClick={onDelete}>
-              <Icon name="trash" size={14} />
-            </button>
+            <>
+              <button className="lh-ico lh-tip" data-tip="复制" aria-label="复制" onClick={onCopy}>
+                <Icon name="copy" size={14} />
+              </button>
+              <button className="lh-ico lh-tip" data-tip="删除" aria-label="删除" onClick={onDelete}>
+                <Icon name="trash" size={14} />
+              </button>
+            </>
           )}
           <span className="ov-run-time">{row.time}</span>
         </div>
@@ -1891,9 +1896,6 @@ function VideoRunCard({
 
       {row.status === "failed" && (
         <div className="ov-run-acts">
-          <button className="btn btn-soft btn-sm" onClick={onCopy}>
-            <Icon name="edit" size={13} /> 重新编辑
-          </button>
           <button className="btn btn-ghost btn-sm" onClick={onRegenerate}>
             <Icon name="refresh" size={13} /> 再次生成{" "}
             <PointsCost
@@ -1910,9 +1912,6 @@ function VideoRunCard({
       {row.status === "done" && (
         <div className="ov-run-acts">
           <button className="btn btn-soft btn-sm" onClick={onDownload}>下载视频</button>
-          <button className="btn btn-ghost btn-sm" onClick={onCopy}>
-            <Icon name="edit" size={13} /> 重新编辑
-          </button>
           <button className="btn btn-ghost btn-sm" onClick={onRegenerate}>
             <Icon name="refresh" size={13} /> 再次生成{" "}
             <PointsCost

@@ -1372,8 +1372,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     };
     setEventRuns((prev) => [row, ...prev]);
 
-    // 文生图：文案型输入 → 跳过氛围扩写，强制「全文案原样排版上图」
-    // 普通短描述 → 按成图类型系统提示词扩写；fromCase（套用灵感）仍直接出图。
+    // 文生图：文案型 brief → 图文混排详情长图（有产品/场景图 + 文案模块）；非纯字
+    // 普通短描述 → 按成图类型扩写；fromCase 仍直接出图。
     if (!isI2i) {
       if (isCopyHeavyPrompt(prompt)) {
         genPrompt = buildCopyLayoutImagePrompt(prompt, {
@@ -1388,7 +1388,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
                   return parsed?.w || 1080;
                 })(),
         });
-        toast("已识别为文案，将仅按文案做文字排版出图");
+        if (stylePrompt) genPrompt = `${genPrompt}，${stylePrompt}`;
+        toast("已识别为文案型 brief，将生成图文混排详情长图");
       } else if (!eventForm.fromCase) {
         const expanded = await collectGenerate({
           scene: "t2i-event",
