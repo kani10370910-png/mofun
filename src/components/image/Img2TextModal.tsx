@@ -9,7 +9,8 @@ import { notifyRegionEnhance } from "@/lib/regionEnhance";
    上传一张图（点击 / 拖拽 / ctrl+v 粘贴）→ 调 /api/vision 反推出适合文生图的画面描述词，
    点「转换成描述词」后通过 onResult 回填到左侧描述框并关闭面板。 */
 
-const T2I_VISION_PROMPT =
+/** 默认：偏人物/IP 形象反推（商拍等未指定 prompt 时回退） */
+export const T2I_VISION_PROMPT =
   "请像素级仔细观察这张图，把它【忠实地】转换成一段中文画面描述词，用于AI重新生成同款图。" +
   "请按以下顺序逐项核对后再写：" +
   "①头发的【真实颜色】（绿/蓝/棕/黑等，看准别猜错）与发型；" +
@@ -18,6 +19,18 @@ const T2I_VISION_PROMPT =
   "④表情、姿态、整体画风（Q版卡通/写实/插画等）、背景配色。" +
   "【铁律】颜色和手持物必须与图完全一致，宁可不写也【绝不臆造或猜错颜色】，禁止添加图中没有的元素。" +
   "120字以内，只输出描述本身，不要标题、不要分点、不要换行。";
+
+/** 活动文生图·图转文：按宣传物料（海报/长图/菜单/易拉宝/宣传单）反推，不按人物 IP */
+export const EVENT_IMG2TEXT_PROMPT =
+  "请仔细观察这张「活动宣传物料」图片，把它忠实地转换成一段中文画面描述词，用于 AI 重新生成同款活动图。不要按人物/IP 形象去写，按宣传物料去写。\n" +
+  "请按以下顺序核对后再写：\n" +
+  "①物料类型与用途：判断是海报、长图、菜单、易拉宝、宣传单还是其他，并点明适用场景（文旅节庆、农特推介、餐饮菜单、展会展架等）。\n" +
+  "②画面主体：核心视觉是什么（风景、物产、菜品、建筑、人群、图标图形等），主体位置与占比；若有人物仅作配角简述，勿展开发型服饰细节。\n" +
+  "③文案与排版：完整转写图中可见的主标题、副标题、卖点句、日期地点、价格、联系方式等文字原文；说明文字大概在上/中/下或左/右分区，以及大致字号层级（主标题大、正文小）。\n" +
+  "④构图分区：上中下或左右分区如何排布；主视觉区、信息区、行动召唤/二维码/留白区分别在哪；是否有边框、色块底、装饰纹样。\n" +
+  "⑤风格与光影：整体画风（写实摄影/国潮插画/水彩/扁平矢量等）、主色调与氛围、光线方向与质感。\n" +
+  "⑥禁止臆造：图中没有的元素、文案、价格、认证标识一律不写；看不清的字用「模糊文字」带过，不可猜写。\n" +
+  "输出要求：纯中文一段连贯描述，180～280字，只输出描述本身，不要标题、不要分点、不要换行、不要解释说明。";
 
 function fileToDataUrl(f: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -34,13 +47,17 @@ export function Img2TextModal({
   useKB,
   county,
   kbContext,
+  prompt,
 }: {
   onClose: () => void;
   onResult: (text: string) => void;
   useKB?: boolean;
   county?: string;
   kbContext?: string;
+  /** 覆盖默认视觉提示词；活动文生图传 EVENT_IMG2TEXT_PROMPT */
+  prompt?: string;
 }) {
+  const visionPrompt = prompt?.trim() || T2I_VISION_PROMPT;
   const toast = useToast();
   const [img, setImg] = useState<string>(""); // data URL
   const [busy, setBusy] = useState(false);
@@ -102,7 +119,7 @@ export function Img2TextModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           image: img,
-          prompt: T2I_VISION_PROMPT,
+          prompt: visionPrompt,
           ...(useKB ? { useKB: true, county, kbContext } : { useKB: false }),
         }),
       });

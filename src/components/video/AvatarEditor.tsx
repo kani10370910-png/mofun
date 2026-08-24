@@ -1648,20 +1648,6 @@ export function AvatarEditor({
           {/* ══ 左：配置表单（宽度与一句话成片一致，300px）══ */}
           <div className="ws-panel sticky">
             <div className="ws-scroll">
-              <RegionEnhanceStrip
-                useLora={useLora}
-                onLoraChange={(next) => {
-                  setUseLora(next);
-                  setRegionEnhance(next || useKB);
-                }}
-                useKB={useKB}
-                onKBChange={(next) => {
-                  setUseKB(next);
-                  setRegionEnhance(useLora || next);
-                }}
-                regionId={regionId}
-                showLora={true}
-              />
               {/* 数字人形象 */}
               <div className="field">
                 <div className="ws-label">数字人形象</div>
@@ -2262,20 +2248,36 @@ export function AvatarEditor({
               <button className="av-side-close" onClick={() => !agBusy && setAgOpen(false)}>✕</button>
             </div>
             <div className="av-modal-body">
-              <div className="av-modal-field">
-                <div className="av-modal-lbl">性别</div>
-                <div className="av-seg">
-                  {["女", "男"].map((g) => (
-                    <button key={g} className={`av-seg-btn${agGender === g ? " av-seg-btn--on" : ""}`} onClick={() => setAgGender(g)}>{g}</button>
-                  ))}
+              <RegionEnhanceStrip
+                useLora={useLora}
+                onLoraChange={(next) => {
+                  setUseLora(next);
+                  setRegionEnhance(next || useKB);
+                }}
+                useKB={useKB}
+                onKBChange={(next) => {
+                  setUseKB(next);
+                  setRegionEnhance(useLora || next);
+                }}
+                regionId={regionId}
+                showLora={true}
+              />
+              <div className="av-modal-row2">
+                <div className="av-modal-field">
+                  <div className="av-modal-lbl">性别</div>
+                  <div className="av-seg">
+                    {["女", "男"].map((g) => (
+                      <button key={g} className={`av-seg-btn${agGender === g ? " av-seg-btn--on" : ""}`} onClick={() => setAgGender(g)}>{g}</button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div className="av-modal-field">
-                <div className="av-modal-lbl">年龄</div>
-                <div className="av-seg">
-                  {["儿童", "青年", "老年"].map((a) => (
-                    <button key={a} className={`av-seg-btn${agAge === a ? " av-seg-btn--on" : ""}`} onClick={() => setAgAge(a)}>{a}</button>
-                  ))}
+                <div className="av-modal-field">
+                  <div className="av-modal-lbl">年龄</div>
+                  <div className="av-seg">
+                    {["儿童", "青年", "老年"].map((a) => (
+                      <button key={a} className={`av-seg-btn${agAge === a ? " av-seg-btn--on" : ""}`} onClick={() => setAgAge(a)}>{a}</button>
+                    ))}
+                  </div>
                 </div>
               </div>
               <div className="av-modal-field">

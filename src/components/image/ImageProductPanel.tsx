@@ -5,9 +5,7 @@ import { Icon } from "@/components/ui/Icon";
 import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
 import { useToast } from "@/components/ui/Toast";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
-import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
-import { accountRegionId } from "@/lib/regionEnhance";
-import { useAuth } from "@/lib/AuthContext";
+import { ModelLoraSwitch } from "@/components/image/RegionEnhanceStrip";
 import { asset } from "@/lib/asset";
 import { PointsCost } from "@/components/ui/PointsCost";
 import { multiImagePoints } from "@/lib/pointCosts";
@@ -87,9 +85,9 @@ export function initProductStudio(): ProductStudioState {
     fusionImgs: ["", "", ""],
     fusionLabels: ["", "", ""],
     sceneMore: false,
-    regionEnhance: true,
+    regionEnhance: false,
     useLora: false,
-    useKB: true,
+    useKB: false,
   };
 }
 
@@ -109,8 +107,6 @@ export function ImageProductPanel({
   onOpenFusionLibrary?: () => void;
 }) {
   const toast = useToast();
-  const { user } = useAuth();
-  const regionId = accountRegionId(user);
   const fileRef = useRef<HTMLInputElement>(null);
   const sceneUploadRef = useRef<HTMLInputElement>(null);
   const set = <K extends keyof ProductStudioState>(k: K, v: ProductStudioState[K]) =>
@@ -268,13 +264,6 @@ export function ImageProductPanel({
   return (
     <>
       <div className="ws-scroll">
-        <RegionEnhanceStrip
-          useKB={state.useKB}
-          onKBChange={(next) =>
-            setState({ ...state, useKB: next, regionEnhance: state.useLora || next })
-          }
-          regionId={regionId}
-        />
         {showProductUpload && (
           <div className="field">
             <div className="ws-label-row">
@@ -548,6 +537,13 @@ export function ImageProductPanel({
             </div>
           </div>
         )}
+        <ModelLoraSwitch
+          visible={true}
+          enabled={state.useLora}
+          onChange={(next) =>
+            setState({ ...state, useLora: next, useKB: false, regionEnhance: next })
+          }
+        />
       </div>
 
       <div className="ws-foot">

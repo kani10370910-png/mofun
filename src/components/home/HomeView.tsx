@@ -10,23 +10,18 @@ import { intents } from "@/data/home";
 import { asset } from "@/lib/asset";
 import {
   emptyAgentState,
-  runAgentTurn,
-  executePropose,
-  executeGenerate,
-  executeAgentReply,
-  postDeliveryActions,
-  getSpecialist,
-  failureRetryActions,
   type AgentAction,
   type AgentProposal,
   type AgentRuntimeState,
   type AskGroupItem,
-  type AssistantTurn,
-  type ChatHistoryItem,
 } from "@/lib/agent";
+import {
+  createSessionLog,
+  looksLikeGenerateBrief,
+  runHarnessTurn,
+} from "@/lib/harness";
 import { describeRefImages } from "@/lib/agent/refVision";
 import {
-  persistSlotsToMemory,
   resetBrandMemory,
   bindBrandMemorySession,
   readBrandMemory,
@@ -107,13 +102,6 @@ function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function historyForModel(msgs: ChatMsg[]): ChatHistoryItem[] {
-  return msgs
-    .filter((m) => m.text?.trim())
-    .slice(-12)
-    .map((m) => ({ role: m.role, text: m.text }));
-}
-
 /** 对外展示文案：去掉意图识别等内部元信息，并清掉行首缩进 */
 function displayAssistantText(text: string) {
   return text
@@ -161,8 +149,10 @@ export function HomeView() {
   const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const chatFileRef = useRef<HTMLInputElement>(null);
+  const [busyHint, setBusyHint] = useState("正在回复…");
   const agentStateRef = useRef(agentState);
   agentStateRef.current = agentState;
+  const sessionLogRef = useRef(createSessionLog());
 
   useEffect(() => {
     if (!moreOpenId) return;
@@ -382,6 +372,7 @@ export function HomeView() {
     const nextId = uid();
     resetBrandMemory(nextId);
     setSessionId(nextId);
+    sessionLogRef.current = createSessionLog();
     setChatMode(false);
     window.dispatchEvent(new CustomEvent(HOME_CHAT_EVENT, { detail: false }));
     if (showToast) toast("已新建对话");
@@ -400,6 +391,7 @@ export function HomeView() {
     const nextId = uid();
     resetBrandMemory(nextId);
     setSessionId(nextId);
+    sessionLogRef.current = createSessionLog();
     setChatMode(true);
     setHistoryList(readChatHistory());
     window.dispatchEvent(new CustomEvent(HOME_CHAT_EVENT, { detail: true }));
@@ -426,28 +418,26 @@ export function HomeView() {
     setReplying(false);
     setAskDrafts({});
     setAskPicks({});
+    sessionLogRef.current = createSessionLog();
     setChatMode(true);
     window.dispatchEvent(new CustomEvent(HOME_CHAT_EVENT, { detail: true }));
   }
 
-  function applyTurn(userText: string, action?: AgentAction) {
+  function applyHarnessTurn(userText: string, forceGenerate: boolean, opts?: { omitUserMessage?: boolean }) {
     if (replying) return;
-    setAskPicks({});
+    const t = userText.trim();
+    const refsSnapshot = [...refImages];
+    if (!t && refsSnapshot.length === 0) {
+      toast("请先描述需求或上传参考图", "warn");
+      return;
+    }
     if (!chatMode) {
       setChatMode(true);
       window.dispatchEvent(new CustomEvent(HOME_CHAT_EVENT, { detail: true }));
     }
 
-    const refsSnapshot = [...refImages];
-    const showUser = Boolean(userText.trim()) || refsSnapshot.length > 0 || action?.kind === "option" || action?.kind === "category";
-    const displayText =
-      userText.trim() ||
-      action?.label ||
-      (refsSnapshot.length ? "（已附参考图）" : "");
-
-    const recentHistory: ChatHistoryItem[] = historyForModel(messages);
-    if (showUser && displayText) {
-      recentHistory.push({ role: "user", text: displayText });
+    const displayText = t || (refsSnapshot.length ? "（已附参考图）" : "");
+    if (!opts?.omitUserMessage) {
       const userMsg: ChatMsg = {
         id: uid(),
         role: "user",
@@ -460,23 +450,17 @@ export function HomeView() {
         return next;
       });
     }
-
     setInput("");
     setChatInput("");
+    const willGen = forceGenerate || looksLikeGenerateBrief(t, refsSnapshot.length > 0);
+    setBusyHint(willGen ? "正在生成…" : "正在回复…");
     setReplying(true);
-
-    const turnText =
-      userText.trim() ||
-      action?.value ||
-      action?.label ||
-      (refsSnapshot.length ? "请参考我上传的图片继续" : "");
 
     void (async () => {
       let visionNotes = "";
       if (refsSnapshot.length) {
         visionNotes = await describeRefImages(refsSnapshot);
       }
-
       const baseState: AgentRuntimeState = {
         ...agentStateRef.current,
         ...(refsSnapshot.length
@@ -490,65 +474,49 @@ export function HomeView() {
             }
           : {}),
       };
-
-      const turn = runAgentTurn({
-        text: turnText,
+      const result = await runHarnessTurn({
+        text: t || "请参考我上传的图片生成",
         state: baseState,
-        think: true,
-        action,
+        session: sessionLogRef.current,
+        refImages: refsSnapshot,
+        forceGenerate,
+        visionNotes,
       });
-
-      // 编排可能覆盖 slots；把参考图信息补回
-      if (refsSnapshot.length) {
-        turn.state = {
-          ...turn.state,
-          refImages: refsSnapshot,
-          refVisionNotes: visionNotes || turn.state.refVisionNotes,
-          slots: {
-            ...turn.state.slots,
-            ...(visionNotes ? { referenceDesc: visionNotes } : {}),
-          },
-        };
-      }
-
-      setAgentState(turn.state);
-      agentStateRef.current = turn.state;
-
-      const modelText = await executeAgentReply({
-        state: turn.state,
-        userText: turnText,
-        turn,
-        refVisionNotes: visionNotes || undefined,
-        recentHistory,
-      });
-      const replyText = modelText || turn.text;
-
+      setAgentState(result.state);
+      agentStateRef.current = result.state;
       const assistantMsg: ChatMsg = {
         id: uid(),
         role: "assistant",
-        text: replyText,
-        tipLabel: turn.tipLabel,
-        thinking: turn.thinking,
-        summaryLines: turn.summaryLines,
-        askGroups: turn.askGroups,
-        options: turn.options,
-        actions: turn.actions,
-        proposals: turn.proposals,
+        text: result.text,
+        images: result.images,
+        actions: result.actions,
+        proposals: result.proposals,
       };
       setMessages((prev) => {
         const next = [...prev, assistantMsg];
-        persistSession(next, sessionId, turn.state);
+        persistSession(next, sessionId, result.state);
         return next;
       });
       setReplying(false);
+      if (result.error) toast(result.error, "warn");
+      else if (result.images?.length) toast("已生成并存入仓库");
     })();
+  }
+
+  function applyTurn(userText: string, action?: AgentAction) {
+    const force =
+      action?.kind === "generate" ||
+      action?.kind === "confirm_plan" ||
+      action?.kind === "propose" ||
+      action?.kind === "extend_vi";
+    applyHarnessTurn(userText.trim() || action?.label || "", Boolean(force));
   }
 
   function sendMessage(raw: string) {
     const t = (raw || "").trim();
     if (replying) return;
     if (!t && refImages.length === 0) return;
-    applyTurn(t);
+    applyHarnessTurn(t, false);
   }
 
   function isSelfWriteOption(action: AgentAction): boolean {
@@ -650,243 +618,16 @@ export function HomeView() {
       focusAskInput(action.slotKey);
       return;
     }
-
-    // 真实提案
-    if (action.kind === "propose" || action.value === "帮我写一版" || action.label.includes("帮我提案")) {
-      const userLabel = action.label;
-      const recentHistory: ChatHistoryItem[] = [
-        ...historyForModel(messages),
-        { role: "user", text: userLabel },
-      ];
-      setMessages((prev) => {
-        const next = [...prev, { id: uid(), role: "user" as const, text: userLabel }];
-        persistSession(next, sessionId);
-        return next;
-      });
-      setReplying(true);
-      void (async () => {
-        if (action.value === "帮我写一版") {
-          const st = { ...agentStateRef.current, slots: { ...agentStateRef.current.slots, script: "（待生成）" } };
-          setAgentState(st);
-          agentStateRef.current = st;
-        }
-        if (action.label.includes("帮我提案") || action.value === "帮我提案") {
-          const slots = { ...agentStateRef.current.slots };
-          if (!slots.creativeDesc) slots.creativeDesc = "可爱品牌吉祥物 IP，单一角色居中";
-          if (!slots.mode) slots.mode = "创新设计";
-          const st = { ...agentStateRef.current, slots };
-          setAgentState(st);
-          agentStateRef.current = st;
-        }
-        const res = await executePropose(agentStateRef.current);
-        if (!res.ok) {
-          const failTurn: AssistantTurn = {
-            text: res.error || "提案失败",
-            actions: failureRetryActions("propose"),
-            state: agentStateRef.current,
-          };
-          const modelFail = await executeAgentReply({
-            state: agentStateRef.current,
-            userText: userLabel,
-            turn: failTurn,
-            recentHistory,
-            outcomeHint: `提案失败：${res.error || "未知错误"}`,
-          });
-          setMessages((prev) => {
-            const next = [
-              ...prev,
-              {
-                id: uid(),
-                role: "assistant" as const,
-                text: modelFail || res.error || "提案失败",
-                tipLabel: undefined,
-                actions: failureRetryActions("propose"),
-              },
-            ];
-            persistSession(next, sessionId);
-            return next;
-          });
-          setReplying(false);
-          toast(res.error || "提案失败", "warn");
-          return;
-        }
-        const proposals = res.proposals || [];
-        const nextState: AgentRuntimeState = {
-          ...agentStateRef.current,
-          proposals,
-          phase: "proposed",
-        };
-        setAgentState(nextState);
-        agentStateRef.current = nextState;
-        const proposeOpts = [
-          ...proposals.map((p) => ({
-            id: `pick-${p.id}`,
-            label: `用${p.title}`,
-            kind: "pick_proposal" as const,
-            proposalId: p.id,
-          })),
-          { id: "redo-propose", label: "都不满意，再说说", kind: "option" as const, slotKey: "_redo", value: "redo" },
-        ];
-        const proposeTurn: AssistantTurn = {
-          text: res.text,
-          proposals,
-          options: proposeOpts,
-          state: nextState,
-        };
-        const modelText = await executeAgentReply({
-          state: nextState,
-          userText: userLabel,
-          turn: proposeTurn,
-          recentHistory,
-          outcomeHint: `已生成 ${proposals.length} 个方向提案：${proposals.map((p) => p.title).join("、")}。${res.text}`,
-        });
-        setMessages((prev) => {
-          const next = [
-            ...prev,
-            {
-              id: uid(),
-              role: "assistant" as const,
-              text: modelText || res.text,
-              tipLabel: undefined,
-              proposals,
-              options: proposeOpts,
-            },
-          ];
-          persistSession(next, sessionId, nextState);
-          return next;
-        });
-        setReplying(false);
-      })();
-      return;
-    }
-
-    // 确认策划 / 直接生成 / VI 延展 / 指定 Skill
-    if (
-      action.kind === "generate" ||
-      action.kind === "confirm_plan" ||
-      action.kind === "extend_vi" ||
-      action.value === "我已上传，请出图"
-    ) {
-      const userLabel = action.label;
-      const recentHistory: ChatHistoryItem[] = [
-        ...historyForModel(messages),
-        { role: "user", text: userLabel },
-      ];
-      setMessages((prev) => {
-        const next = [...prev, { id: uid(), role: "user" as const, text: userLabel }];
-        persistSession(next, sessionId);
-        return next;
-      });
-      setReplying(true);
-      void (async () => {
-        const isVi = action.kind === "extend_vi" || action.skillId === "skill.image.vi_extend";
-        const runSkillId =
-          action.skillId || (isVi ? ("skill.image.vi_extend" as const) : undefined);
-        const st: AgentRuntimeState = {
-          ...agentStateRef.current,
-          planConfirmed: true,
-          skillId: runSkillId,
-        };
-        setAgentState(st);
-        agentStateRef.current = st;
-        persistSlotsToMemory(st.slots);
-
-        const res = await executeGenerate(st, {
-          refImage: st.refImages?.[0] || refImages[0],
-          skill: runSkillId,
-          confirming: true,
-        });
-        if (!res.ok) {
-          const failTurn: AssistantTurn = {
-            text: res.error || "生成失败",
-            actions: failureRetryActions("generate"),
-            state: agentStateRef.current,
-          };
-          const modelFail = await executeAgentReply({
-            state: agentStateRef.current,
-            userText: userLabel,
-            turn: failTurn,
-            recentHistory,
-            outcomeHint: `生成失败：${res.error || "未知错误"}`,
-          });
-          setMessages((prev) => {
-            const next = [
-              ...prev,
-              {
-                id: uid(),
-                role: "assistant" as const,
-                text: modelFail || res.error || "生成失败",
-                actions: failureRetryActions("generate"),
-              },
-            ];
-            persistSession(next, sessionId);
-            return next;
-          });
-          setReplying(false);
-          toast(res.error || "生成失败", "warn");
-          return;
-        }
-        const spec = agentStateRef.current.specialistId
-          ? getSpecialist(agentStateRef.current.specialistId)
-          : undefined;
-        const deliveryActions = spec
-          ? postDeliveryActions(spec)
-          : [
-              { id: "act-generate", label: "再生成一版", kind: "generate" as const },
-              { id: "act-propose", label: "再出方案", kind: "propose" as const },
-            ];
-
-        const nextState: AgentRuntimeState = {
-          ...agentStateRef.current,
-          phase: "delivered",
-          skillId: undefined,
-          lastImageCount: res.images?.length || 0,
-        };
-        setAgentState(nextState);
-        agentStateRef.current = nextState;
-
-        const deliveryTurn: AssistantTurn = {
-          text: res.text,
-          actions: deliveryActions,
-          state: nextState,
-        };
-        const modelText = await executeAgentReply({
-          state: nextState,
-          userText: userLabel,
-          turn: deliveryTurn,
-          recentHistory,
-          outcomeHint: res.images?.length
-            ? `已成功出图 ${res.images.length} 张。系统提示：${res.text}`
-            : `已完成文本生成。系统提示：${res.text}`,
-        });
-
-        setMessages((prev) => {
-          const next = [
-            ...prev,
-            {
-              id: uid(),
-              role: "assistant" as const,
-              text: modelText || res.text,
-              images: res.images,
-              actions: deliveryActions,
-            },
-          ];
-          persistSession(next, sessionId, nextState);
-          return next;
-        });
-        setReplying(false);
-        toast(res.images?.length ? "已生成并存入仓库" : "已生成");
-      })();
-      return;
-    }
-
-    // 不再跳转功能页
     if (action.kind === "handoff") {
       toast("请在对话中继续完成创作，无需跳转");
       return;
     }
-
-    applyTurn(action.value || action.label, action);
+    const force =
+      action.kind === "generate" ||
+      action.kind === "confirm_plan" ||
+      action.kind === "extend_vi" ||
+      action.kind === "propose";
+    applyHarnessTurn(action.value || action.label, force);
   }
 
   function readFileAsDataUrl(file: File): Promise<string> {
@@ -925,44 +666,6 @@ export function HomeView() {
     setAgentState(st);
     agentStateRef.current = st;
 
-    const sid = st.specialistId;
-    const slots = st.slots;
-    const waitingUpload =
-      (sid === "image.event" && slots.pipeline === "图生图") ||
-      (sid === "video.oneline" && slots.pipeline === "图生视频") ||
-      sid === "image.product" ||
-      (sid === "image.ip" && slots.mode === "扩展设计");
-
-    const pending = st.pendingAskKeys || [];
-    let uploadKey =
-      pending.find((k) => k === "refUpload" || k === "ipImage" || k === "productImage") ||
-      undefined;
-    if (!uploadKey && waitingUpload) {
-      if (sid === "image.product" && !slots.productImage) uploadKey = "productImage";
-      else if (sid === "image.ip" && slots.mode === "扩展设计" && !slots.ipImage) uploadKey = "ipImage";
-      else if (!slots.refUpload) uploadKey = "refUpload";
-    }
-
-    if (waitingUpload && uploadKey && !replying) {
-      const value =
-        uploadKey === "productImage"
-          ? "我已上传，请出图"
-          : uploadKey === "ipImage"
-            ? "我已上传"
-            : "我已上传参考图";
-      toast("图片已上传，继续为你推进");
-      window.setTimeout(() => {
-        applyTurn(value, {
-          id: `upload-${uploadKey}`,
-          label: value,
-          kind: "option",
-          slotKey: uploadKey,
-          value,
-        });
-      }, 40);
-      return;
-    }
-
     toast(`已添加 ${next.length} 张参考图`);
   }
 
@@ -976,45 +679,8 @@ export function HomeView() {
     if (idx < 0) return;
     const prevUser = [...messages].slice(0, idx).reverse().find((m) => m.role === "user");
     if (!prevUser) return;
-    setReplying(true);
     setMessages((prev) => prev.filter((m) => m.id !== msgId));
-    // 从该用户句重新跑（保留此前已收集槽位；正文走模型结合项目状态）
-    void (async () => {
-      const turn = runAgentTurn({
-        text: prevUser.text,
-        state: agentStateRef.current,
-        think: true,
-      });
-      setAgentState(turn.state);
-      agentStateRef.current = turn.state;
-      const recentHistory = historyForModel(messages.slice(0, idx));
-      const modelText = await executeAgentReply({
-        state: turn.state,
-        userText: prevUser.text,
-        turn,
-        recentHistory,
-      });
-      setMessages((prev) => {
-        const next = [
-          ...prev,
-          {
-            id: uid(),
-            role: "assistant" as const,
-            text: modelText || turn.text,
-            tipLabel: turn.tipLabel,
-            thinking: turn.thinking,
-            summaryLines: turn.summaryLines,
-            askGroups: turn.askGroups,
-            options: turn.options,
-            actions: turn.actions,
-            proposals: turn.proposals,
-          },
-        ];
-        persistSession(next, sessionId, turn.state);
-        return next;
-      });
-      setReplying(false);
-    })();
+    applyHarnessTurn(prevUser.text, false, { omitUserMessage: true });
   }
 
   if (inChat) {
@@ -1503,7 +1169,7 @@ export function HomeView() {
                   <div className="hc-name">
                     小墨 <span className="hc-ai-tag">AI</span>
                   </div>
-                  <div className="hc-bubble hc-typing">正在回复…</div>
+                  <div className="hc-bubble hc-typing">{busyHint}</div>
                 </div>
               </div>
             )}
@@ -1549,7 +1215,7 @@ export function HomeView() {
                   sendMessage(chatInput);
                 }
               }}
-              placeholder="优先点选卡片选项；也可在此补充…"
+              placeholder="描述你想做的画面或文案，发送后由小墨直接生成"
               rows={2}
             />
             <div className="hc-composer-bar">
@@ -1725,7 +1391,7 @@ export function HomeView() {
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                         e.preventDefault();
-                        toast("功能还在开发中", "warn");
+                        applyHarnessTurn(input, true);
                       }
                     }}
                     placeholder="描述乡村品牌设计需求，例如：'设计国潮风萧山萝卜干伴手礼包装'，或上传草图方案让我完善"
@@ -1735,7 +1401,8 @@ export function HomeView() {
                     <button
                       type="button"
                       className="btn btn-primary hero-gen-btn"
-                      onClick={() => toast("功能还在开发中", "warn")}
+                      disabled={replying || (!input.trim() && refImages.length === 0)}
+                      onClick={() => applyHarnessTurn(input, true)}
                     >
                       立即生成 <PointsCost amount={POINT_COST.homeHero} />
                     </button>

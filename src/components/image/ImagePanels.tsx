@@ -14,7 +14,7 @@ import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 import { useGenerateStream } from "@/lib/useGenerateStream";
 import { RegionEnhanceStrip, ModelLoraSwitch } from "@/components/image/RegionEnhanceStrip";
 import { PointsCost } from "@/components/ui/PointsCost";
-import { POINT_COST, eventImagePoints, multiImagePoints } from "@/lib/pointCosts";
+import { eventImagePoints, multiImagePoints } from "@/lib/pointCosts";
 import {
   accountRegionId,
   kbFields,
@@ -31,11 +31,12 @@ const editOpts: DropdownOption[] = editModels.map((m) => ({ name: m.name, desc: 
 const toRatioOpts = (list: SizePreset[]): DropdownOption[] =>
   list.map((r) => ({ name: r.name, sub: r.size, ico: (r.ico as DropdownOption["ico"]) ?? "szSquare", custom: r.name === "自定义" }));
 
-// 活动通用比例组：最前面加「自定义」（数据层 imageRatios 不动，避免影响 IP 等其它用处）
-const ratioOpts: DropdownOption[] = [
+// 活动通用比例组：最前面加「自定义」（与 IP 画面尺寸共用，保持两端选项一致）
+export const eventGeneralRatioOpts: DropdownOption[] = [
   { name: "自定义", sub: "自定义宽高", ico: "szSquare", custom: true },
   ...toRatioOpts(imageRatios),
 ];
+const ratioOpts = eventGeneralRatioOpts;
 const posterOpts: DropdownOption[] = toRatioOpts(posterRatios);
 const rollupOpts: DropdownOption[] = toRatioOpts(rollupRatios);
 const flyerOpts: DropdownOption[] = toRatioOpts(flyerRatios);
@@ -390,53 +391,41 @@ export function ImageEventPanel({
   return (
     <>
       <div className="ws-scroll">
-      {/* 顶部仅固定文生图/图生图 Tab；知识库、成图类型随表单滚动 */}
+      {/* 顶部仅固定文生图/图生图 Tab；知识库随表单滚动 */}
       <div className="ev-sticky-top">
         <div className="ev-tabs">
           <span className={state.tab === "t2i" ? "ev-tab on" : "ev-tab"} onClick={() => set("tab", "t2i")}>
             文生图
           </span>
-          <span className={state.tab === "i2i" ? "ev-tab on" : "ev-tab"} onClick={() => set("tab", "i2i")}>
+          <span
+            className={state.tab === "i2i" ? "ev-tab on" : "ev-tab"}
+            onClick={() =>
+              setState({
+                ...state,
+                tab: "i2i",
+                // 图生图不使用知识库：切换时自动关闭，避免误用
+                useKB: false,
+                regionEnhance: state.useLora,
+              })
+            }
+          >
             图生图
           </span>
         </div>
       </div>
-      <RegionEnhanceStrip
-        useKB={state.useKB}
-        onKBChange={(next) =>
-          setState({ ...state, useKB: next, regionEnhance: state.useLora || next })
-        }
-        regionId={regionId}
-      />
+      {state.tab === "t2i" && (
+        <RegionEnhanceStrip
+          useKB={state.useKB}
+          onKBChange={(next) =>
+            setState({ ...state, useKB: next, regionEnhance: state.useLora || next })
+          }
+          regionId={regionId}
+        />
+      )}
 
       {state.tab === "t2i" ? (
         <>
-          <div className="field">
-            <div className="ws-label">成图类型</div>
-            <div className="preset-grid" id="iEventSub">
-              <button
-                className={state.sub === "自定义" ? "preset-chip on" : "preset-chip"}
-                onClick={() => setState({ ...state, sub: "自定义", fromCase: false })}
-              >
-                自定义
-              </button>
-              {type.sizes.map((s) => (
-                <button
-                  key={s.name}
-                  className={state.sub === s.name ? "preset-chip on" : "preset-chip"}
-                  onClick={() => {
-                    // 切成图类型时，同步把「图片尺寸」重置为该类型尺寸组里第一个实际尺寸；
-                    // 用户主动切类型 → 不再视作「套用灵感原样张」，清除 fromCase（恢复扩写）
-                    const opts = ratioOptsFn(s.name);
-                    const firstReal = opts.find((o) => o.name !== "自定义") ?? opts[0];
-                    setState({ ...state, sub: s.name, ratio: firstReal?.name ?? state.ratio, fromCase: false });
-                  }}
-                >
-                  {s.name}
-                </button>
-              ))}
-            </div>
-          </div>
+          {/* 成图类型：暂时隐藏，不展示；state.sub 仍保留默认「自定义」，扩写/尺寸逻辑不变 */}
           <div className="field">
             <div className="ws-label">
               画面描述 <span className="req">*</span>
@@ -665,7 +654,7 @@ export function ImageEventPanel({
             </button>
           </div>
           <div className="field">
-            <div className="ws-label">修改需求</div>
+            <div className="ws-label">图片描述</div>
             <ClearableTextarea
               value={state.editInput}
               onChange={(e) => set("editInput", e.target.value)}
@@ -786,6 +775,7 @@ export interface LogoImageState {
   style: string;
   brand: string;
   input: string;
+  count: number;
   useLora: boolean;
   useKB: boolean;
   /** @deprecated */
@@ -816,13 +806,6 @@ export function ImageLogoPanel({
           setState({ ...state, useKB: next, regionEnhance: state.useLora || next })
         }
         regionId={regionId}
-      />
-      <ModelLoraSwitch
-        visible={true}
-        enabled={state.useLora}
-        onChange={(next) =>
-          setState({ ...state, useLora: next, regionEnhance: next || state.useKB })
-        }
       />
       <div className="field">
         <div className="ws-label">logo 风格</div>
@@ -865,10 +848,28 @@ export function ImageLogoPanel({
           placeholder="示例：为「安吉白茶」设计图文插画风 LOGO，以高山云雾茶园与嫩芽为主体，国风清新、色彩明快，搭配品牌名中文字体（选填）"
         />
       </div>
+      <div className="field">
+        <div className="ws-label">生成数量</div>
+        <div className="seg">
+          {[1, 2, 4].map((n) => (
+            <div key={n} className={state.count === n ? "seg-item on" : "seg-item"} onClick={() => set("count", n)}>
+              {n}
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Logo 默认即梦 Seedream 5.0，不支持本地 Lora，开关暂隐藏 */}
+      <ModelLoraSwitch
+        visible={false}
+        enabled={state.useLora}
+        onChange={(next) =>
+          setState({ ...state, useLora: next, regionEnhance: next || state.useKB })
+        }
+      />
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
-          立即生成 <PointsCost amount={POINT_COST.imageLogo} />
+          立即生成 <PointsCost amount={multiImagePoints(state.count, "Seedream 5.0")} />
         </button>
       </div>
     </>

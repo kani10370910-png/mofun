@@ -10,6 +10,7 @@ import { stripOfficialMarkdown } from "./prompts/officialArticle";
 import type { AgentProposal, AgentRuntimeState, SkillDef, SkillId } from "../types";
 import type { GenerateRequest } from "@/lib/types";
 import { imageRequestBody, kbFields } from "@/lib/regionEnhance";
+import { seedreamOutputSize, enforceIpCreatePrompt } from "@/lib/image";
 
 function withAgentKb(req: GenerateRequest): GenerateRequest {
   if (req.useKB === false) return { ...req, useKB: false };
@@ -77,16 +78,24 @@ function slotRatioLabel(ratio?: string, fallback = "1:1"): string {
   return fallback;
 }
 
-/** 槽位尺寸 → 文生图像素（≥约 369 万像素，8 对齐，对齐工作台） */
+/** 槽位尺寸 → 文生图像素：先落到界面显示宽高，再按 Seedream 规则放大到 ≥369 万 */
 function slotRatioToSize(ratio?: string, fallbackLabel = "1:1"): string {
   const label = slotRatioLabel(ratio, fallbackLabel);
+  // 与工作台「界面显示」对齐的基准像素，再交 seedreamOutputSize 放大
+  const uiBase: Record<string, [number, number]> = {
+    "1:1": [1080, 1080],
+    "3:5": [1080, 1800],
+    "5:3": [1800, 1080],
+    "16:9": [1920, 1080],
+    "9:16": [1080, 1920],
+    "3:4": [1080, 1440],
+    "4:3": [1440, 1080],
+  };
+  const base = uiBase[label];
+  if (base) return seedreamOutputSize(base[0], base[1]);
   const [aw, ah] = label.split(":").map((x) => Number(x) || 1);
-  const w = Math.max(1, aw);
-  const h = Math.max(1, ah);
-  const MIN_PIXELS = 3686400;
-  const scale = Math.sqrt(MIN_PIXELS / (w * h));
-  const round8 = (n: number) => Math.ceil((n * scale) / 8) * 8;
-  return `${round8(w)}x${round8(h)}`;
+  // 未知比例：用比例单位放大（等同界面未给出绝对 px 时）
+  return seedreamOutputSize(Math.max(1, aw), Math.max(1, ah));
 }
 
 function platformToApi(p?: string): string[] {
@@ -490,9 +499,23 @@ export async function runSkillGenerate(
 
   let prompt = brief;
   const ratioFallback =
-    skill.id === "skill.image.event" || skill.id === "skill.image.event_i2i" ? "3:4" : "1:1";
+    skill.id === "skill.image.event" || skill.id === "skill.image.event_i2i"
+      ? "3:4"
+      : skill.id === "skill.image.font"
+        ? /竖/.test(state.slots.dir || "")
+          ? "3:5"
+          : "5:3"
+        : "1:1";
   const ratioLabel = slotRatioLabel(state.slots.ratio, ratioFallback);
-  const imageSize = slotRatioToSize(state.slots.ratio, ratioFallback);
+  // Logo 固定方图；字体按横/竖；其余按槽位比例 — 均走界面显示→Seedream 放大
+  const imageSize =
+    skill.id === "skill.image.logo"
+      ? seedreamOutputSize(1080, 1080)
+      : skill.id === "skill.image.font"
+        ? /竖/.test(state.slots.dir || "")
+          ? seedreamOutputSize(1080, 1800)
+          : seedreamOutputSize(1800, 1080)
+        : slotRatioToSize(state.slots.ratio, ratioFallback);
 
   if (isVi) {
     prompt =
@@ -510,6 +533,10 @@ export async function runSkillGenerate(
         preferredColors: state.slots.colors ? [state.slots.colors] : undefined,
         hasReference: Boolean(opts?.refImage),
       })) || `${brief}，画面比例 ${ratioLabel}`;
+    // 创新设计：白底 + 禁止画面角色名文字；扩展设计不强制
+    if (skill.id === "skill.image.ip" && state.slots.mode !== "扩展设计") {
+      prompt = enforceIpCreatePrompt(prompt);
+    }
   } else if (skill.id === "skill.image.event" || skill.id === "skill.image.event_i2i") {
     prompt =
       skill.id === "skill.image.event_i2i"
@@ -534,10 +561,12 @@ export async function runSkillGenerate(
         input: `品牌 Logo 设计：名称「${state.slots.brandName || ""}」，logo 风格「${state.slots.style || "智能匹配"}」${desc}，平面标志，白底，居中，无多余文字堆砌，画面比例 ${ratioLabel}`,
       })) || brief;
   } else if (skill.id === "skill.image.font") {
+    const fontText = state.slots.text || brief;
+    const fontStyle = state.slots.style || "书法体";
     prompt =
       (await llm({
         scene: "t2i-associate",
-        input: `艺术字「${state.slots.text || brief}」，文字方向${state.slots.dir || "横向"}，效果分类${state.slots.style || "书法体"}，单行文字居中，高清标题字效，画面比例 ${ratioLabel}`,
+        input: `严格按照参考字体样张的笔触与字形气质，生成艺术字「${fontText}」，文字方向${state.slots.dir || "横向"}，效果分类${fontStyle}，单行文字居中，高清标题字效，不要复现样张原文，画面比例 ${ratioLabel}`,
       })) || brief;
   } else if (skill.id === "skill.image.signage" || skill.id === "skill.image.signage_storefront") {
     const channel =
@@ -555,11 +584,31 @@ export async function runSkillGenerate(
     prompt = `${prompt}。画面比例严格为 ${ratioLabel}，按此比例构图出图。`;
   }
 
+  // AI 字体：尽量带上对应文字效果的预览样张，按图生贴近字效
+  let fontStyleRef = opts?.refImage;
+  if (skill.id === "skill.image.font" && !fontStyleRef) {
+    try {
+      const { fontEffects } = await import("@/data/image");
+      const { asset } = await import("@/lib/asset");
+      const { imgToDataUrl } = await import("@/lib/image");
+      const styleName = state.slots.style || "";
+      const hit =
+        fontEffects.find((f) => f.name === styleName) ||
+        fontEffects.find((f) => f.cat === styleName && f.img);
+      if (hit?.img) fontStyleRef = (await imgToDataUrl(asset(hit.img))) || undefined;
+    } catch {
+      /* 样张加载失败则退回纯文生 */
+    }
+  }
+
   const useRef =
     skill.id === "skill.image.ip_extend" ||
     skill.id === "skill.image.event_i2i" ||
+    skill.id === "skill.image.font" ||
     (skill.id === "skill.image.ip" && state.slots.mode === "扩展设计")
-      ? opts?.refImage
+      ? skill.id === "skill.image.font"
+        ? fontStyleRef
+        : opts?.refImage
       : undefined;
 
   const n =

@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type CSSProperties } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
-import { activeGalleryItems } from "@/data/image";
-import type { ActiveGalleryItem, AssetCard } from "@/lib/types";
+import { activeGalleryItems, flyerRatios, imageRatios, posterRatios, rollupRatios } from "@/data/image";
+import type { ActiveGalleryItem, AssetCard, SizePreset } from "@/lib/types";
 import { ResultCardActions } from "./ResultCardActions";
 import { ClampText } from "@/components/ui/ClampText";
 import { ImageEditModal } from "./ImageEditModal";
@@ -20,6 +20,8 @@ export interface EventRunRow {
   prompt: string; // 画面描述（行头展示 + 复制）
   sub: string; // 成图子类（海报/长图/…）或「自定义」
   ratioName: string; // 图片比例名
+  customW?: string; // 自定义宽度（ratioName 为「自定义」时用）
+  customH?: string; // 自定义高度
   time: string;
   pct: number; // <100 加载中；100 完成
   imgs: string[]; // 生成的真图 URL（与 grads 等长，空串=该位失败）
@@ -78,6 +80,31 @@ function groupRuns(rows: EventRunRow[]): [string, EventRunRow[]][] {
     map.get(label)!.push(r);
   }
   return order.map((l) => [l, map.get(l)!]);
+}
+
+const EVENT_SIZE_PRESETS: SizePreset[] = [...imageRatios, ...posterRatios, ...rollupRatios, ...flyerRatios];
+
+/* 活动生成历史：按用户所选尺寸显示卡片，不再一律 1:1 裁切。
+   兼容「竖版3:4」「13*18cm海报」「自定义」+ customW/H，以及尺寸表里的 px/cm/mm。 */
+function ratioToAspect(ratioName?: string, customW?: string, customH?: string): string {
+  const cw = Number(customW);
+  const ch = Number(customH);
+  if (cw > 0 && ch > 0) return `${cw} / ${ch}`;
+  if (!ratioName) return "1 / 1";
+  const named = ratioName.match(/(\d+(?:\.\d+)?)\s*[:：*×x]\s*(\d+(?:\.\d+)?)/);
+  if (named) {
+    const w = Number(named[1]);
+    const h = Number(named[2]);
+    if (w > 0 && h > 0) return `${w} / ${h}`;
+  }
+  const hit = EVENT_SIZE_PRESETS.find((s) => s.name === ratioName);
+  const sized = hit?.size.match(/(\d+(?:\.\d+)?)\s*[×x:：*]\s*(\d+(?:\.\d+)?)/);
+  if (sized) {
+    const w = Number(sized[1]);
+    const h = Number(sized[2]);
+    if (w > 0 && h > 0) return `${w} / ${h}`;
+  }
+  return "1 / 1";
 }
 
 const CASE_IMG_CACHE_KEY = "mofun-case-imgs-v1";
@@ -263,10 +290,15 @@ export function ActiveGallery({
           </div>
         )
       ) : items.length > 0 ? (
-        <div className="ag-grid">
+        <div className={workTag === "活动" && caseStyle !== "ip" ? "ag-grid ag-grid-masonry" : "ag-grid"}>
           {items.map((it) => {
             const caseImg = it.img || caseImgs[it.name];
             const loading = caseLoading.has(it.name);
+            const masonry = workTag === "活动" && caseStyle !== "ip";
+            const thumbAspect =
+              masonry && it.w && it.h && it.w > 0 && it.h > 0
+                ? ({ aspectRatio: `${it.w} / ${it.h}` } as CSSProperties)
+                : undefined;
             return (
             <div
               className={caseStyle === "ip" ? "ag-card ag-card-ip" : "ag-card"}
@@ -274,11 +306,10 @@ export function ActiveGallery({
               onClick={() => onPickCate?.(it)} // 点卡片：左侧成图类型 + 尺寸跳到该卡
               style={onPickCate ? { cursor: "pointer" } : undefined}
             >
-              <div className={`ag-thumb ${it.grad}`}>
+              <div className={`ag-thumb ${it.grad}`} style={thumbAspect}>
                 {caseStyle !== "ip" && <span className="ag-sub">{it.sub}</span>}
                 {caseImg ? (
-                  // 海报样张：按宽铺满直接展示（不走 AutoBgImg 智能裁切，那是给 logo 文字缩略用的）；
-                  // 超高部分由 .ag-img 的 object-position 在 hover 时从上滚到下展示全图
+                  // 活动瀑布流：按原图比例完整展示；其它仍 cover + hover 滚览
                   // eslint-disable-next-line @next/next/no-img-element
                   <img className="ag-img" src={assetUrl(caseImg)} alt={it.name} loading="lazy" />
                 ) : loading ? (
@@ -361,6 +392,9 @@ function EventRunRowView({
   workTag?: string;
 }) {
   const loading = row.pct < 100;
+  const nativeRatio = workTag === "活动";
+  const aspect = nativeRatio ? ratioToAspect(row.ratioName, row.customW, row.customH) : undefined;
+  const cardStyle = aspect ? { aspectRatio: aspect } : undefined;
   const useRegion = row.regionEnhance === true;
   const phases = eventLoadPhases(useRegion, row.regionLora);
   const [phaseIdx, setPhaseIdx] = useState(0);
@@ -382,6 +416,13 @@ function EventRunRowView({
           <b className="lh-prompt"><ClampText text={row.prompt} lines={2} /></b>
         </span>
         <span className="lg-cat">{row.sub}</span>
+        {nativeRatio && row.ratioName && (
+          <span className="lg-cat">
+            {row.ratioName === "自定义" && row.customW && row.customH
+              ? `${row.customW}×${row.customH}`
+              : row.ratioName}
+          </span>
+        )}
         {useRegion && (
           <RegionEnhanceBadge
             regionId={row.regionId}
@@ -402,10 +443,10 @@ function EventRunRowView({
           </>
         )}
       </div>
-      <div className="lh-imgs">
+      <div className={`lh-imgs${nativeRatio ? " lh-imgs-native" : ""}`}>
         {shown.map(({ g, i, key }) =>
           loading ? (
-            <div className={`lh-img ${g} lh-loading`} key={i}>
+            <div className={`lh-img ${g} lh-loading${nativeRatio ? " ev-native" : ""}`} key={i} style={cardStyle}>
               <span className="lh-progress">{row.pct}%完成</span>
               <span className="lh-think">
                 <Icon name="sparkle" size={22} />
@@ -413,7 +454,7 @@ function EventRunRowView({
               </span>
             </div>
           ) : row.error ? (
-            <div className={`lh-img ${g}`} key={i} style={{ display: "grid", placeItems: "center", padding: 12, textAlign: "center" }}>
+            <div className={`lh-img ${g}${nativeRatio ? " ev-native" : ""}`} key={i} style={{ ...cardStyle, display: "grid", placeItems: "center", padding: 12, textAlign: "center" }}>
               <span className="lh-fail">{row.error}</span>
             </div>
           ) : (
@@ -427,6 +468,7 @@ function EventRunRowView({
               fav={favs.has(key)}
               onToggleFav={() => onToggleFav(key)}
               resultEdit={resultEdit}
+              aspect={nativeRatio ? aspect : undefined}
             />
           )
         )}
@@ -445,6 +487,7 @@ function EventResultCard({
   fav,
   onToggleFav,
   resultEdit = true,
+  aspect,
 }: {
   img?: string;
   grad: string;
@@ -454,6 +497,7 @@ function EventResultCard({
   fav?: boolean;
   onToggleFav?: () => void;
   resultEdit?: boolean;
+  aspect?: string;
 }) {
   const toast = useToast();
   const [editOpen, setEditOpen] = useState(false); // 编辑器
@@ -494,10 +538,13 @@ function EventResultCard({
     }
   }
 
+  const nativeCls = aspect ? " ev-native" : "";
+  const cardStyle = aspect ? { aspectRatio: aspect } : undefined;
+
   // 生成失败的占位（该位无图）
   if (!img) {
     return (
-      <div className={`lh-img ${grad}`} style={{ display: "grid", placeItems: "center" }}>
+      <div className={`lh-img ${grad}${nativeCls}`} style={{ display: "grid", placeItems: "center", ...cardStyle }}>
         <span className="lh-emoji" title="该张生成失败">⚠️</span>
       </div>
     );
@@ -505,8 +552,8 @@ function EventResultCard({
 
   return (
     <div
-      className={`lh-img ev-result ${grad}`}
-      style={{ cursor: "zoom-in" }}
+      className={`lh-img ev-result ${grad}${nativeCls}`}
+      style={{ cursor: "zoom-in", ...cardStyle }}
       onClick={() => !imgError && setZoom(true)}
     >
       {!imgError ? (

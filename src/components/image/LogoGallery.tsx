@@ -13,6 +13,7 @@ import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { AutoBgImg } from "./AutoBgImg";
 import { asset as assetUrl } from "@/lib/asset";
 import { RegionEnhanceBadge } from "./RegionEnhanceStrip";
+import { ClampText } from "@/components/ui/ClampText";
 
 // 待删除目标：本次会话生成行（run）或静态历史行（hist，按组+行索引定位）
 type DeleteTarget = { kind: "run"; id: string } | { kind: "hist"; gi: number; ii: number };
@@ -185,9 +186,11 @@ export function LogoGallery({
                   return (
                     <div className="lh-row" key={ii}>
                       <div className="lh-meta">
-                        <span className="lh-title">
-                          <b className="lh-prompt">{it.prompt}</b>
-                          {it.desc && <span className="lh-desc">{it.desc}</span>}
+                        <span className="lh-title lh-title-clamp">
+                          <b className="lh-prompt">
+                            <ClampText text={it.prompt} lines={2} />
+                          </b>
+                          {it.desc && <ClampText text={it.desc} lines={2} className="lh-desc" />}
                         </span>
                         <span className="lg-cat">{it.style}</span>
                         {it.regionEnhance && (
@@ -311,9 +314,11 @@ function LogoRunRowView({
   return (
     <div className={`lh-row${highlight ? " reedit-hl" : ""}`} id={`imgrun-${row.id}`}>
       <div className="lh-meta">
-        <span className="lh-title">
-          <b className="lh-prompt">{row.prompt}</b>
-          {row.desc && <span className="lh-desc">{row.desc}</span>}
+        <span className="lh-title lh-title-clamp">
+          <b className="lh-prompt">
+            <ClampText text={row.prompt} lines={2} />
+          </b>
+          {row.desc && <ClampText text={row.desc} lines={2} className="lh-desc" />}
         </span>
         <span className="lg-cat">{row.style}</span>
         {row.regionEnhance && (

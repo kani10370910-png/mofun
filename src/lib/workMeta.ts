@@ -88,7 +88,7 @@ export function workMetaFields(item: AssetCard): { label: string; value: string 
   const seenValues = new Set<string>();
 
   const push = (label: string, value?: string) => {
-    const v = value?.trim();
+    const v = humanizeWorkText(value || "").trim();
     if (!v || seenValues.has(v)) return;
     seenValues.add(v);
     out.push({ label, value: v });
@@ -103,8 +103,15 @@ export function workMetaFields(item: AssetCard): { label: string; value: string 
     }
   }
 
+  // text 常为 buildWorkSummaryText 回写的「标签：值」摘要；edit 已有字段时不再重复挂「正文内容」
   if (item.text?.trim() && !edit?.input) {
-    push("正文内容", item.text);
+    const editPayloadKeys = edit
+      ? Object.keys(edit).filter((k) => k !== "sub" && !SKIP_KEYS.has(k))
+      : [];
+    const summaryLike = /^(文字内容|提示词|创意描述|字体效果|排列方向|正文内容)[:：]/m.test(item.text);
+    if (editPayloadKeys.length === 0 || !summaryLike) {
+      push("正文内容", item.text);
+    }
   }
 
   return out;
@@ -120,16 +127,123 @@ export function buildWorkSummaryText(edit?: Record<string, string>): string | un
 /** 卡片副文案：优先 text，否则取首条生成信息 */
 export function workCardSnippet(item: AssetCard, maxLen = 72): string {
   if (item.text?.trim()) {
-    const one = item.text.replace(/\s+/g, " ").trim();
+    const one = humanizeWorkText(item.text).replace(/\s+/g, " ").trim();
     return one.length > maxLen ? `${one.slice(0, maxLen)}…` : one;
   }
   const fields = workMetaFields(item);
   const primary =
-    fields.find((f) => /提示|描述|创意|文字/.test(f.label)) ?? fields[0];
+    fields.find((f) => /提示|描述|创意|文字|脚本/.test(f.label)) ?? fields[0];
   if (!primary) return "";
   const line = `${primary.label}：${primary.value.replace(/\s+/g, " ").trim()}`;
   return line.length > maxLen ? `${line.slice(0, maxLen)}…` : line;
 }
+
+/**
+ * 把入库 text / 提示词里的 JSON、转义串整理成可读正文。
+ * 例：`镜头脚本: { "content": "世界观…" }` → 纯中文设定文案。
+ */
+export function humanizeWorkText(raw: string): string {
+  let s = raw.trim();
+  if (!s) return "";
+
+  // 「镜头脚本：{...}」这类前缀
+  const labeled = s.match(/^(镜头脚本|提示词|创意描述|正文内容|画面描述)[:：]\s*([\s\S]+)$/);
+  if (labeled) s = labeled[2].trim();
+
+  // 整段是 JSON
+  if (s.startsWith("{") || s.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(s) as unknown;
+      const extracted = extractJsonReadable(parsed);
+      if (extracted) return extracted;
+    } catch {
+      /* 非严格 JSON，继续下方清洗 */
+    }
+  }
+
+  // 混在文案里的 {"content":"..."} 片段
+  const embedded = s.match(/\{\s*"content"\s*:\s*"((?:\\.|[^"\\])*)"/);
+  if (embedded?.[1]) {
+    try {
+      return JSON.parse(`"${embedded[1]}"`) as string;
+    } catch {
+      return embedded[1].replace(/\\n/g, "\n").replace(/\\"/g, '"');
+    }
+  }
+
+  return s;
+}
+
+function extractJsonReadable(parsed: unknown): string | undefined {
+  if (typeof parsed === "string") return parsed.trim() || undefined;
+  if (!parsed || typeof parsed !== "object") return undefined;
+  if (Array.isArray(parsed)) {
+    const parts = parsed.map(extractJsonReadable).filter(Boolean) as string[];
+    return parts.length ? parts.join("\n") : undefined;
+  }
+  const o = parsed as Record<string, unknown>;
+  for (const key of ["content", "script", "text", "prompt", "input", "desc", "description"]) {
+    const v = o[key];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  // 常见嵌套：{ data: { content } }
+  for (const key of ["data", "result", "payload"]) {
+    const nested = extractJsonReadable(o[key]);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+/** 仓库卡片悬停气泡：主文案 + 少量关键字段，避免刷屏 */
+export function workHoverTipText(item: AssetCard): string {
+  const fields = workMetaFields(item)
+    .map((f) => ({
+      label: f.label,
+      value: humanizeWorkText(f.value),
+    }))
+    .filter((f) => f.value);
+
+  const uniq: { label: string; value: string }[] = [];
+  const seenBody = new Set<string>();
+  for (const f of fields) {
+    const bodyKey = f.value.replace(/\s+/g, " ").trim();
+    if (seenBody.has(bodyKey)) continue;
+    const stripped = bodyKey.replace(
+      /^(文字内容|提示词|创意描述|字体效果|排列方向|生成数量|正文内容|风格名称)[:：]\s*/,
+      "",
+    );
+    if (stripped !== bodyKey && seenBody.has(stripped)) continue;
+    seenBody.add(bodyKey);
+    if (stripped !== bodyKey) seenBody.add(stripped);
+    uniq.push({ label: f.label, value: f.value });
+  }
+
+  if (uniq.length) {
+    const primary =
+      uniq.find((f) => /提示|描述|创意|文字内容|脚本|正文/.test(f.label)) ?? uniq[0];
+    // 气泡里只带 2～3 条辅字段，避免又长又重复
+    const rest = uniq
+      .filter((f) => f !== primary)
+      .filter((f) => !/生成数量|count/i.test(f.label))
+      .slice(0, 3);
+    const primaryLine =
+      /提示|描述|创意|脚本|正文/.test(primary.label)
+        ? `${primary.label}：${primary.value}`
+        : primary.value.includes("：") || primary.value.includes(":")
+          ? primary.value
+          : `${primary.label}：${primary.value}`;
+    return [primaryLine, ...rest.map((f) => `${f.label}：${f.value}`)].join("\n");
+  }
+
+  const fromText = humanizeWorkText(item.text || "");
+  if (fromText) {
+    if (/^[^：:\n]+[:：]/m.test(fromText) && fromText.includes("\n")) return fromText;
+    return fromText;
+  }
+
+  return item.name?.trim() || "";
+}
+
 
 const EMPTY_SLOT = new Set(["暂无", "无特殊要求", "我来补充", "跳过大纲"]);
 

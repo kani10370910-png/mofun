@@ -20,9 +20,13 @@ import { useSimGenerate } from "@/lib/useSimGenerate";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
 import { buildWorkSummaryText } from "@/lib/workMeta";
-import { imgToDataUrl } from "@/lib/image";
+import { imgToDataUrl, imageNaturalSize, parsePxDimensionsFromPrompt, seedreamOutputSize, parseDisplaySize, SEEDREAM_MIN_PIXELS, enforceIpCreatePrompt } from "@/lib/image";
+import { asset } from "@/lib/asset";
+import { trimImageMargin, fontDirFitRatio } from "@/lib/trimImageMargin";
 import { collectGenerate } from "@/lib/useGenerateStream";
 import { logoSvgDataUrl } from "@/lib/logoSvg";
+import { buildLogoStylePrompt } from "@/lib/logoStylePrompt";
+import { isCopyHeavyPrompt, buildCopyLayoutImagePrompt } from "@/lib/copyLayoutPrompt";
 import type { AssetCard } from "@/lib/types";
 import { imageTypes, imageModels, imageRatios, logoStyles, fontEffects, productGalleryItems, signageGalleryItems, paintStyles } from "@/data/image";
 import { defaultLoraIdsForRegion, defaultStrengthMap } from "@/data/regionAssets";
@@ -30,6 +34,7 @@ import {
   COUNTY_EDIT_MODEL,
   QWEN_I2I_LOCAL,
   QWEN_T2I_LOCAL,
+  UI_SEEDREAM_50,
   accountRegionId,
   imageRequestBody,
   kbFields,
@@ -79,10 +84,10 @@ import {
   type LogoImageState,
 } from "./ImagePanels";
 import { ImageResult } from "./ImageResult";
-import { ImageIpPanel, ProposePanel, type IpGenPayload, type IpCopyPayload } from "./ImageIpPanel";
+import { ImageIpPanel, ProposePanel, setProposeBackgroundToast, type IpGenPayload, type IpCopyPayload } from "./ImageIpPanel";
 import { IpGallery, type IpRunRow, type IpExtendSeed } from "./IpGallery";
 import { ActiveGallery, type EventRunRow } from "./ActiveGallery";
-import { Img2TextModal } from "./Img2TextModal";
+import { Img2TextModal, EVENT_IMG2TEXT_PROMPT } from "./Img2TextModal";
 import { PaintStyleModal } from "./PaintStyleModal";
 import { LibraryPickerModal } from "./LibraryPickerModal";
 import { LogoGallery, type LogoRunRow } from "./LogoGallery";
@@ -144,46 +149,71 @@ const SEED_EVENT_RUNS: EventRunRow[] = [
   },
 ];
 
-/* IP 设计·预置生成历史（演示） */
+/* IP 设计·预置生成历史（演示）：谷粒仔两例，图在 public/ipseed/ */
+const GULIZAI_DESC =
+  "谷粒仔，一个由稻谷粒直接拟人化的Q版角色，身高约两个头身比，身体呈椭圆米粒状，表面有细腻的稻壳纹路。眼睛是两颗小黑豆，腮头一点红晕，嘴巴张开露出三颗小牙，表情憨态可掬。头戴一顶稻草编的小斗笠，斗笠边缘垂下两缕绿藤。身穿黄绿条纹的宽松背带裤，身后有一条稻穗尾巴。腰间挂一个竹编小篓，里面装满金黄稻粒。配色主色为亮黄与稻褐，气质质朴可爱，像田间奔跑的小农夫。正面朝向镜头，纯白背景";
+
 const SEED_IP_RUNS: IpRunRow[] = [
   {
     id: "seed-ip-1",
-    title: "茶小绿",
-    desc: "茶小绿 IP 形象：嫩绿茶芽拟人化，圆润可爱，头顶两片嫩芽，扁平插画风，居中呈现",
-    rawDesc: "茶小绿，茶芽拟人，可爱",
+    title: "谷粒仔",
+    desc: GULIZAI_DESC,
+    rawDesc: GULIZAI_DESC,
+    colors: ["#E53935"],
     ratioName: "正方形 1:1",
-    time: "2026-06-26 09:25",
+    time: "2026-08-21 11:12",
     pct: 100,
-    grads: ["thumb-grad-4"],
-    imgs: ["/poster-samples/20260204165107990130xe92i6.jpg"],
+    grads: ["thumb-grad-1"],
+    imgs: ["/ipseed/gulizai-1.png?v=2"],
+    create: {
+      refImg: "/ipseed/gulizai-ref.png?v=2",
+      desc: GULIZAI_DESC,
+      colors: ["#E53935"],
+      ratioName: "正方形 1:1",
+    },
     regionEnhance: true,
+    useLora: true,
+    useKB: true,
     regionId: "anji",
   },
   {
     id: "seed-ip-2",
-    title: "竹乡熊猫",
-    desc: "竹乡熊猫 IP 形象：手抱竹笋的卡通熊猫，圆润敦实，国潮配色，居中单一形象",
-    rawDesc: "熊猫，竹子，国潮",
+    title: "谷粒仔",
+    desc: GULIZAI_DESC,
+    rawDesc: GULIZAI_DESC,
+    colors: ["#E53935"],
     ratioName: "正方形 1:1",
-    time: "2026-06-26 09:00",
+    time: "2026-08-21 11:04",
     pct: 100,
     grads: ["thumb-grad-2"],
-    imgs: ["/poster-samples/202602041724199902428j5nhr.jpg"],
-    regionEnhance: true,
-    regionId: "anji",
+    imgs: ["/ipseed/gulizai-2.png?v=3"],
+    create: {
+      desc: GULIZAI_DESC,
+      colors: ["#E53935"],
+      ratioName: "正方形 1:1",
+    },
+  },
+];
+
+/* AI 字体·预置生成历史（演示）：完整原图缩略，图在 public/fontseed/ */
+const SEED_FONT_RUNS: FontRunRow[] = [
+  {
+    id: "seed-font-1",
+    text: "凌冬将至",
+    effect: "冬日体",
+    dir: "竖向",
+    time: "2026-08-21 14:14",
+    pct: 100,
+    results: [{ grad: "thumb-grad-1", img: "/fontseed/lindong-jiangzhi.png?v=10" }],
   },
   {
-    id: "seed-ip-3",
-    title: "稻米娃",
-    desc: "稻米娃 IP 形象：金黄稻穗化身的萌系小人，笑脸，扁平矢量，单一主体居中",
-    rawDesc: "稻米，丰收，萌系",
-    ratioName: "正方形 1:1",
-    time: "2026-06-26 08:40",
+    id: "seed-font-2",
+    text: "天下无双",
+    effect: "墨痕手书",
+    dir: "横向",
+    time: "2026-08-21 14:13",
     pct: 100,
-    grads: ["thumb-grad-1"],
-    imgs: ["/poster-samples/20251225143202617562fe2mzh.jpg"],
-    regionEnhance: true,
-    regionId: "anji",
+    results: [{ grad: "thumb-grad-2", img: "/fontseed/tianxia-wushuang.png?v=10" }],
   },
 ];
 
@@ -321,7 +351,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         const on = back.regionEnhance === "true";
         p.regionEnhance = on;
         p.useLora = back.useLora != null ? back.useLora === "true" : on;
-        p.useKB = back.useKB != null ? back.useKB === "true" : on;
+        p.useKB = false;
       }
     }
     return p;
@@ -363,7 +393,11 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     style: (subHint === "logo" && back.style) || "智能匹配",
     brand: (subHint === "logo" && back.brand) || "",
     input: (subHint === "logo" && back.input) || "",
-    useLora: true,
+    count: (() => {
+      const c = Number(subHint === "logo" && back.count);
+      return Number.isFinite(c) && c > 0 ? Math.max(1, Math.min(4, Math.round(c))) : 1;
+    })(),
+    useLora: false,
     useKB: true,
     regionEnhance: true,
   }));
@@ -375,6 +409,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         dir: "h" as const,
         cat: cat0,
         effect: fontEffects.find((f) => f.cat === cat0)?.name || "",
+        count: 1,
       };
     }
     const tagOrName = back.effect ? String(back.effect) : "";
@@ -391,6 +426,10 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       dir: back.dir === "竖向" ? "v" : "h",
       cat,
       effect: matched?.name || fontEffects.find((f) => f.cat === cat)?.name || "",
+      count: (() => {
+        const c = Number(back.count);
+        return Number.isFinite(c) && c > 0 ? Math.max(1, Math.min(4, Math.round(c))) : 1;
+      })(),
     };
   });
 
@@ -401,6 +440,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   const [proposeFill, setProposeFill] = useState(() =>
     subHint === "ip" && (back.rawDesc || back.input) ? String(back.rawDesc || back.input) : "",
   );
+  // 帮我提案是否引用知识库（由左侧开关带入；立即生成始终不走知识库）
+  const [proposeUseKB, setProposeUseKB] = useState(true);
   const [ipDesignTab, setIpDesignTab] = useState<"create" | "extend">(
     subHint === "ip" && String(back.mode || "") === "extend" ? "extend" : "create",
   );
@@ -419,11 +460,19 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   // 打开提案面板时，把左侧创意描述的已有内容复制进面板作为初始文本
   const [proposeInit, setProposeInit] = useState("");
 
-  // 打开/关闭提案面板：打开时记录当前创意描述作为初始文本
-  function handlePropose(open: boolean, initialDesc?: string) {
-    if (open) setProposeInit(initialDesc ?? "");
+  // 打开/关闭提案面板：打开时记录当前创意描述与知识库开关
+  function handlePropose(open: boolean, initialDesc?: string, useKB?: boolean) {
+    if (open) {
+      setProposeInit(initialDesc ?? "");
+      setProposeUseKB(useKB !== false);
+    }
     setProposeOpen(open);
   }
+  // 提案后台跑完时（面板已关）用 toast 提醒
+  useEffect(() => {
+    setProposeBackgroundToast((s, k) => toast(s, k));
+    return () => setProposeBackgroundToast(null);
+  }, [toast]);
   // 默认看「生成历史」（已有预置演示历史）；点生成时 runLogoGenerate 也会切到「生成历史」
   const [logoTab, setLogoTab] = useState<"history" | "inspire">("history");
   const [logoRuns, setLogoRuns] = useState<LogoRunRow[]>(() =>
@@ -434,7 +483,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   // AI字体：默认看「生成历史」（已有预置演示历史）
   const [fontTab, setFontTab] = useState<"history" | "inspire" | "story">("history");
   const [fontRuns, setFontRuns] = useState<FontRunRow[]>(() =>
-    reeditCard && reeditSub === "font" ? [buildFontReedit(reeditCard, reeditRowId)] : [],
+    reeditCard && reeditSub === "font" ? [buildFontReedit(reeditCard, reeditRowId), ...SEED_FONT_RUNS] : SEED_FONT_RUNS,
   );
   const [fontBusy, setFontBusy] = useState(false);
   const fontTimer = useRef<number | null>(null);
@@ -612,7 +661,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     return LOGO_BLOCKED.some((w) => lower.includes(w));
   }
 
-  // logo：Qwen-Image-本地-文生图；增强开时挂区县 Lora；仅 DEMO/静态导出才回退本地 SVG
+  // logo：默认即梦 Seedream 5.0；知识库仍可开，Lora 对该模型无效
   async function runLogoGenerate() {
     if (logoBusy) return;
     const brand = logoForm.brand.trim();
@@ -628,21 +677,14 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       toast("创意描述包含不允许的词语，请修改后重试", "warn");
       return;
     }
-    notifyRegionEnhance(toast, { useLora: logoForm.useLora, useKB: logoForm.useKB }, QWEN_T2I_LOCAL);
+    notifyRegionEnhance(toast, { useLora: false, useKB: logoForm.useKB }, UI_SEEDREAM_50);
     setLogoBusy(true);
     setLogoTab("history");
     const id = "run-" + logoRuns.length + "-" + brand.length;
-    const grads = ["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-grad-4"] as const;
+    const n = Math.max(1, Math.min(4, logoForm.count || 1));
+    const grads = (["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-grad-4"] as const).slice(0, n);
     const style = logoForm.style || "智能匹配";
     const desc = logoForm.input.trim();
-    const promptBase = [
-      `设计品牌 Logo，品牌名「${brand}」`,
-      style !== "智能匹配" ? `风格：${style}` : "",
-      desc || "简洁现代、辨识度高、适合区县农旅品牌",
-      "平面标志、干净背景、无多余文字水印",
-    ]
-      .filter(Boolean)
-      .join("。");
 
     const row: LogoRunRow = {
       id,
@@ -698,11 +740,31 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         grad: "thumb-grad-3",
         nameBase: `${brand} · LOGO`,
         sub: "品牌设计 · logo",
-        edit: { sub: "logo", brand, style, input: logoForm.input },
+        edit: { sub: "logo", brand, style, input: logoForm.input, count: String(n) },
       });
     };
 
     try {
+      // 选中风格的样张作图生参考（与 AI 字体一致）；智能匹配无样张则纯文生
+      const styleMeta = logoStyles.find((s) => s.name === style);
+      let styleRef = "";
+      if (styleMeta?.img) {
+        try {
+          styleRef = await imgToDataUrl(asset(styleMeta.img));
+        } catch {
+          styleRef = "";
+        }
+      }
+      // 按风格表拼提示词；有样张时再附加图生参考约束
+      const stylePrompt = buildLogoStylePrompt(style, brand, desc);
+      const promptBase = styleRef
+        ? [
+            `参考图为「${style}」风格样张：严格借鉴其构图版式、图形语言、线条疏密与整体气质`,
+            `不要复现参考图中的原品牌名、原图形与原文字，品牌文字必须清晰呈现「${brand}」`,
+            stylePrompt,
+          ].join("。")
+        : stylePrompt;
+
       const imgs: string[] = [];
       for (let i = 0; i < grads.length; i++) {
         const r = await fetch("/api/image", {
@@ -711,13 +773,14 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
           signal: AbortSignal.timeout(90_000),
           body: JSON.stringify(
             imageRequestBody({
-              prompt: `${promptBase}（变体 ${i + 1}）`,
-              size: "1024x1024",
+              prompt: grads.length > 1 ? `${promptBase}（变体 ${i + 1}）` : promptBase,
+              size: seedreamOutputSize(1080, 1080), // 正方形 1:1 界面 1080 → 送模 1920²
               n: 1,
-              model: QWEN_T2I_LOCAL,
-              useLora: logoForm.useLora,
+              model: UI_SEEDREAM_50,
+              useLora: false,
               useKB: logoForm.useKB,
               regionId,
+              ...(styleRef ? { image: styleRef } : {}),
             }),
           ),
         });
@@ -726,7 +789,13 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         if (url) imgs.push(url);
       }
       if (imgs.length) {
-        finish(imgs);
+        // 收白边后贴回 1:1，避免主体缩在画面中央过小
+        const tightImgs = await Promise.all(
+          imgs.map((u) =>
+            trimImageMargin(u, { padRatio: 0.06, fitRatio: [1, 1], longSide: 1920, assetFn: asset }),
+          ),
+        );
+        finish(tightImgs);
         return;
       }
       if (DEMO) {
@@ -755,12 +824,10 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   function useLogoCase(c: LogoCase) {
     const matchedStyle = logoStyles.find((s) => s.name === c.cat)?.name ?? "智能匹配";
     setLogoForm({
+      ...logoForm,
       style: matchedStyle,
       brand: c.name,
       input: c.desc ?? `参考「${c.name}」制作 LOGO，${c.cat}风格，简洁现代、辨识度高`,
-      useLora: logoForm.useLora,
-      useKB: logoForm.useKB,
-      regionEnhance: logoForm.useLora || logoForm.useKB,
     });
     toast(`已套用「${c.name}」：风格、品牌名、创意描述已填入，可调整后点击「立即生成」`);
   }
@@ -769,12 +836,10 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   function copyLogoHistory(style: string, prompt: string) {
     const matchedStyle = logoStyles.find((s) => s.name === style)?.name ?? style ?? "智能匹配";
     setLogoForm({
+      ...logoForm,
       style: matchedStyle,
       brand: prompt,
       input: `参考历史记录「${prompt}」制作 LOGO，${style}风格，简洁现代、辨识度高`,
-      useLora: logoForm.useLora,
-      useKB: logoForm.useKB,
-      regionEnhance: logoForm.useLora || logoForm.useKB,
     });
     toast("已复制该记录到左侧，可调整后点击「立即生成」");
   }
@@ -784,7 +849,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     setLogoRuns((prev) => prev.filter((r) => r.id !== id));
   }
 
-  // AI字体：MoFun区域文化大模型真出图（不挂载 Lora / 知识库）
+  // AI字体：默认即梦 Seedream 5.0（不挂载 Lora / 知识库）
   async function runFontGenerate() {
     if (fontBusy) return;
     const text = fontForm.text.trim();
@@ -799,26 +864,22 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     setFontBusy(true);
     setFontTab("history");
     const id = "font-" + fontRuns.length + "-" + text.length;
-    const grads = ["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-grad-4"] as const;
+    const n = Math.max(1, Math.min(4, fontForm.count || 1));
+    const grads = (["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-grad-4"] as const).slice(0, n);
     const dirLabel = fontForm.dir === "h" ? "横向" : "竖向";
     const effect = fontForm.effect;
     const cat = fontForm.cat;
-    const promptBase = [
-      `中文艺术字效果图，完整清晰呈现文字「${text}」`,
-      `字体气质：${effect}`,
-      cat ? `品类风格：${cat}` : "",
-      `${dirLabel}排版，字形可辨、装饰精美、适合品牌标题与海报字标`,
-      "干净背景，无水印，无多余无关文字",
-    ]
-      .filter(Boolean)
-      .join("。");
-    const size = fontForm.dir === "v" ? "768x1024" : "1024x768";
+    // 选中的文字效果：取其提示气质 + 预览样张作图生参考，贴近该字体真实笔触
+    const effectMeta = fontEffects.find((f) => f.name === effect);
+    // 与 IP/活动同一套：界面显示尺寸按比例放大到 ≥369 万再送 Seedream
+    // 横向 →「横向 5:3」1800×1080；竖向 →「纵向 3:5」1080×1800
+    const size =
+      fontForm.dir === "v" ? seedreamOutputSize(1080, 1800) : seedreamOutputSize(1800, 1080);
     const row: FontRunRow = {
       id,
       text,
       effect,
       dir: dirLabel,
-      desc: `为「${text}」生成「${effect}」${cat}艺术字，${dirLabel}排版。`,
       time: nowStamp(),
       pct: 8,
       loadingPhase: 0,
@@ -860,7 +921,26 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     };
 
     try {
+      // 把该文字效果的预览样张转成 data URL，作为图生图参考（失败则退回纯文生）
+      const styleRef = effectMeta?.img
+        ? await imgToDataUrl(asset(effectMeta.img))
+        : "";
+      const promptBase = [
+        styleRef
+          ? `严格按照参考图中的字体风格、笔触、线条粗细与装饰气质，生成完整清晰的中文艺术字「${text}」`
+          : `中文艺术字效果图，完整清晰呈现文字「${text}」`,
+        styleRef ? "不要复现参考图里的原文字内容，只借鉴其字形风格与视觉气质" : "",
+        `字体气质：${effect}`,
+        cat ? `品类风格：${cat}` : "",
+        `${dirLabel}排版，字形可辨、装饰精美、适合品牌标题与海报字标`,
+        "干净背景，无水印，无多余无关文字",
+        "主体文字尽量铺满画面，四周留白尽量少，不要大片空白边距",
+      ]
+        .filter(Boolean)
+        .join("。");
+
       const imgs: string[] = [];
+      let lastErr = "";
       for (let i = 0; i < grads.length; i++) {
         const r = await fetch("/api/image", {
           method: "POST",
@@ -871,28 +951,40 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
               prompt: `${promptBase}（变体 ${i + 1}）`,
               size,
               n: 1,
-              model: QWEN_T2I_LOCAL,
+              model: UI_SEEDREAM_50,
               useLora: false,
               useKB: false,
+              ...(styleRef ? { image: styleRef } : {}),
             }),
           ),
         });
         const j = (await r.json().catch(() => ({}))) as { images?: string[]; error?: string };
         const url = j?.images?.[0] || "";
         if (url) imgs.push(url);
+        else if (j?.error) lastErr = j.error;
       }
       finishTimers();
       if (!imgs.length) {
+        const failMsg = lastErr
+          ? (lastErr.includes(String(SEEDREAM_MIN_PIXELS)) || /size.*small|pixels/i.test(lastErr)
+              ? "出图尺寸不符合模型要求，请重试"
+              : lastErr.slice(0, 120))
+          : "字体出图失败，请检查出图服务配置后重试";
         setFontRuns((prev) =>
           prev.map((r) =>
             r.id === id
-              ? { ...r, pct: 100, error: "字体出图失败，请检查出图服务配置后重试" }
+              ? { ...r, pct: 100, error: failMsg }
               : r,
           ),
         );
-        toast("字体生成失败，请稍后重试", "warn");
+        toast(failMsg.includes("服务") ? "字体生成失败，请稍后重试" : `字体生成失败：${failMsg}`, "warn");
         return;
       }
+      // 收白边后贴回 5:3 / 3:5，保持出图画幅约定
+      const fitRatio = fontDirFitRatio(dirLabel);
+      const tightImgs = await Promise.all(
+        imgs.map((u) => trimImageMargin(u, { padRatio: 0.04, assetFn: asset, fitRatio })),
+      );
       setFontRuns((prev) =>
         prev.map((r) =>
           r.id === id
@@ -902,23 +994,23 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
                 error: undefined,
                 results: grads.map((g, i) => ({
                   grad: g,
-                  img: imgs[i] || imgs[0],
+                  img: tightImgs[i] || tightImgs[0],
                 })),
               }
             : r,
         ),
       );
       toast(
-        imgs.length < grads.length
-          ? `已生成 ${imgs.length}/${grads.length} 张艺术字，已存入「我的作品」`
+        tightImgs.length < grads.length
+          ? `已生成 ${tightImgs.length}/${grads.length} 张艺术字，已存入「我的作品」`
           : "字体生成完成，已存入「我的作品」",
       );
-      saveAllImageWorks(imgs, {
+      saveAllImageWorks(tightImgs, {
         emoji: "🔤",
         grad: "thumb-grad-6",
         nameBase: `${text} · 艺术字`,
         sub: "品牌设计 · AI字体",
-        edit: { sub: "font", text, effect, dir: dirLabel },
+        edit: { sub: "font", text, effect, dir: dirLabel, count: String(n) },
       });
     } catch {
       finishTimers();
@@ -936,27 +1028,30 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
     setFontRuns((prev) => prev.filter((r) => r.id !== id));
   }
 
-  // IP 设计：点「立即生成」（描述已由左侧面板用 LLM 优化），调文生图出 4 张真图
+  // IP 设计：默认即梦 Seedream 5.0（文生 / 有参考图走图生）
   async function runIpGenerate(payload?: IpGenPayload) {
     if (!payload || ipBusy) return;
     notifyRegionEnhance(
       toast,
       {
-        useLora: payload.useLora ?? payload.regionEnhance !== false,
-        useKB: payload.useKB ?? payload.regionEnhance !== false,
+        useLora: false,
+        useKB: payload.useKB ?? false,
       },
-      payload.refImage ? QWEN_I2I_LOCAL : QWEN_T2I_LOCAL,
+      UI_SEEDREAM_50,
     );
     setIpBusy(true);
     setIpTab("history"); // 生成时切到生成历史看进度
     const id = "ip-" + ipRuns.length + "-" + payload.prompt.length;
-    const grads = ["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-grad-4"];
-    const size = ipRatioToSize(payload.ratioName);
+    const n = Math.max(1, Math.min(4, payload.count || 1));
+    const grads = ["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-grad-4"].slice(0, n);
+    const size = ipRatioToSize(payload.ratioName, payload.customW, payload.customH);
+    // IP 创新设计：强制白底，且禁止把角色名等文字画进画面；扩展设计不强加
+    const imagePrompt = payload.ext ? payload.prompt : enforceIpCreatePrompt(payload.prompt);
 
     const row: IpRunRow = {
       id,
       title: payload.title,
-      desc: payload.prompt, // 完整优化描述：复制回填用（扩展设计行头改用 ext 结构化展示）
+      desc: imagePrompt, // 送模描述（创新设计含强制白底）
       rawDesc: payload.rawDesc, // 用户原始创意描述（供 IP 故事）
       ext: payload.ext, // 扩展设计结构化展示信息（卡片头用）
       create: payload.create, // IP创新设计结构化展示信息（卡片头用）
@@ -1010,11 +1105,11 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
           // 有参考图（扩展设计的 IP 图，已转 base64 data URL）则走图生图，保持人物一致性
           body: JSON.stringify(
             imageRequestBody({
-              prompt: payload!.prompt,
+              prompt: imagePrompt,
               size,
-              model: payload!.refImage ? QWEN_I2I_LOCAL : QWEN_T2I_LOCAL,
-              useLora: payload!.useLora ?? payload!.regionEnhance !== false,
-              useKB: payload!.useKB ?? payload!.regionEnhance !== false,
+              model: UI_SEEDREAM_50,
+              useLora: false,
+              useKB: payload!.useKB ?? false,
               regionId: payload!.regionId || regionId,
               ...(payload!.refImage ? { image: payload!.refImage } : {}),
             }),
@@ -1081,6 +1176,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
           input: payload.prompt,
           colors: payload.colors?.filter(Boolean).join("、") || "",
           ratio: payload.ratioName,
+          count: String(n),
         },
       });
     } catch (e) {
@@ -1116,7 +1212,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
           description: (payload.rawDesc && payload.rawDesc.trim()) || payload.prompt,
           preferredColors: payload.colors,
           canvasSize: payload.ratioName,
-          ...kbFields(payload.useKB ?? payload.regionEnhance !== false, payload.regionId || regionId),
+          ...kbFields(payload.useKB ?? false, payload.regionId || regionId),
         }),
       });
       const ctype = resp.headers.get("Content-Type") || "";
@@ -1161,6 +1257,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
   async function runEventGenerate() {
     if (eventBusy) return;
     const isI2i = eventForm.tab === "i2i";
+    // 图生图固定不使用知识库（即使状态里残留为 true）
+    const useEventKB = !isI2i && eventForm.useKB;
 
     // 行头展示的描述：图生图用「修改需求」，文生图用「画面描述」
     const prompt = (isI2i ? eventForm.editInput : eventForm.input).trim();
@@ -1173,7 +1271,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         return;
       }
       if (!eventForm.editInput.trim()) {
-        toast("请输入修改需求或选择一个图片处理预设！", "warn");
+        toast("请输入图片描述或选择一个图片处理预设！", "warn");
         return;
       }
     } else if (!eventForm.input.trim()) {
@@ -1198,7 +1296,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
 
     notifyRegionEnhance(
       toast,
-      { useLora: eventForm.useLora, useKB: eventForm.useKB },
+      { useLora: eventForm.useLora, useKB: useEventKB },
       isI2i ? eventForm.editModel : eventForm.model,
     );
     setEventBusy(true);
@@ -1235,10 +1333,24 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
         `补全新增区域的画面内容，保持原有主体、风格、光影与配色一致` +
         (prompt && !isSizeTemplate ? `；附加要求：${prompt}` : "");
     }
-    const n = isI2i ? 1 : Math.max(1, Math.min(4, eventForm.count || 4)); // 图生图一次出 1 张
+    const n = isI2i ? 1 : Math.max(1, Math.min(4, eventForm.count || 1)); // 图生图一次出 1 张
     const allGrads = ["thumb-grad-1", "thumb-grad-2", "thumb-grad-3", "thumb-grad-4"];
     const grads = allGrads.slice(0, n);
-    const size = eventRatioToSize(eventForm.ratio, eventForm.customW, eventForm.customH);
+    let size = eventRatioToSize(eventForm.ratio, eventForm.customW, eventForm.customH);
+    if (isI2i) {
+      // 图生图：优先从「修改需求」解析 px 尺寸（如 宽1080 长6000），否则相似图跟样图比例
+      if (eventForm.editPreset !== "改图片尺寸") {
+        const parsed = parsePxDimensionsFromPrompt(prompt);
+        if (parsed) {
+          size = eventRatioToSize("自定义", String(parsed.w), String(parsed.h));
+        } else if (eventForm.editPreset === "生成相似图" && refDataUrl) {
+          const nat = await imageNaturalSize(refDataUrl);
+          if (nat?.w && nat?.h) {
+            size = eventRatioToSize("自定义", String(nat.w), String(nat.h));
+          }
+        }
+      }
+    }
     const id = "ev-" + eventRuns.length + "-" + prompt.length;
 
     const row: EventRunRow = {
@@ -1246,6 +1358,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       prompt,
       sub: isI2i ? "图生图" : (eventForm.sub || "自定义"),
       ratioName: eventForm.ratio,
+      customW: eventForm.ratio === "自定义" ? eventForm.customW : undefined,
+      customH: eventForm.ratio === "自定义" ? eventForm.customH : undefined,
       time: nowStamp(),
       pct: 8,
       imgs: [],
@@ -1254,23 +1368,39 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       regionId,
       regionLora: eventForm.useLora && modelSupportsCountyLora(isI2i ? eventForm.editModel : eventForm.model),
       useLora: eventForm.useLora,
-      useKB: eventForm.useKB,
+      useKB: useEventKB,
     };
     setEventRuns((prev) => [row, ...prev]);
 
-    // 文生图：按「成图类型」专属系统提示词，把用户简短描述扩写成完整画面描述词再出图
-    // fromCase=true（套用参考灵感 / 图转文）→ 跳过扩写，直接用现成描述出图。
-    if (!isI2i && !eventForm.fromCase) {
-      const expanded = await collectGenerate({
-        scene: "t2i-event",
-        input: prompt,
-        eventSub: eventForm.sub || "海报",
-        imageRatio: eventRatioLabel(eventForm.ratio, eventForm.customW, eventForm.customH),
-        artStyle: eventForm.style || "智能匹配",
-        ...kbFields(eventForm.useKB, regionId),
-      });
-      if (expanded) {
-        genPrompt = stylePrompt ? `${expanded}，${stylePrompt}` : expanded;
+    // 文生图：文案型输入 → 跳过氛围扩写，强制「全文案原样排版上图」
+    // 普通短描述 → 按成图类型系统提示词扩写；fromCase（套用灵感）仍直接出图。
+    if (!isI2i) {
+      if (isCopyHeavyPrompt(prompt)) {
+        genPrompt = buildCopyLayoutImagePrompt(prompt, {
+          style: eventForm.style,
+          ratioLabel: eventRatioLabel(eventForm.ratio, eventForm.customW, eventForm.customH),
+          widthPx:
+            eventForm.ratio === "自定义"
+              ? Number(eventForm.customW) || 1080
+              : (() => {
+                  const hit = allImageSizePresets.find((s) => s.name === eventForm.ratio);
+                  const parsed = hit?.size ? parseDisplaySize(hit.size) : null;
+                  return parsed?.w || 1080;
+                })(),
+        });
+        toast("已识别为文案，将仅按文案做文字排版出图");
+      } else if (!eventForm.fromCase) {
+        const expanded = await collectGenerate({
+          scene: "t2i-event",
+          input: prompt,
+          eventSub: eventForm.sub || "海报",
+          imageRatio: eventRatioLabel(eventForm.ratio, eventForm.customW, eventForm.customH),
+          artStyle: eventForm.style || "智能匹配",
+          ...kbFields(eventForm.useKB, regionId),
+        });
+        if (expanded) {
+          genPrompt = stylePrompt ? `${expanded}，${stylePrompt}` : expanded;
+        }
       }
     }
 
@@ -1319,7 +1449,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
               ? (modelSupportsCountyLora(eventForm.editModel) ? QWEN_I2I_LOCAL : eventForm.editModel)
               : (modelSupportsCountyLora(eventForm.model) ? QWEN_T2I_LOCAL : eventForm.model),
             useLora: eventForm.useLora,
-            useKB: eventForm.useKB,
+            useKB: useEventKB,
             loraIds: eventForm.loraIds,
             loraStrengths: eventForm.loraStrengths,
             regionId,
@@ -1443,7 +1573,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       }
     }
 
-    notifyRegionEnhance(toast, { useLora: productForm.useLora, useKB: productForm.useKB });
+    notifyRegionEnhance(toast, { useLora: productForm.useLora, useKB: false }, productForm.useLora ? QWEN_T2I_LOCAL : PRODUCT_IMAGE_MODEL);
     setProductBusy(true);
     setProductTab("history");
 
@@ -1570,11 +1700,11 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
       pct: 8,
       imgs: [],
       grads,
-      regionEnhance: productForm.useLora || productForm.useKB,
+      regionEnhance: productForm.useLora,
       regionId,
-      regionLora: productForm.useLora && modelSupportsCountyLora(PRODUCT_IMAGE_MODEL),
+      regionLora: productForm.useLora,
       useLora: productForm.useLora,
-      useKB: productForm.useKB,
+      useKB: false,
     };
     setProductRuns((prev) => [row, ...prev]);
 
@@ -1631,8 +1761,8 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
             size: finalSize,
             model: PRODUCT_IMAGE_MODEL,
             image: refDataUrl || undefined,
-            useLora: false,
-            useKB: productForm.useKB,
+            useLora: productForm.useLora,
+            useKB: false,
             regionId,
           })),
         });
@@ -1682,7 +1812,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
                 ? aiSceneExpandSub(scenePreset)
                 : taskToExpandSub("white"),
             imageRatio: eventRatioLabel(size, customW, customH),
-            ...kbFields(productForm.useKB, regionId),
+            ...kbFields(false, regionId),
           });
           if (expanded) jobPrompt = expanded;
         }
@@ -1774,9 +1904,9 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
             fusionLabel1: productForm.fusionLabels[0] || "",
             fusionLabel2: productForm.fusionLabels[1] || "",
             fusionLabel3: productForm.fusionLabels[2] || "",
-            regionEnhance: String(productForm.useLora || productForm.useKB),
+            regionEnhance: String(productForm.useLora),
             useLora: String(productForm.useLora),
-            useKB: String(productForm.useKB),
+            useKB: "false",
           },
         });
       } catch (e) {
@@ -2217,7 +2347,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
               setProposeOpen(false);
               toast("已生成创意提案并填入描述");
             }}
-            regionEnhance
+            regionEnhance={proposeUseKB}
             regionId={regionId}
           />
         )}
@@ -2285,6 +2415,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
               // 图转文结果填入左侧画面描述；该结果已是完整画面描述 → fromCase，跳过二次扩写
               setEventForm({ ...eventForm, tab: "t2i", input: text, fromCase: true });
             }}
+            prompt={EVENT_IMG2TEXT_PROMPT}
             {...kbFields(eventForm.useKB, regionId)}
           />
         )}
@@ -2370,7 +2501,7 @@ export function ImageEditor({ initialSub, initial }: { initialSub?: string; init
             onResult={(text) => {
               setProductForm({ ...productForm, desc: text, fromCase: true });
             }}
-            {...kbFields(productForm.useKB, regionId)}
+            {...kbFields(false, regionId)}
           />
         )}
         {productLibOpen && (
@@ -2554,30 +2685,26 @@ function mapIpError(msg: string): string {
   return "生成失败，请稍后重试";
 }
 
-/* IP 画面比例名 → 文生图尺寸（豆包 Seedream 要求 ≥ 约 369 万像素，即 1920×1920）。
-   返回的宽高均放大到该下限之上，并保持目标宽高比。 */
-function ipRatioToSize(ratioName: string): string {
-  const MIN_PIXELS = 3686400; // 1920²
-  let w = 1,
-    h = 1;
-  const custom = ratioName.match(/(\d+)\s*[:：]\s*(\d+)/); // 自定义 w:h
-  if (custom) {
-    w = Number(custom[1]) || 1;
-    h = Number(custom[2]) || 1;
-  } else if (ratioName.includes("3:5")) [w, h] = [3, 5];
-  else if (ratioName.includes("5:3")) [w, h] = [5, 3];
-  else if (ratioName.includes("16:9")) [w, h] = [16, 9];
-  else [w, h] = [1, 1]; // 正方形 1:1
-
-  // 按比例求满足像素下限的最小整数边，并取整到 8 的倍数（多数模型要求）
-  const scale = Math.sqrt(MIN_PIXELS / (w * h));
-  const round8 = (n: number) => Math.ceil((n * scale) / 8) * 8;
-  return `${round8(w)}x${round8(h)}`;
+/* IP / 活动共用尺寸换算：预设名或「自定义」+ 像素宽高 → 满足 Seedream 下限的 WxH */
+function ipRatioToSize(ratioName: string, customW = "", customH = ""): string {
+  // 兼容旧 IP 记录「自定义 w:h」比例串（按宽高比放大）
+  if (ratioName.startsWith("自定义") && ratioName !== "自定义") {
+    const m = ratioName.match(/(\d+)\s*[:：]\s*(\d+)/);
+    if (m && !/[×x]/.test(ratioName)) {
+      const w = Number(m[1]) || 1;
+      const h = Number(m[2]) || 1;
+      // 比例串无界面像素，按比例单位放大到 ≥369 万
+      return seedreamOutputSize(w, h);
+    }
+    const px = ratioName.match(/(\d+)\s*[×x]\s*(\d+)/);
+    if (px) return eventRatioToSize("自定义", px[1], px[2]);
+  }
+  return eventRatioToSize(ratioName, customW, customH);
 }
 
-/* 活动「图片尺寸」名 → 文生图尺寸（保持宽高比，放大到 ≥369 万像素，取整到 8 的倍数）。
-   - 「自定义」用 customW:customH 的比例
-   - 其余按各尺寸组里该项的 size 字段（如「1080 × 1920 px」「13 × 18 cm」）解析出宽:高比 */
+/* 活动「图片尺寸」名 → 文生图送模尺寸（界面显示 px 按 Seedream 规则放大到 ≥369 万，8 对齐）。
+   - 「自定义」用 customW×customH 作为界面显示像素
+   - 其余取预设 size 字段（如「1080 × 1080 px」）再放大：1:1→1920²、3:5→约1488×2480 等 */
 /* 套用/点选灵感卡片时，把该样张原图尺寸映射成活动表单的尺寸字段：
    - 有真实宽高 → 用「自定义」尺寸 + 填入宽高，100% 还原原图比例（各成图类型尺寸下拉常对不上样张 px 值）
    - 无宽高 → 回退为该成图类型尺寸组里第一个实际尺寸 */
@@ -2624,28 +2751,25 @@ function eventPxLabel(ratioName: string, customW = "", customH = ""): string {
 }
 
 function eventRatioToSize(ratioName: string, customW = "", customH = ""): string {
-  const MIN_PIXELS = 3686400;
   let w = 0,
     h = 0;
   if (ratioName === "自定义") {
     w = Number(customW) || 0;
     h = Number(customH) || 0;
   } else {
-    // 在所有尺寸组里找到该项，取其 size 字段的两个数字作为宽:高比
+    // 在所有尺寸组里找到该项，取其界面显示 size（如「1080 × 1080 px」）再放大送模
     const hit = allImageSizePresets.find((s) => s.name === ratioName);
-    const m = hit?.size.match(/(\d+(?:\.\d+)?)\s*[×x:：]\s*(\d+(?:\.\d+)?)/);
-    if (m) {
-      w = Number(m[1]) || 0;
-      h = Number(m[2]) || 0;
+    const parsed = hit?.size ? parseDisplaySize(hit.size) : null;
+    if (parsed) {
+      w = parsed.w;
+      h = parsed.h;
     }
   }
   if (!w || !h) {
-    w = 1;
-    h = 1;
+    w = 1080;
+    h = 1080;
   }
-  const scale = Math.sqrt(MIN_PIXELS / (w * h));
-  const round8 = (n: number) => Math.ceil((n * scale) / 8) * 8;
-  return `${round8(w)}x${round8(h)}`;
+  return seedreamOutputSize(w, h);
 }
 
 /** 将商品图 + 场景图并排合成一张参考图（先转 data URL，避免跨域污染 canvas） */
@@ -2696,7 +2820,7 @@ function initDefault(type: ImageType): DefaultImageState {
     input: "安吉明前白茶上市主视觉，高山云雾茶园背景，嫩芽特写，国风清新，主标题「明前头采·鲜爽回甘」",
     refStrength: 60,
     size: type.sizes[0].name,
-    count: 4,
+    count: 1,
     detail: 7,
     negative: "低清、文字变形、水印、多余 logo",
     advOpen: false,
@@ -2713,7 +2837,7 @@ function initEvent(type: ImageType, regionId?: string): EventImageState {
     customW: "1080",
     customH: "1920",
     model: imageModels[0].name,
-    count: 4,
+    count: 1,
     style: "智能匹配",
     uploaded: false,
     refImg: "",

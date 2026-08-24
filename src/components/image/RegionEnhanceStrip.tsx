@@ -185,6 +185,8 @@ export function RegionEnhanceStrip({
   regionId: _regionId,
   /** @deprecated Lora 已移至模型下拉下方，此 prop 忽略 */
   showLora: _showLora = false,
+  kbOnHint,
+  kbOffHint,
 }: {
   useLora?: boolean;
   onLoraChange?: (next: boolean) => void;
@@ -198,6 +200,10 @@ export function RegionEnhanceStrip({
   onStrengthChange?: (id: string, v: number) => void;
   regionId?: string;
   showLora?: boolean;
+  /** 开启时提示文案（默认：将引用本地知识库） */
+  kbOnHint?: string;
+  /** 关闭时提示文案 */
+  kbOffHint?: string;
 }) {
   const [detailKind, setDetailKind] = useState<DetailKind | null>(null);
   const legacy = onChange != null && onKBChange == null;
@@ -214,7 +220,7 @@ export function RegionEnhanceStrip({
         <div className="re-rows">
           <SwitchRow
             label="知识库"
-            hint={kbOn ? "将引用本地知识库" : "本次不引用本地知识库"}
+            hint={kbOn ? (kbOnHint ?? "将引用本地知识库") : (kbOffHint ?? "本次不引用本地知识库")}
             enabled={kbOn}
             onChange={setKB}
             onDetail={() => setDetailKind("kb")}
@@ -250,7 +256,7 @@ export function ModelLoraSwitch({
         <div className="re-model-lora-main">
           <span className="re-model-lora-label">挂载本地 Lora</span>
           <p className="re-model-lora-hint">
-            {enabled ? "将应用本地风格模型" : "本次不引用本地Lora"}
+            {enabled ? "将应用本地风格模型Lora" : "本次不引用本地Lora"}
           </p>
         </div>
         <div className="re-model-lora-side">

@@ -105,6 +105,7 @@ export function stripOfficialMarkdown(text: string): string {
     .replace(/^---+$/gm, "")
     .replace(/`+/g, "")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\*{1,2}/g, "") // 清掉成对剥离后残留的 * / **
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

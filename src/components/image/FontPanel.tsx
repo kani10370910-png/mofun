@@ -7,7 +7,7 @@ import { fontCats, fontEffects } from "@/data/image";
 import type { FontCat, FontEffect } from "@/lib/types";
 import { asset } from "@/lib/asset";
 import { PointsCost } from "@/components/ui/PointsCost";
-import { POINT_COST } from "@/lib/pointCosts";
+import { multiImagePoints } from "@/lib/pointCosts";
 
 // 字体置顶状态的 localStorage 键（刷新后保留置顶）
 const PIN_KEY = "mofun.fontPinned";
@@ -17,6 +17,7 @@ export interface FontImageState {
   dir: "h" | "v"; // 横向 / 竖向
   cat: FontCat; // 文字效果分类
   effect: string; // 选中的字体名
+  count: number;
 }
 
 /* AI 字体专属左侧表单：文字内容 / 文字方向 / 文字效果（分类 + 字体网格） */
@@ -129,6 +130,17 @@ export function FontPanel({
       </div>
 
       <div className="field">
+        <div className="ws-label">生成数量</div>
+        <div className="seg">
+          {[1, 2, 4].map((n) => (
+            <div key={n} className={state.count === n ? "seg-item on" : "seg-item"} onClick={() => set("count", n)}>
+              {n}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="field">
         <div className="ws-label">文字效果</div>
         <div className="font-eff-tabs">
           {fontCats.map((c) => (
@@ -184,7 +196,7 @@ export function FontPanel({
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
-          立即生成 <PointsCost amount={POINT_COST.imageFont} />
+          立即生成 <PointsCost amount={multiImagePoints(state.count, "Seedream 5.0")} />
         </button>
       </div>
 

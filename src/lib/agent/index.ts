@@ -1,6 +1,7 @@
 /**
  * 小墨对话框 Harness 公共出口
  * A 装配 context · B 推理仍委托 /api · C tools · D gates · Loop orchestrator
+ * 首页「立即生成」直出路径见 src/lib/harness
  */
 
 export type {

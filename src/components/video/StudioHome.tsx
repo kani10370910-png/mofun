@@ -300,7 +300,7 @@ export function StudioHome({
                     : f.opts;
                 return (
                 <div className="sh-set-field" key={f.label}>
-                  <div className="sh-set-label">{f.label}</div>
+                  <div className="sh-set-label">{f.title ?? f.label}</div>
                   <div className="chip-row">
                     {opts.map((o) => {
                       const on = (draftSettings[f.label] ?? opts[0]) === o;

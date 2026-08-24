@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { fontCases, fontStories, fontHistory } from "@/data/image";
@@ -11,6 +11,7 @@ import { FontEditModal } from "./FontEditModal";
 import { ResultCardActions } from "./ResultCardActions";
 import { AutoBgImg } from "./AutoBgImg";
 import { asset as assetUrl } from "@/lib/asset";
+import { trimImageMargin, fontDirFitRatio } from "@/lib/trimImageMargin";
 
 type FontTab = "history" | "inspire" | "story";
 
@@ -192,7 +193,6 @@ export function FontGallery({
                         <div className="lh-meta">
                           <span className="lh-title">
                             <b className="lh-prompt">{it.text}</b>
-                            {it.desc && <span className="lh-desc">{it.desc}</span>}
                           </span>
                           <span className="lg-cat">{it.effect}</span>
                           <span className="lg-cat">{it.dir}</span>
@@ -208,6 +208,7 @@ export function FontGallery({
                             <FontResultCard
                               key={key}
                               grad={r.grad}
+                              img={r.img}
                               text={it.text}
                               effect={it.effect}
                               dir={it.dir}
@@ -383,7 +384,6 @@ function FontRunRowView({
       <div className="lh-meta">
         <span className="lh-title">
           <b className="lh-prompt">{row.text}</b>
-          {row.desc && <span className="lh-desc">{row.desc}</span>}
         </span>
         <span className="lg-cat">{row.effect}</span>
         <span className="lg-cat">{row.dir}</span>
@@ -400,10 +400,13 @@ function FontRunRowView({
           </>
         )}
       </div>
-      <div className="lh-imgs">
+      <div className="lh-imgs lh-imgs-native">
         {shown.map(({ r, i, key }) =>
           loading ? (
-            <div className={`lh-img ${r.grad} lh-loading`} key={i}>
+            <div
+              className={`font-hist-card lh-loading ${row.dir.includes("竖") ? "is-vert" : ""} ${r.grad}`}
+              key={i}
+            >
               <span className="lh-progress">{row.pct}%完成</span>
               <span className="lh-think">
                 <span className="font-spinner" />
@@ -411,8 +414,13 @@ function FontRunRowView({
               </span>
             </div>
           ) : row.error ? (
-            <div className={`lh-img ${r.grad}`} key={i} style={{ display: "grid", placeItems: "center", padding: 12, textAlign: "center" }}>
-              <span className="lh-fail">{row.error}</span>
+            <div
+              className={`font-hist-card ${r.grad}`}
+              key={i}
+            >
+              <div className="font-hist-card__ph">
+                <span className="lh-fail">{row.error}</span>
+              </div>
             </div>
           ) : (
             <FontResultCard
@@ -459,6 +467,8 @@ function FontResultCard({
   const [zoom, setZoom] = useState(false); // 点击卡片（非按钮处）放大查看原图
   const [imgError, setImgError] = useState(false);
   const [zoomError, setZoomError] = useState(false);
+  /** 收白边后的预览；失败则退回原图 */
+  const [tightSrc, setTightSrc] = useState<string | null>(null);
   const asset = (kind: string): AssetCard => ({
     emoji: "🔤",
     grad: grad as AssetCard["grad"],
@@ -466,17 +476,56 @@ function FontResultCard({
     name: `${text} · 艺术字 ${index}`,
     sub: "品牌设计 · AI字体",
     module: "image",
-    img,
+    img: tightSrc || img,
     time: nowStamp(),
   });
 
+  useEffect(() => {
+    if (!img) {
+      setTightSrc(null);
+      return;
+    }
+    let cancelled = false;
+    setTightSrc(null);
+    trimImageMargin(img, { padRatio: 0.04, assetFn: assetUrl, fitRatio: fontDirFitRatio(dir) })
+      .then((url) => {
+        if (!cancelled) setTightSrc(url);
+      })
+      .catch(() => {
+        if (!cancelled) setTightSrc(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [img, dir]);
+
+  const showSrc = tightSrc || (img ? assetUrl(img) : "");
+  // 换色/下载优先用收边后贴回 5:3/3:5 的图
+  const editImg = tightSrc || img;
+  const isVert = dir.includes("竖");
+
   return (
-    <div className={`lh-img ${grad}`} style={{ cursor: "zoom-in" }} onClick={() => setZoom(true)}>
+    <div
+      className={`font-hist-card${isVert ? " is-vert" : ""}`}
+      onClick={() => {
+        if (editOpen) return;
+        setZoom(true);
+      }}
+    >
       {img && !imgError ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img className="lh-result-img" src={assetUrl(img)} alt={text} loading="lazy" onError={() => setImgError(true)} />
+        <img
+          className="font-hist-card__img"
+          src={showSrc}
+          alt={text}
+          loading="lazy"
+          draggable={false}
+          onError={() => setImgError(true)}
+        />
       ) : (
-        <span className="lh-font-text">{text}</span>
+        <div className={`font-hist-card__ph ${grad}`}>
+          <span className="lh-font-text">{text}</span>
+        </div>
       )}
       <div className="lh-hover lh-hover-bottom">
         <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); setEditOpen(true); }}>
@@ -491,9 +540,16 @@ function FontResultCard({
         由 AI 生成
       </span>
       {editOpen && (
-        <FontEditModal text={text} effect={effect} dir={dir} grad={grad} onClose={() => setEditOpen(false)} />
+        <FontEditModal
+          text={text}
+          effect={effect}
+          dir={dir}
+          grad={grad}
+          img={editImg}
+          onClose={() => setEditOpen(false)}
+        />
       )}
-      {/* 放大查看：有真图放大图片，否则用渐变大卡复刻文字 */}
+      {/* 放大查看：优先收边后的图 */}
       {zoom && (
         <div className="img-zoom-mask" onClick={(e) => { e.stopPropagation(); setZoom(false); }}>
           <button className="img-zoom-close" aria-label="关闭" onClick={(e) => { e.stopPropagation(); setZoom(false); }}>
@@ -501,7 +557,7 @@ function FontResultCard({
           </button>
           {img && !zoomError ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img className="img-zoom-img" src={assetUrl(img)} alt={text} onClick={(e) => e.stopPropagation()} onError={() => setZoomError(true)} />
+            <img className="img-zoom-img" src={showSrc} alt={text} onClick={(e) => e.stopPropagation()} onError={() => setZoomError(true)} />
           ) : (
             <div className={`img-zoom-card ${grad}`} onClick={(e) => e.stopPropagation()}>
               <span className={`izc-text ${dir.includes("竖") ? "izc-vert" : ""}`}>{text}</span>

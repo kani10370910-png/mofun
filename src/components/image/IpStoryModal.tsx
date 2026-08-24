@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/AuthContext";
 /* IP 故事弹窗：
    - 左侧展示当前 IP 图片
    - 右侧三段：① IP描述（可编辑，据此生成故事）② 补充信息（项目/公司/行业关键词）③ 历史记录（每次生成的故事累积保留）
-   - 底部「生成IP故事」，生成过一次后变「重新生成」 */
+   - 底部「生成IP故事」，生成过一次后变「再次生成」 */
 export function IpStoryModal({
   img,
   name,
@@ -52,7 +52,7 @@ export function IpStoryModal({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // 点「生成IP故事 / 重新生成」：据 IP描述 + 补充信息生成，完成后压入历史记录
+  // 点「生成IP故事 / 再次生成」：据 IP描述 + 补充信息生成，完成后压入历史记录
   async function handleGenStory() {
     if (storyGen.state.loading) return;
     if (!ipDesc.trim()) {
@@ -88,7 +88,13 @@ export function IpStoryModal({
     toast("已复制 IP 故事");
   }
 
+  function deleteStory(index: number) {
+    setHistory((prev) => prev.filter((_, i) => i !== index));
+    toast("已删除该条故事");
+  }
+
   const storyLoading = storyGen.state.loading;
+  const showStoryIndex = history.length > 1; // 仅一条时不显示「故事 N」
 
   return (
     <div className="ipstory-mask" onClick={onClose}>
@@ -153,12 +159,26 @@ export function IpStoryModal({
                   </div>
                 )}
                 {history.map((h, i) => (
-                  <div key={i} className="ipstory-hist-item">
+                  <div key={`${history.length - i}-${h.slice(0, 24)}`} className="ipstory-hist-item">
                     <div className="ipstory-hist-hd">
-                      <span className="ipstory-hist-name">故事 {history.length - i}</span>
-                      <button className="ipstory-copy" onClick={() => copyText(h)} title="复制故事">
-                        <Icon name="copy" size={13} /> 复制
-                      </button>
+                      {showStoryIndex ? (
+                        <span className="ipstory-hist-name">故事 {history.length - i}</span>
+                      ) : (
+                        <span className="ipstory-hist-name" aria-hidden />
+                      )}
+                      <div className="ipstory-hist-actions">
+                        <button
+                          className="ipstory-copy"
+                          onClick={() => deleteStory(i)}
+                          title="删除故事"
+                          aria-label="删除故事"
+                        >
+                          <Icon name="trash" size={13} /> 删除
+                        </button>
+                        <button className="ipstory-copy" onClick={() => copyText(h)} title="复制故事">
+                          <Icon name="copy" size={13} /> 复制
+                        </button>
+                      </div>
                     </div>
                     <div className="ipstory-text">{h}</div>
                   </div>
@@ -175,7 +195,7 @@ export function IpStoryModal({
                   <Icon name="refresh" size={15} className="ico-spin" /> 生成中
                 </span>
               ) : history.length > 0 ? (
-                <>重新生成</>
+                <>再次生成</>
               ) : (
                 <>生成IP故事</>
               )}

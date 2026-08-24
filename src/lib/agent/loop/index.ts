@@ -1,4 +1,4 @@
-/** 主循环入口（Harness Loop）— 实现仍在 ../orchestrator.ts，此处作分层锚点 */
+/** 旧智能体编排（槽位双问）仍在 ../orchestrator.ts；首页对话框已改走 src/lib/harness */
 export {
   emptyAgentState,
   runAgentTurn,

@@ -141,20 +141,23 @@ export function IpPeriphModal({
     toast(`已开始下载 ${items.length} 张周边图到本地`);
   }
 
-  // 单张周边出图：图生图（以 IP 图为参考保持角色一致）→ 出周边产品图，失败重试避免限流
-  // custom 为真时 category 是用户自定义描述（无预设提示词）
+  // 单张周边出图：图生图（参考 IP 图）+ 品类完整提示词（约 400 字，已含一致/形态/范围/电商规范）
+  // custom 为真时 category 是用户自定义描述，现场拼一条等价完整提示词
   async function genOnePeriph(category: string, refImage?: string, custom = false): Promise<string> {
-    const parts = [
-      `将参考图中的 IP 形象制作成「${category}」周边产品。` +
-        `【人物一致性要求】周边上的角色形象必须与参考图完全一致：相同的脸型、五官、表情、发型与发色、` +
-        `服饰与配色、整体风格，不得更换人物、不得改变性别与年龄`,
-      `产品形态：真实的「${category}」实物商品，IP 形象作为印制/造型主体，居中清晰呈现`,
-    ];
-    // 预设品类附带其预设提示词；自定义描述直接用 category 文本，不查预设
-    const pre = custom ? "" : ipPresetPrompts["周边"]?.[category];
-    if (pre) parts.push(pre);
-    parts.push("纯净浅色背景，电商产品图风格，单个产品，无多余文字水印");
-    const prompt = parts.join("；");
+    let prompt = "";
+    if (!custom) {
+      prompt = ipPresetPrompts["周边"]?.[category]?.trim() || "";
+    }
+    if (!prompt) {
+      // 自定义或未命中预设：拼一条与预设同结构的完整提示词
+      prompt =
+        `将参考图中的 IP 形象制作成「${category}」周边产品电商图。` +
+        `【人物一致】以参考图为唯一角色依据，严格保持相同脸型、五官、表情、发型与发色、服饰与配色、体型比例与整体画风，不得更换人物，不得改变性别与年龄。` +
+        `【产品形态】真实的「${category}」实物商品，材质与结构清晰可辨，摆放自然，产品外轮廓完整。` +
+        `【印制方式】IP 作为该产品表面的印制或造型主体，居中清晰呈现，贴合产品表面。` +
+        `【范围约束】整只角色含帽檐、叶片、麦穗、道具、手足必须完整落在「${category}」产品表面或主体轮廓内，四周留安全边距；严禁任何部位超出产品边缘、浮在产品外或叠到背景家具/桌面。` +
+        `【画面】柔和棚拍光，浅景深，纯净浅色背景，单个产品居中，无文字、无水印、无多余 logo，电商主图清晰锐利。`;
+    }
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const r = await fetch("/api/image", {

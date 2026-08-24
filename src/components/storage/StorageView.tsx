@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
@@ -21,6 +22,7 @@ import {
 } from "./AssetFilter";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { expandWorkForRemoval, groupWorksForDisplay, primaryBundle } from "@/lib/workBundle";
+import { workHoverTipText } from "@/lib/workMeta";
 
 function isHidden(item: AssetCard, hidden: string[]): boolean {
   return hidden.includes(assetKey(item)) || hidden.includes(assetDedupeKey(item));
@@ -43,6 +45,14 @@ function formatAssetTime(item: AssetCard): string {
   return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
 }
 
+/** 仓库角标：去掉「品牌设计 ·」前缀（如「品牌设计 · 活动」→「活动」） */
+function stripBrandDesignPrefix(label: string): string {
+  const t = (label || "").trim();
+  if (!t) return "";
+  const stripped = t.replace(/^品牌设计\s*[·•]\s*/, "").trim();
+  return stripped || t;
+}
+
 function materialSubLabel(item: AssetCard): string {
   if (item.edit?.source === "brand") {
     const company = item.edit.company?.trim() || item.edit.sub?.trim();
@@ -52,16 +62,14 @@ function materialSubLabel(item: AssetCard): string {
   if (item.module === "upload" || item.edit?.source === "upload" || /个人上传|其他/.test(item.sub || "")) {
     return "其他";
   }
-  const sub = item.edit?.sub?.trim();
-  if (sub) return `品牌设计 · ${sub}`;
-  const kind = (item.kind || "").toLowerCase();
-  if (/logo/.test(kind)) return "品牌设计 · logo";
-  if (/\bip\b|ip设计/.test(kind)) return "品牌设计 · IP设计";
-  if (/字体|font|艺术字/.test(kind)) return "品牌设计 · AI字体";
-  if (/店招|signage/.test(kind)) return "品牌设计 · 店招设计";
-  if (/商拍|产品|product/.test(kind)) return "品牌设计 · 商拍";
-  if (/活动|event/.test(kind)) return "品牌设计 · 活动";
-  return "品牌设计 · 素材";
+  // 我的素材页：角标只显示「素材」，不再带「品牌设计 · …」
+  return "素材";
+}
+
+function workSubLabel(item: AssetCard): string {
+  const raw = (item.sub || "").trim();
+  if (!raw) return item.kind === "素材" ? "作品" : item.kind || "作品";
+  return stripBrandDesignPrefix(raw);
 }
 
 // 作品「二次编辑」：按作品类型 / 来源路由到对应功能模块，并带上记录内容回填
@@ -390,6 +398,7 @@ function WorksPane({
               <AssetCardView
                 key={key}
                 item={w}
+                subLabel={workSubLabel(w)}
                 bundleCount={bundleCount > 1 ? bundleCount : undefined}
                 fav={isFavorite(w)}
                 onToggleFav={() => toggleFavorite(w)}
@@ -647,6 +656,78 @@ export function AssetCardView({
   const [playUrl, setPlayUrl] = useState<string | null>(null);
   const [mediaLost, setMediaLost] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [tipOpen, setTipOpen] = useState(false);
+  const [tipStyle, setTipStyle] = useState<CSSProperties>({});
+  const [tipPlace, setTipPlace] = useState<"above" | "below">("above");
+  const tipRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const footTextRef = useRef<HTMLDivElement>(null);
+  const tipCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function clearTipClose() {
+    if (tipCloseTimer.current) {
+      clearTimeout(tipCloseTimer.current);
+      tipCloseTimer.current = null;
+    }
+  }
+
+  function openTipNow() {
+    clearTipClose();
+    placeTip();
+    setTipOpen(true);
+  }
+
+  function scheduleTipClose() {
+    clearTipClose();
+    tipCloseTimer.current = setTimeout(() => setTipOpen(false), 140);
+  }
+
+  useEffect(() => () => clearTipClose(), []);
+
+  function placeTip() {
+    const anchor = footTextRef.current;
+    if (!anchor || typeof window === "undefined") return;
+    const r = anchor.getBoundingClientRect();
+    const gap = 10;
+    const maxW = Math.min(320, Math.max(200, r.width + 24));
+    const spaceAbove = r.top;
+    const spaceBelow = window.innerHeight - r.bottom;
+    const preferAbove = spaceAbove >= 140 || spaceAbove >= spaceBelow;
+    setTipPlace(preferAbove ? "above" : "below");
+    let left = r.left + r.width / 2 - maxW / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - maxW - 8));
+    if (preferAbove) {
+      setTipStyle({
+        position: "fixed",
+        left,
+        width: maxW,
+        bottom: window.innerHeight - r.top + gap,
+        top: "auto",
+        maxHeight: Math.min(240, Math.max(96, spaceAbove - 16)),
+      });
+    } else {
+      setTipStyle({
+        position: "fixed",
+        left,
+        width: maxW,
+        top: r.bottom + gap,
+        bottom: "auto",
+        maxHeight: Math.min(240, Math.max(96, spaceBelow - 16)),
+      });
+    }
+  }
+
+  useEffect(() => {
+    if (!tipOpen) return;
+    placeTip();
+    const onReposition = () => placeTip();
+    window.addEventListener("scroll", onReposition, true);
+    window.addEventListener("resize", onReposition);
+    return () => {
+      window.removeEventListener("scroll", onReposition, true);
+      window.removeEventListener("resize", onReposition);
+    };
+  }, [tipOpen]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -658,6 +739,23 @@ export function AssetCardView({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [menuOpen]);
+
+  // 浮层在 portal 内：滚轮优先滚气泡
+  useEffect(() => {
+    if (!tipOpen) return;
+    const tip = tipRef.current;
+    if (!tip) return;
+    const onWheel = (e: WheelEvent) => {
+      const { scrollTop, scrollHeight, clientHeight } = tip;
+      const canScroll = scrollHeight > clientHeight + 1;
+      if (!canScroll) return;
+      e.preventDefault();
+      e.stopPropagation();
+      tip.scrollTop = Math.max(0, Math.min(scrollHeight - clientHeight, scrollTop + e.deltaY));
+    };
+    tip.addEventListener("wheel", onWheel, { passive: false });
+    return () => tip.removeEventListener("wheel", onWheel);
+  }, [tipOpen]);
 
   useEffect(() => {
     let revoke: (() => void) | undefined;
@@ -685,12 +783,25 @@ export function AssetCardView({
   }, [item.videoUrl, item.mediaRef, item.kind]);
 
   const showMenu = !batchMode && (onEdit || onUse || onDownload || onDelete);
-  const cardKindLabel = kindLabel || (item.kind === "素材" ? "图片" : item.kind);
+  // 左上角角标：优先用传入的 subLabel（我的素材固定为「素材」等）
+  const sourceLabel = (subLabel || item.sub || "").trim() || kindLabel || (item.kind === "素材" ? "图片" : item.kind);
+  // 时间上方：有名称用名称，否则用提示词；单行省略
+  const promptText =
+    item.edit?.input?.trim() ||
+    item.edit?.prompt?.trim() ||
+    item.edit?.editInput?.trim() ||
+    item.text?.trim() ||
+    "";
+  const titleText = item.name?.trim() || promptText;
+  // 悬停层：可读生成信息（解析 JSON / 镜头脚本，避免原样抛结构）
+  const tipText = workHoverTipText(item) || titleText;
 
   return (
     <div
-      className={selected ? "asset-card selected" : "asset-card"}
+      ref={cardRef}
+      className={`${selected ? "asset-card selected" : "asset-card"}${tipOpen ? " tip-open" : ""}`}
       onClick={batchMode ? onToggleSelect : onOpen}
+      onMouseLeave={() => scheduleTipClose()}
       role={batchMode ? "checkbox" : onOpen ? "button" : undefined}
       aria-checked={batchMode ? !!selected : undefined}
       style={batchMode || onOpen ? { cursor: "pointer" } : undefined}
@@ -702,7 +813,7 @@ export function AssetCardView({
           </span>
         ) : (
           <>
-            <span className="at-kind">{cardKindLabel}</span>
+            {sourceLabel && <span className="at-kind" title={sourceLabel}>{sourceLabel}</span>}
             {bundleCount != null && bundleCount > 1 && (
               <span className="at-bundle">{bundleCount} 项</span>
             )}
@@ -737,8 +848,19 @@ export function AssetCardView({
         {mediaLost && <span className="at-media-lost">媒体失效</span>}
       </div>
       <div className="asset-foot">
-        <div className="asset-foot-text">
-          {(subLabel || item.sub) && <div className="asset-sub">{subLabel || item.sub}</div>}
+        <div
+          ref={footTextRef}
+          className="asset-foot-text"
+          onMouseEnter={() => {
+            if (!tipText) return;
+            openTipNow();
+          }}
+        >
+          {titleText && (
+            <div className="asset-title-wrap">
+              <div className="asset-title">{titleText}</div>
+            </div>
+          )}
           {(timeLabel || item.time) && <div className="asset-time">{timeLabel || item.time}</div>}
         </div>
         {showMenu && (
@@ -815,6 +937,25 @@ export function AssetCardView({
           </div>
         )}
       </div>
+      {tipOpen && tipText && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={tipRef}
+              className={`asset-title-tip show place-${tipPlace}`}
+              role="tooltip"
+              style={tipStyle}
+              onClick={(e) => e.stopPropagation()}
+              onMouseEnter={() => {
+                clearTipClose();
+                setTipOpen(true);
+              }}
+              onMouseLeave={() => scheduleTipClose()}
+            >
+              {tipText}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

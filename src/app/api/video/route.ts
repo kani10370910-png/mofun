@@ -10,7 +10,7 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 500; // 图生视频/首尾帧实测约 230s（含排队），留足余量至 500s
+export const maxDuration = 300; // Vercel Hobby 上限 300s；避免生产部署校验失败
 
 // Anyfast Seedance: ratio 字段直接传，智能 → adaptive
 const SEEDANCE_RATIO_MAP: Record<string, string> = { "智能": "adaptive" };

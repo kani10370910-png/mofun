@@ -6,7 +6,7 @@ import { tosUploadPublic } from "@/lib/tosUpload";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 800; // 数字人生成含排队常需数分钟（OmniHuman 免费试用并发1 可达 7-10min），留足轮询窗口
+export const maxDuration = 300; // Vercel Hobby 上限 300s；超时由前端提示后重试
 
 /* ============================================================
    对口型（音频驱动人像说话）· 火山即梦 OmniHuman1.5

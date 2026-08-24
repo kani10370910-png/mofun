@@ -233,6 +233,7 @@ export interface FontStory {
 export interface FontResult {
   grad: Grad;
   fav: boolean;
+  img?: string; // 真实生成图（预置历史 / 出图结果）
 }
 
 export interface FontHistoryRow {
@@ -460,6 +461,7 @@ export interface GenerateRequest {
   scene: ContentSceneKey | "research-brand" | "research-industry" | "research-hotsale" | "ip" | "ip-propose" | "ip-story-desc" | "ip-story" | "t2i-associate" | "t2i-event" | "t2i-product" | "studio-script" | "studio-script-pro" | "studio-assets" | "studio-asset-desc" | "studio-char-info" | "studio-idea" | "studio-summary" | "studio-shots" | "studio-safe-rewrite" | "studio-style-match" | "studio-speakers" | "studio-voice-match" | "studio-shot-elements" | "studio-shot-elements-fill" | "avatar-script" | "agent-chat";
   mode?: "outline" | "full";
   styleHint?: string; // 制作大片：项目「视频风格」描述词，注入文本扩写使全片文字基调与画面风格一致（智能匹配为空）
+  scriptType?: string; // 制作大片·脚本编辑：自定义场景 / 文旅宣传 / 农产品推广 / 非遗展示 / 民宿农家乐；自定义场景不附加类型提示词
   useKB?: boolean; // 是否使用区县知识库
   regionId?: string; // 账号区县包 id（服务端检索知识库）
   kbContext?: string; // 区县知识库摘要（前端兜底；服务端会按 query 再检索）

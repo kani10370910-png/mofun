@@ -13,6 +13,7 @@ import { IpStoryModal } from "./IpStoryModal";
 import { IpDownloadModal } from "./IpDownloadModal";
 import { ResultCardActions } from "./ResultCardActions";
 import { RegionEnhanceBadge } from "./RegionEnhanceStrip";
+import { ClampText } from "@/components/ui/ClampText";
 import type { IpGenPayload, IpCopyPayload } from "./ImageIpPanel";
 
 /* 延展设计：把当前图片信息带到 IP扩展设计功能 */
@@ -281,6 +282,8 @@ function IpRunRowView({
 }) {
   const loading = row.pct < 100;
   const [phaseIdx, setPhaseIdx] = useState(0);
+  // 点击历史里的小参考图 / IP 缩略图 → 大图预览
+  const [zoomSrc, setZoomSrc] = useState<string | null>(null);
   useEffect(() => {
     if (!loading) return;
     const t = window.setInterval(() => setPhaseIdx((p) => (p + 1) % LOAD_PHASES.length), 8_000);
@@ -292,74 +295,145 @@ function IpRunRowView({
   if (!loading && !row.error && onlyFav && shown.length === 0) return null;
   return (
     <div className={`lh-row${highlight ? " reedit-hl" : ""}`} id={`imgrun-${row.id}`}>
-      <div className={`lh-meta${row.ext ? " lh-meta-ext" : ""}`}>
+      <div className={`lh-meta${row.ext || row.create ? " lh-meta-ip" : ""}`}>
         {row.ext ? (
-          // 扩展设计：结构化展示——标题 + 上传 IP 图 + 参考图 + 延展项/预设 + 图片描述词
-          <span className="lh-title lh-ext-title">
-            <b className="lh-prompt">{row.title}</b>
-            {row.ext.ipImg && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img className="lh-ext-thumb" src={row.ext.ipImg} alt="IP 原图" title="上传的 IP 图" />
-            )}
-            {row.ext.refImg && (
-              <span className="lh-ext-ref" title="图生图参考图">
-                参考图
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img className="lh-ext-thumb lh-ext-thumb-sm" src={row.ext.refImg} alt="参考图" />
-              </span>
-            )}
-            {row.ext.desc && <span className="lh-ext-desc">{row.ext.desc}</span>}
-          </span>
-        ) : row.create ? (
-          // IP创新设计：按 参考图 → 创意描述 → 偏好颜色 → 画面尺寸 排列，没填的跳过
-          <span className="lh-title lh-ext-title">
-            <b className="lh-prompt">{row.title}</b>
-            {row.create.refImg && (
-              <span className="lh-ext-ref" title="参考图">
-                参考图
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img className="lh-ext-thumb lh-ext-thumb-sm" src={row.create.refImg} alt="参考图" />
-              </span>
-            )}
-            <span className="lh-ext-desc">{row.create.desc}</span>
-            {row.create.colors && row.create.colors.length > 0 && (
-              <span className="lh-ext-ref" title="偏好颜色">
-                偏好色
-                <span className="lh-ext-colors">
-                  {row.create.colors.map((c, i) => (
-                    <i key={i} className="lh-ext-color" style={{ background: c }} />
-                  ))}
+          // 扩展设计：标签紧跟描述末句；时间在最后一行靠右
+          <div className="lh-ip-flow">
+            <div className="lh-ip-main">
+              <b className="lh-prompt">{row.title}</b>
+              {row.ext.ipImg && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  className="lh-ext-thumb"
+                  src={row.ext.ipImg}
+                  alt="IP 原图"
+                  title="点击查看大图"
+                  role="button"
+                  onClick={() => setZoomSrc(row.ext!.ipImg!)}
+                />
+              )}
+              {row.ext.refImg && (
+                <span className="lh-ext-ref" title="图生图参考图">
+                  参考图
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    className="lh-ext-thumb lh-ext-thumb-sm"
+                    src={row.ext.refImg}
+                    alt="参考图"
+                    title="点击查看大图"
+                    role="button"
+                    onClick={() => setZoomSrc(row.ext!.refImg!)}
+                  />
                 </span>
+              )}
+              {row.ext.desc ? <ClampText text={row.ext.desc} lines={2} className="lh-ext-desc" /> : null}
+              <span className="lh-ip-inline-tags">
+                {row.regionEnhance && (
+                  <RegionEnhanceBadge
+                    regionId={row.regionId}
+                    useLora={row.useLora ?? row.regionEnhance}
+                    useKB={row.useKB ?? row.regionEnhance}
+                  />
+                )}
+                {!loading && (
+                  <>
+                    {!!row.ext.desc && (
+                      <button className="lh-ico lh-tip" data-tip="复制描述到左侧" aria-label="复制" onClick={onCopy}>
+                        <Icon name="copy" size={14} />
+                      </button>
+                    )}
+                    <button className="lh-ico lh-tip" data-tip="删除" aria-label="删除" onClick={onDelete}>
+                      <Icon name="trash" size={14} />
+                    </button>
+                  </>
+                )}
               </span>
-            )}
-            {row.create.ratioName && <span className="lh-ext-meta">{row.create.ratioName}</span>}
-          </span>
+            </div>
+            {!loading && <span className="lh-time">{row.time}</span>}
+          </div>
+        ) : row.create ? (
+          // IP创新设计：提示词在上；参考图在提示词下、偏好色左侧
+          <div className="lh-ip-flow">
+            <div className="lh-ip-main">
+              <ClampText text={row.create.desc} lines={2} className="lh-ext-desc" />
+              <span className="lh-ip-inline-tags">
+                {row.create.refImg && (
+                  <span className="lh-ext-ref" title="参考图">
+                    参考图
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      className="lh-ext-thumb lh-ext-thumb-sm"
+                      src={row.create.refImg}
+                      alt="参考图"
+                      title="点击查看大图"
+                      role="button"
+                      onClick={() => setZoomSrc(row.create!.refImg!)}
+                    />
+                  </span>
+                )}
+                {row.create.colors && row.create.colors.length > 0 && (
+                  <span className="lh-ext-ref" title="偏好颜色">
+                    偏好色
+                    <span className="lh-ext-colors">
+                      {row.create.colors.map((c, i) => (
+                        <i key={i} className="lh-ext-color" style={{ background: c }} />
+                      ))}
+                    </span>
+                  </span>
+                )}
+                {row.create.ratioName && <span className="lh-ext-meta">{row.create.ratioName}</span>}
+                {row.regionEnhance && (
+                  <RegionEnhanceBadge
+                    regionId={row.regionId}
+                    useLora={row.useLora ?? row.regionEnhance}
+                    useKB={row.useKB ?? row.regionEnhance}
+                  />
+                )}
+                {!loading && (
+                  <>
+                    {!!row.create.desc && (
+                      <button className="lh-ico lh-tip" data-tip="复制描述到左侧" aria-label="复制" onClick={onCopy}>
+                        <Icon name="copy" size={14} />
+                      </button>
+                    )}
+                    <button className="lh-ico lh-tip" data-tip="删除" aria-label="删除" onClick={onDelete}>
+                      <Icon name="trash" size={14} />
+                    </button>
+                  </>
+                )}
+              </span>
+            </div>
+            {!loading && <span className="lh-time">{row.time}</span>}
+          </div>
         ) : (
-          <span className="lh-title">
+          <span className="lh-title lh-title-clamp">
             <b className="lh-prompt">{row.title}</b>
-            {row.desc && <span className="lh-desc">{row.desc}</span>}
+            {row.desc && <ClampText text={row.desc} lines={2} className="lh-desc" />}
           </span>
         )}
-        {row.regionEnhance && (
-          <RegionEnhanceBadge
-            regionId={row.regionId}
-            useLora={row.useLora ?? row.regionEnhance}
-            useKB={row.useKB ?? row.regionEnhance}
-          />
-        )}
-        {!loading && (
+        {row.ext || row.create ? null : (
           <>
-            {/* 复制：创新设计复制创意描述；扩展设计仅当填了图片描述词时显示 */}
-            {(row.ext ? !!row.ext.desc : row.create ? !!row.create.desc : !!row.desc) && (
-              <button className="lh-ico lh-tip" data-tip="复制描述到左侧" aria-label="复制" onClick={onCopy}>
-                <Icon name="copy" size={14} />
-              </button>
+            {row.regionEnhance && (
+              <RegionEnhanceBadge
+                regionId={row.regionId}
+                useLora={row.useLora ?? row.regionEnhance}
+                useKB={row.useKB ?? row.regionEnhance}
+              />
             )}
-            <button className="lh-ico lh-tip" data-tip="删除" aria-label="删除" onClick={onDelete}>
-              <Icon name="trash" size={14} />
-            </button>
-            <span className="lh-time-spacer" aria-hidden />
-            <span className="lh-time">{row.time}</span>
+            {!loading && (
+              <>
+                {!!row.desc && (
+                  <button className="lh-ico lh-tip" data-tip="复制描述到左侧" aria-label="复制" onClick={onCopy}>
+                    <Icon name="copy" size={14} />
+                  </button>
+                )}
+                <button className="lh-ico lh-tip" data-tip="删除" aria-label="删除" onClick={onDelete}>
+                  <Icon name="trash" size={14} />
+                </button>
+                <span className="lh-time-spacer" aria-hidden />
+                <span className="lh-time">{row.time}</span>
+              </>
+            )}
           </>
         )}
       </div>
@@ -398,6 +472,16 @@ function IpRunRowView({
           )
         )}
       </div>
+      {/* 小参考图 / IP 缩略图放大预览 */}
+      {zoomSrc && (
+        <div className="img-zoom-mask" onClick={() => setZoomSrc(null)}>
+          <button className="img-zoom-close" aria-label="关闭" onClick={() => setZoomSrc(null)}>
+            <Icon name="close" size={22} />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="img-zoom-img" src={zoomSrc} alt="大图预览" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
     </div>
   );
 }
@@ -465,9 +549,11 @@ function IpResultCard({
   }
 
 
+  const isLocalSeed = !!img && img.startsWith("/ipseed/");
+
   return (
     <div
-      className={`lh-img ${grad}`}
+      className={`lh-img ${grad}${isLocalSeed ? " ip-native" : ""}`}
       style={{ aspectRatio: ratioToAspect(ratioName), ...(img ? { cursor: "zoom-in" } : {}) }}
       onClick={() => img && setZoom(true)}
     >

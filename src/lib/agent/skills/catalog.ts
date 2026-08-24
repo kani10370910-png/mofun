@@ -121,7 +121,7 @@ export const SKILL_CATALOG: SkillDef[] = [
   {
     id: "skill.image.event_i2i",
     name: "活动 · 图生图",
-    description: "活动图生图：上传参考图 + 修改需求 → 方向提案 → 图生图",
+    description: "活动图生图：上传参考图 + 图片描述 → 方向提案 → 图生图",
     specialistId: "image.event",
     workbench: wb("image", "event"),
     triggerKeywords: ["图生图", "改图", "相似图", "改尺寸"],
@@ -132,7 +132,7 @@ export const SKILL_CATALOG: SkillDef[] = [
     proposeScene: "t2i-associate",
     generateScene: "t2i-event",
     output: "image",
-    steps: ["上传参考图", "填写修改需求", "propose", "confirm_plan", "generate"],
+    steps: ["上传参考图", "填写图片描述", "propose", "confirm_plan", "generate"],
     when: { slot: "pipeline", equals: "图生图" },
   },
   {

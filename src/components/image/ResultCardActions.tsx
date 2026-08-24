@@ -73,7 +73,7 @@ export function ResultCardActions({
         <ConfirmModal
           title="是否另存为我的素材？"
           cancelText="取消"
-          confirmText="储存"
+          confirmText="保存"
           onCancel={() => setConfirmSave(false)}
           onConfirm={() => {
             const mat = addMaterial(asset("素材"));

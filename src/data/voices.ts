@@ -24,11 +24,11 @@ export const VOICE_SCENES = [
   "社交陪伴",
 ] as const;
 export const VOICE_AGES = ["全部年龄", "未设置", "儿童", "少年/少女", "青年", "中年", "老年"] as const;
-export const VOICE_GENDERS = ["全部性别", "男声", "女声", "中性"] as const;
+export const VOICE_GENDERS = ["全部性别", "男声", "女声"] as const;
 export const VOICE_EMOTIONS = ["中性", "开心", "伤心", "生气", "惊讶", "平静"] as const;
 
-const F = "女声", M = "男声", N = "中性";
-type G = typeof F | typeof M | typeof N;
+const F = "女声", M = "男声";
+type G = typeof F | typeof M;
 let _seq = 0;
 function v(name: string, scene: string, age: string, gender: G, tts: string, multiEmotion?: boolean): Voice {
   _seq += 1;

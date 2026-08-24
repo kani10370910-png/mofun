@@ -35,6 +35,7 @@ export {
   SEEDREAM_50,
   UI_QWEN_I2I,
   UI_QWEN_T2I,
+  UI_SEEDREAM_50,
 } from "@/lib/imageModelCatalog";
 
 export { defaultLoraIdsForRegion } from "@/data/regionAssets";

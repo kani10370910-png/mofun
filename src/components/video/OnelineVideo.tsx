@@ -1,13 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { readReedit } from "@/lib/reedit";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
-import { getProject, upsertProject, uniqueProjectName } from "@/lib/studioProjects";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 import { PointsCost } from "@/components/ui/PointsCost";
 import { videoSecondsPoints } from "@/lib/pointCosts";
@@ -490,7 +488,6 @@ function buildReeditRun(card: AssetCard, nonce: string): VideoRunRow {
 export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: string; initialPrompt?: string }) {
   const toast = useToast();
   const { addWork, isFavorite, toggleFavorite } = useLibrary();
-  const router = useRouter();
   const { user } = useAuth();
   const regionId = accountRegionId(user);
   const [regionEnhance, setRegionEnhance] = useState(true);
@@ -725,7 +722,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       return;
     }
 
-    notifyRegionEnhance(toast, { useLora, useKB });
+    notifyRegionEnhance(toast, { useLora, useKB: isI2v ? false : useKB });
 
     // F10-07 安全预检（演示：命中敏感词阻断）
     setSafe("checking");
@@ -747,13 +744,14 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
   async function startGenerate(isI2v: boolean, text: string) {
     let appliedStyle = style;
     let finalText = text;
+    const activeKB = isI2v ? false : useKB;
 
     if (!isI2v) {
       // 文生视频：调 SYSTEM_VIDEO_GENERATE 统一完成字段组装 + 风格预测 + 画面叙事扩写
       const result = await callVideoGenerate({
         scene, sceneCat, prompt: text, model, ratio, durSec,
         quality, style, genAudio, count,
-        ...kbFields(useKB, regionId),
+        ...kbFields(activeKB, regionId),
       });
       if (result) {
         finalText = result.finalPrompt;
@@ -773,7 +771,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
         } else if (styleObj?.stylePrompt) {
           finalText = `${text}，${styleObj.stylePrompt}`;
         }
-        if (useKB) {
+        if (activeKB) {
           const kb = kbFields(true, regionId);
           if (kb.kbContext) {
             finalText =
@@ -783,7 +781,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
         }
       }
     } else {
-      // 图生视频：保留原有逻辑（风格预测 + stylePrompt 追加）
+      // 图生视频：保留原有逻辑（风格预测 + stylePrompt 追加）；不引用知识库
       const styleObj = videoStyles.find((s) => s.name === style);
       if (style === "智能匹配") {
         const inferred = await inferStyleFromPrompt(text);
@@ -795,14 +793,6 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
         }
       } else if (styleObj?.stylePrompt) {
         finalText = `${text}，${styleObj.stylePrompt}`;
-      }
-      if (useKB) {
-        const kb = kbFields(true, regionId);
-        if (kb.kbContext) {
-          finalText =
-            `${finalText}\n【在地视觉参考·${kb.county}】将下列气质融入画面氛围与物产意象，` +
-            `不要朗读或显示「本地知识库」「区县知识库」「县域知识库」等系统标签：\n${kb.kbContext}`;
-        }
       }
     }
 
@@ -855,7 +845,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       withAudio: p.withAudio !== false, // 默认 true，显式传 false 时关闭
       model: p.videoModel,
       quality: p.quality,
-      regionEnhance,
+      regionEnhance: p.mode === "i2v" ? false : regionEnhance,
       regionId,
     };
     setRuns((prev) => [row, ...prev]);
@@ -1007,53 +997,6 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
 
   // 下载视频：用 canvas 实时重放封面的 Ken Burns 运镜（与播放器一致），
   // 经 MediaRecorder 按视频时长录制为真实视频文件（mp4/webm）落盘到本地。
-  // 「去制作大片」：为这条一句话视频创建（或复用）一个制作大片项目，塞入 1 个已生成镜头，
-  // 直接跳到 ④ 分镜视频。若同一条已建过项目则不覆盖（避免抹掉用户后续在大片里的编辑），直接打开。
-  function openInStudio(row: VideoRunRow) {
-    if (!row.videoUrl) {
-      toast("这条还没有可用的视频，无法制作大片");
-      return;
-    }
-    const pid = `p-oneline-${row.id}`;
-    const existing = getProject(pid);
-    const name = existing?.name ?? uniqueProjectName(row.prompt.slice(0, 12).trim() || "一句话成片");
-    if (!existing) {
-      const dur = Math.max(2, Math.min(15, durSeconds(row.dur) || 5));
-      const ratio = /\d+\s*[:：]\s*\d+/.test(row.ratio) ? row.ratio : "16:9";
-      // 单镜（默认一个镜头）：直接用这条一句话视频，标记为已生成
-      const shot = {
-        id: `shot-oneline-${row.id}`,
-        shotDesc: row.prompt,
-        caption: "",
-        camera: "",
-        shotSize: "",
-        assetRefs: [] as string[],
-        locked: false,
-        dur,
-        poster: row.poster || "",
-        status: "done",
-        pct: 100,
-        videoUrl: row.videoUrl,
-      };
-      // 完整会话状态：脚本填入提示词、1 镜、落在「分镜视频」步骤
-      const state = {
-        projectName: name,
-        stepKey: "clips",
-        script: row.prompt,
-        studioIdea: row.prompt,
-        settings: { 模型: "Seedance 1.5 Pro", 视频比例: ratio, 视频风格: "智能匹配", 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示", 本地增强: "使用" },
-        totalSec: dur,
-        targetShots: 1,
-        assets: [],
-        shots: [shot],
-        genMode: "text",
-        subtitles: [],
-      };
-      upsertProject({ id: pid, name, updated: nowStamp(), ts: Date.now(), count: 1, cover: row.videoUrl, state });
-    }
-    router.push(`/video?sub=studio:clips&from=home&pid=${encodeURIComponent(pid)}&name=${encodeURIComponent(name)}`);
-  }
-
   async function downloadVideo(row: VideoRunRow) {
     if (dlRef.current) {
       toast("视频正在生成中，请稍候…");
@@ -1274,20 +1217,22 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
                 </div>
               </div>
 
-              <RegionEnhanceStrip
-                useLora={useLora}
-                onLoraChange={(next) => {
-                  setUseLora(next);
-                  setRegionEnhance(next || useKB);
-                }}
-                useKB={useKB}
-                onKBChange={(next) => {
-                  setUseKB(next);
-                  setRegionEnhance(useLora || next);
-                }}
-                regionId={regionId}
-                showLora={false}
-              />
+              {tab === "t2v" && (
+                <RegionEnhanceStrip
+                  useLora={useLora}
+                  onLoraChange={(next) => {
+                    setUseLora(next);
+                    setRegionEnhance(next || useKB);
+                  }}
+                  useKB={useKB}
+                  onKBChange={(next) => {
+                    setUseKB(next);
+                    setRegionEnhance(useLora || next);
+                  }}
+                  regionId={regionId}
+                  showLora={false}
+                />
+              )}
 
               {tab === "t2v" ? (
                 <>
@@ -1403,10 +1348,6 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
                         />
                       </div>
                     )}
-
-                    <div className="field-hint">
-                      {endFrameOn ? "AI 自动补全首尾帧之间的过渡动画" : "上传单张首帧，AI 让画面动起来"}
-                    </div>
                   </div>
 
                   {/* 视频预设（在前）+ 运动描述（在后） */}
@@ -1654,7 +1595,6 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
                     onRegenerate={() => regenerate(r)}
                     onCopy={() => copyToForm(r)}
                     onDownload={() => downloadVideo(r)}
-                    onStudio={() => openInStudio(r)}
                     fav={isFavorite(videoAsset(r))}
                     onFav={() => toggleFav(r)}
                   />
@@ -1685,7 +1625,6 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
           row={playing}
           onClose={() => { setPlayingId(null); setPlayingExtra(null); }}
           onDownload={() => downloadVideo(playing)}
-          onStudio={() => openInStudio(playing)}
         />
       )}
       {quotaOpen && (
@@ -1857,7 +1796,6 @@ function VideoRunCard({
   onRegenerate,
   onCopy,
   onDownload,
-  onStudio,
   fav,
   onFav,
 }: {
@@ -1868,7 +1806,6 @@ function VideoRunCard({
   onRegenerate: () => void;
   onCopy: () => void;
   onDownload: () => void;
-  onStudio: () => void;
   fav: boolean;
   onFav: () => void;
 }) {
@@ -1986,9 +1923,6 @@ function VideoRunCard({
               })}
             />
           </button>
-          <button className="btn btn-primary btn-sm ov-run-studio" onClick={onStudio}>
-            去制作大片 <Icon name="chevron" size={14} />
-          </button>
         </div>
       )}
     </div>
@@ -2002,12 +1936,10 @@ function VideoPlayerModal({
   row,
   onClose,
   onDownload,
-  onStudio,
 }: {
   row: VideoRunRow;
   onClose: () => void;
   onDownload: () => void;
-  onStudio: () => void;
 }) {
   const total = durSeconds(row.dur);
   const [playing, setPlaying] = useState(true);
@@ -2162,10 +2094,6 @@ function VideoPlayerModal({
         <div className="vp-foot">
           <button className="btn btn-soft btn-sm" onClick={onDownload}>
             <Icon name="download" size={14} /> 下载视频
-          </button>
-          <div className="vp-foot-spacer" />
-          <button className="btn btn-primary btn-sm" onClick={onStudio}>
-            去制作大片 <Icon name="chevron" size={14} />
           </button>
         </div>
       </div>

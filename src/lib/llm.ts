@@ -5,6 +5,16 @@
 import type { GenerateRequest } from "@/lib/types";
 import { buildIndustryResearchMessages } from "@/lib/agent/skills/prompts/industryResearch";
 import { buildOfficialMessages } from "@/lib/agent/skills/prompts/officialArticle";
+import {
+  STUDIO_ASSET_TYPE_GUIDE_FALLBACK,
+  STUDIO_ASSET_TYPE_GUIDES,
+  STUDIO_SCRIPT_TYPE_DEFAULT,
+  STUDIO_SCRIPT_TYPE_GUIDES,
+  SYSTEM_STUDIO_ASSETS,
+  SYSTEM_STUDIO_SCRIPT_PRO,
+  USER_STUDIO_ASSETS_FALLBACK,
+  USER_STUDIO_SCRIPT_PRO_FALLBACK,
+} from "@/lib/prompts";
 
 interface ProviderPreset {
   baseURL: string;
@@ -96,10 +106,12 @@ const IP_RULES =
   "6. **语言简洁精准**，避免抽象形容，多用可视化的具体描述\n" +
   "7. **字数控制在150字以内**\n" +
   "8. **画面中只能出现一个 IP 形象**：单一主体、单个角色，居中呈现；" +
-  "严禁出现多个分身、多个角色、三视图/多视角拼图、角色阵列或重复形象。\n\n" +
+  "严禁出现多个分身、多个角色、三视图/多视角拼图、角色阵列或重复形象。\n" +
+  "9. **背景固定为纯白底**：必须写明「纯白背景 / 白底 / #FFFFFF」，并禁止纸张肌理、水彩晕染、纹理底、渐变底与场景环境；角色投影可极淡或不加。\n" +
+  "10. **禁止画面文字**：不要把角色名称、标题、名牌、字幕或水印写进画面；角色名仅作文案设定。\n\n" +
   "## 输出格式\n\n" +
   "直接输出优化后的描述文本，不需要解释说明，不需要标题。" +
-  "（在描述中明确体现「画面仅一个该 IP 形象，单一角色居中，无分身、无三视图」）";
+  "（在描述中明确体现「画面仅一个该 IP 形象，单一角色居中，纯白背景#FFFFFF无肌理，无分身、无三视图、无画面文字」）";
 
 /* ============================================================
    活动·文生图扩写：按「成图类型」选用对应的专业系统提示词。
@@ -326,9 +338,78 @@ const STUDIO_SAFE_RULE =
   "遇到相关主题时，一律用中性、正向、生活化、写意的画面替代（如以「远处的山村晨景」代替具体政治场景），" +
   "确保每一镜的文字都能顺利生成视频。";
 
+const STUDIO_SCRIPT_TYPE_HINTS: { key: string; words: string[] }[] = [
+  { key: "非遗展示", words: ["非遗展示", "非遗", "技艺展示", "传承人"] },
+  { key: "民宿农家乐", words: ["民宿农家乐", "农家乐", "精品民宿", "民宿"] },
+  { key: "农产品推广", words: ["农产品推广", "农产品", "产地直采", "产地直发"] },
+  { key: "文旅宣传", words: ["文旅宣传", "文旅宣传片", "文旅"] },
+];
+
+function demandText(input?: string): string {
+  if (!input) return "";
+  const m = input.match(/【需求】\s*([\s\S]*?)(?=\n【|$)/);
+  return (m?.[1] ?? input).trim();
+}
+
+function inferStudioScriptType(text: string): string {
+  const t = text.trim();
+  if (!t) return "";
+  for (const row of STUDIO_SCRIPT_TYPE_HINTS) {
+    if (row.words.some((w) => t.includes(w))) return row.key;
+  }
+  return "";
+}
+
+function isCustomScriptType(type?: string): boolean {
+  const t = type?.trim();
+  return !t || t === STUDIO_SCRIPT_TYPE_DEFAULT || t === "默认";
+}
+
+function resolveStudioScriptType(req: GenerateRequest): string {
+  const direct = req.scriptType?.trim() || "";
+  const line = req.input?.match(/【片子类型】\s*([^\n]+)/);
+  const fromLine = line?.[1]?.trim() || "";
+  const chosen = direct || fromLine;
+  if (isCustomScriptType(chosen)) return STUDIO_SCRIPT_TYPE_DEFAULT;
+  const fromDemand = inferStudioScriptType(demandText(req.input));
+  if (fromDemand) return fromDemand;
+  if (direct && STUDIO_SCRIPT_TYPE_GUIDES[direct]) return direct;
+  if (fromLine && STUDIO_SCRIPT_TYPE_GUIDES[fromLine]) return fromLine;
+  return chosen || STUDIO_SCRIPT_TYPE_DEFAULT;
+}
+
+function fillStudioVars(template: string, req: GenerateRequest): string {
+  const type = resolveStudioScriptType(req);
+  const typed = Boolean(type && STUDIO_SCRIPT_TYPE_GUIDES[type]);
+  const typeGuide = typed ? STUDIO_SCRIPT_TYPE_GUIDES[type] : "";
+  const assetTypeGuide = typed ? (STUDIO_ASSET_TYPE_GUIDES[type] || STUDIO_ASSET_TYPE_GUIDE_FALLBACK) : "";
+  const typeBlock = typed
+    ? `【当前片子类型·必须遵守】\n片子类型：${type}\n${typeGuide}\n- 【需求】可能是点了示例，也可能是用户自己写的任意内容，两种同等有效：以【需求】原文为唯一故事来源，把地点、主体、受众、时长、卖点全部用上；禁止用示例里的地名/产品去替换用户自己写的内容，禁止抛开原文另起一套，也禁止写成其他类型的片子。\n\n`
+    : "";
+  const assetTypeBlock = typed
+    ? `【当前片子类型·必须遵守】\n片子类型：${type}\n${assetTypeGuide}\n- 抽哪些项、每项 desc 怎么写，都要贴合该类型；结合剧本已有的地点/人物/物件，不要抛开剧本另编一套，也不要混入其他类型的典型元素。\n`
+    : "";
+  return template
+    .replaceAll("{{ type }}", type || STUDIO_SCRIPT_TYPE_DEFAULT)
+    .replaceAll("{{ typeGuide }}", typeGuide)
+    .replaceAll("{{ typeBlock }}", typeBlock)
+    .replaceAll("{{ assetTypeGuide }}", assetTypeGuide)
+    .replaceAll("{{ assetTypeBlock }}", assetTypeBlock)
+    .replaceAll("{{ styleHint }}", req.styleHint?.trim() || "未指定")
+    .replaceAll("{{ useKB }}", req.useKB ? "开启" : "关闭")
+    .replaceAll("{{ county }}", req.county?.trim() || "未提供")
+    .replaceAll("{{ kbContext }}", req.kbContext?.trim() || "（无检索资料）");
+}
+
+function fillStudioScriptPro(req: GenerateRequest): string {
+  return fillStudioVars(SYSTEM_STUDIO_SCRIPT_PRO, req);
+}
+
 /** 按场景/模式把表单字段拼成 messages */
 export function buildMessages(req: GenerateRequest): ChatMessage[] {
-  return withKb(buildMessagesCore(req), req);
+  const core = buildMessagesCore(req);
+  if (req.scene === "studio-script-pro" || req.scene === "studio-assets") return core;
+  return withKb(core, req);
 }
 
 function buildMessagesCore(req: GenerateRequest): ChatMessage[] {
@@ -365,21 +446,17 @@ function buildMessagesCore(req: GenerateRequest): ChatMessage[] {
     ];
   }
 
-  // 制作大片·场景角色道具：读剧本，提取拍摄需要的「场景 / 角色 / 道具」清单（结构化 JSON）
+  // 制作大片·场景角色道具清单提取：提示词见 prompts.ts · SYSTEM_STUDIO_ASSETS（含内容安全 / 风格 / 知识库）
   if (req.scene === "studio-assets") {
     return [
       {
         role: "system",
-        content:
-          "你是短视频美术指导。阅读用户给的剧本，提取拍摄需要的「场景、角色、道具」清单，并为每一项写一段结合剧本的画面描述（提示词）。\n" +
-          "【只输出 JSON】不要 markdown 代码块、不要任何多余文字，严格如下结构：\n" +
-          '{"scenes":[{"name":"场景名","desc":"该场景画面描述"}],"characters":[{"name":"角色名","desc":"该角色外观描述"}],"props":[{"name":"道具名","desc":"该道具画面描述"}]}\n' +
-          "要求：角色、场景各给 1-6 个最关键的项；【道具要尽量齐全，不要只挑最关键的】——把剧本里出现的、以及人物手持/使用/佩戴/操作的所有关键物件都列出（如手机、相机、工具、器皿、篮子、帽子、招牌等，最多 12 个）。名称简短（2-10 字，尽量用剧本原词）、不重复；剧本里没有的类别给空数组。\n" +
-          "desc 要求：结合剧本的题材/风格/氛围/时代地域，写成适合文生图的一段中文画面描述，120 字以内——" +
-          "场景=只写地点/环境/光线/氛围，不出现人物；角色=只写该人物外观（年龄、长相、发型、服饰、气质），不写环境；道具=只写该物件本身。不要标题/解释/换行。" +
-          styleRule(req.styleHint),
+        content: fillStudioVars(SYSTEM_STUDIO_ASSETS, req),
       },
-      { role: "user", content: `剧本：\n${req.input?.trim() || "（空）"}\n\n请提取场景 / 角色 / 道具清单并为每项写描述，只输出 JSON。` },
+      {
+        role: "user",
+        content: `剧本：\n${req.input?.trim() || "（空）"}\n\n${USER_STUDIO_ASSETS_FALLBACK}`,
+      },
     ];
   }
 
@@ -535,42 +612,14 @@ function buildMessagesCore(req: GenerateRequest): ChatMessage[] {
     ];
   }
 
-  // 制作大片·剧本编辑「立即生成」：资深短视频编剧一步产出完整分镜级镜头脚本（结构化、可拆分镜）
+  // 制作大片·剧本编辑「立即生成」：提示词见 prompts.ts · SYSTEM_STUDIO_SCRIPT_PRO（含内容安全 / 风格 / 知识库）
   if (req.scene === "studio-script-pro") {
     return [
       {
         role: "system",
-        content:
-          "你是一位拥有15年从业经验的顶级短视频 / 漫剧编剧，曾为抖音、快手头部账号操刀过数百条破千万播放的脚本。你深度掌握情绪节奏、镜头语言、爆款钩子与观众心理。\n\n" +
-          "【创作哲学】\n" +
-          "1. 前3秒定生死：开场必须用画面或台词制造悬念、反差、强烈情绪冲击，让观众停住。\n" +
-          "2. 每镜有目的、无废镜：每个镜头要么推进剧情、要么强化情绪、要么塑造人物；高密度推进，禁止空镜。\n" +
-          "3. 用画面说话：能用画面表达的绝不依赖旁白；台词克制、精准、口语化、接地气。\n" +
-          "4. 情绪弧线是命脉：平静→扰动→冲突→爆发→余韵；全片至少一个「反转/意外」、至少一个「情绪特写」。\n" +
-          "5. 结尾必有钩子：留白/提问/悬念，让人想评论、想转发、想等续集。\n\n" +
-          "【输出格式】（严格遵守，便于系统自动拆分镜；不要任何标题、装饰线、emoji 或 markdown 标记）\n" +
-          "每个镜头严格以「镜头N：」单独一行开头（N 从 1 依次递增，如 镜头1：、镜头2：…），其下依次分四个中文方括号标签、各自单独成行：\n" +
-          "【时长】这一镜的秒数（只写整数，如 5；每镜不得低于 4 秒，一般 4-8 秒，叙事镜可到 10 秒，各镜时长之和要贴合目标片长；务必逐镜给出，不要省略）。\n" +
-          "【画面】必写，这是喂给视频模型的提示词，务必高密度、可拍、要素齐全，硬性下限「不少于 80 字」。请在这一段里依次写足并写透以下要素：\n" +
-          "  · 景别（远/全/中/近/特写）+ 拍摄角度 + 运镜方式（固定/推/拉/摇/跟/升降）；\n" +
-          "  · 人物站位 + 核心动作 + 面部神态 + 关键道具及其状态（剔除无关装饰道具）；\n" +
-          "  · 分层恒定光效（光源方向、色调、明暗层次）+ 场景环境细节（全称+简称，只保留剧情必需环境）；\n" +
-          "  · 出场角色的外貌与服饰（作为「核心视觉锚点」，同一角色在各镜必须完全一致）；\n" +
-          "  · 涉及核心人/动物/道具/建筑时，交代真实尺寸比例基准，避免比例失调；\n" +
-          "  · 「衔接前置」：本镜结尾人物的发力姿态、光效稳定状态、道具即时位置，供下一镜承接，保证跨镜连贯。\n" +
-          "  · 只写看得见的画面，绝不把旁白/台词文字混进来。\n" +
-          "【旁白】仅当这一镜确有画外解说/旁白时才写这一行，写旁白文字；没有就整行省略，不要写「无」，不要凭空编造。\n" +
-          "【对白】仅当这一镜确有人物开口说话时才写，每句台词单独一行、格式为「角色名：（情绪语气）台词」；没有就整行省略。台词要口语化、真实、服务剧情，禁止书面语、口号式、说教式；不要凭空编造。\n\n" +
-          "【硬性约束】\n" +
-          "- 镜头数量：约每 10 秒 2-3 个镜头，保证节奏紧凑连贯。\n" +
-          "- 台词密度：60 秒视频台词总量不超过 180 字，给画面留呼吸空间。\n" +
-          "- 一致性：同一角色的外貌/服饰/光效在各镜保持一致；镜与镜之间用「衔接前置」承接动作与光效。\n" +
-          "- 负面约束（写画面时主动规避）：无画面扭曲、无人物变形、无五官崩坏、无帧间闪烁、无透视错乱、无主体漂移、无穿模、无比例失调、无角色全程静止、无纯环境空镜、无缓慢渐变光影、无舒缓慢拉运镜、无动作停顿留白、无无意义情绪水帧；全程无字幕、无水印。\n" +
-          "- 除「镜头N：」与【时长】/【画面】/【旁白】/【对白】四个标签外，不要任何其它标题、符号、装饰线或 markdown。" +
-          STUDIO_SAFE_RULE +
-          styleRule(req.styleHint),
+        content: fillStudioScriptPro(req),
       },
-      { role: "user", content: req.input?.trim() || "请据类型与故事，产出一条完整的分镜级镜头脚本。" },
+      { role: "user", content: req.input?.trim() || USER_STUDIO_SCRIPT_PRO_FALLBACK },
     ];
   }
 
@@ -657,16 +706,31 @@ function buildMessagesCore(req: GenerateRequest): ChatMessage[] {
     ];
   }
 
-  // IP 设计·帮我提案：根据 IP 特征构思三个设计方案
+  // IP 设计·帮我提案：根据 IP 特征构思三个设计方案（每案约 200 字纯文本，偏 IP 形象）
   if (req.scene === "ip-propose") {
     const feature = req.description?.trim() || "（未提供）";
     return [
       {
+        role: "system",
+        content:
+          "你是资深的品牌 IP / 吉祥物形象设计师，专做「可落地的角色 IP」设计（不是海报文案、不是活动主视觉、不是风景插画）。" +
+          "根据用户给出的特征，输出三套差异化的 IP 形象方案，每套都必须是一个清晰的角色主体：" +
+          "有名字或昵称定位、拟人/拟物造型、五官表情、体态比例、标志性服饰与配色、专属道具或符号、性格气质；" +
+          "构图默认单一角色居中、**正面朝向镜头**、**纯白背景**，便于后续文生图直接出 IP 形象。" +
+          "【偏 IP 硬性要求】不要写成活动海报说明、不要堆营销口号、不要大段场景叙事；" +
+          "背景必须是纯白底（白底图#FFFFFF），禁止风景、室内、渐变、纸张肌理、水彩晕染或复杂场景；笔墨必须落在角色本体上；画面只能出现这一个 IP，禁止多角色拼图或三视图。" +
+          "【禁止画面文字】不要在方案中要求把角色名、标题、名牌或任何汉字画进画面；角色名只用于文案设定。" +
+          "【朝向硬性要求】角色必须是正面全身或正面半身，面部与身体朝向镜头；禁止侧面、半侧面、背面、过肩视角或转身离开镜头的姿态；每个方案正文须写明「正面朝向镜头」。" +
+          "【字数】每个方案严格约 200 字（最少 180 字，最多 220 字，绝对不能超过 220 字）；字数仅作写作约束，禁止在正文末尾或任意位置写出「约200字」「180字」等字数标注。" +
+          "【格式】纯文本一段话：禁止 Markdown（不要 **加粗**、*斜体*、# 标题、- 列表符、反引号、链接）；不要开场白、不要总结、不要字数说明。",
+      },
+      {
         role: "user",
         content:
-          `「${feature}」，根据提供的信息，帮我构思三个合适的 IP 设计方案，输出格式要求为：\n` +
+          `「${feature}」，请围绕上述信息，构思三个合适的品牌 IP 形象方案（角色/吉祥物向），输出格式：\n` +
           `方案一：内容\n方案二：内容\n方案三：内容。\n` +
-          `每个方案之间分段。不要有多余的总结和废话。`,
+          `每个方案之间分段；三套在造型、配色或气质上要有明显区分，但都紧扣同一 IP 特征。\n` +
+          `每个方案写成可直接用于 AI 出图的「单个 IP 形象」完整描述（控制在约 200 字，但不要把字数写进正文）：角色本体为主，固定纯白背景，正面朝向镜头（禁止侧面或背面），画面不要出现角色名或任何文字。`,
       },
     ];
   }
@@ -966,16 +1030,13 @@ function buildMessagesCore(req: GenerateRequest): ChatMessage[] {
       {
         role: "system",
         content:
-          "你是「小墨」，魔方智绘的创意总控助手，面向农文旅品牌设计与内容创作。" +
-          "每一次用户交流后，你必须先理解用户本轮说话/点选的真实意图与上下文，再生成回复。" +
-          "你会根据系统提供的项目能力、当前专家、已填槽位、品牌记忆、近期对话与界面结构来回复。" +
+          "你是「小墨」，魔方智绘的创意助手，面向农文旅品牌设计与内容创作。" +
+          "对话由 DeepSeek Harness 驾驭：Skill / Tool 均为插件，你只负责措辞，或在需要时输出 TOOL 行调用工具。" +
           "语气清晰可执行，像同事协作，不堆砌营销空话。" +
-          "界面选项由前端卡片展示，你只写引导性正文。" +
-          "严禁假装已生成图片/成片（除非系统明确写了已执行出图/提案结果）；严禁输出内部标签（如 phase、槽位 key）。" +
-          "严禁把选项列表里的示例（如品牌名「樱桃」「安吉白茶」）或未确认的品牌记忆，说成用户已经选定；" +
-          "用户未点选品牌时，用「先定个品牌名」这类中性说法，不要擅自喊具体品牌。" +
-          "若上下文含【用户上传的参考图】或【参考图视觉摘要】，必须结合图中特征回复，不能装作没看到。" +
-          "不要把用户消息或编排器提示当成要润色的范文，而是据此组织全新回复。",
+          "不要用访谈问卷、双问卡片或「识别意图」标签。" +
+          "严禁假装已生成图片/成片；严禁输出内部标签（phase、skill、槽位 key）。" +
+          "若上下文含参考图视觉摘要，必须结合图中特征回复。" +
+          "不要把用户消息当成要润色的范文，据此组织全新回复。",
       },
       {
         role: "user",

@@ -2,19 +2,22 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
-import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
+import { Dropdown } from "@/components/ui/Dropdown";
 import { ColorPicker } from "./ColorPicker";
 import { useToast } from "@/components/ui/Toast";
-import { useGenerateStream } from "@/lib/useGenerateStream";
+import { collectGenerate } from "@/lib/useGenerateStream";
 import { imageRatios, ipExtendTabs, ipExtendPresets, ipPresetPrompts, type IpExtendTab } from "@/data/image";
+import { eventGeneralRatioOpts } from "./ImagePanels";
 import { LibraryPickerModal } from "./LibraryPickerModal";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
-import { imgToDataUrl } from "@/lib/image";
+import { imgToDataUrl, extractIpTitle } from "@/lib/image";
 import { RegionEnhanceStrip, ModelLoraSwitch } from "@/components/image/RegionEnhanceStrip";
 import { accountRegionId, kbFields, notifyRegionEnhance } from "@/lib/regionEnhance";
 import { useAuth } from "@/lib/AuthContext";
 import { PointsCost } from "@/components/ui/PointsCost";
-import { POINT_COST } from "@/lib/pointCosts";
+import { multiImagePoints } from "@/lib/pointCosts";
+import { stripOfficialMarkdown } from "@/lib/agent/skills/prompts/officialArticle";
+import { stripProposeWordCount } from "@/lib/agent/parse";
 
 // 参考图/IP 图上传校验
 const ALLOWED_IMG_EXTS = new Set(["jpg", "jpeg", "png", "webp"]);
@@ -74,12 +77,9 @@ function BrandWarnModal({ onCancel, onContinue }: { onCancel: () => void; onCont
   );
 }
 
-// IP 设计的画面尺寸只显示比例名称，不显示「1080 × 1080 px」；末尾追加「自定义」
+// 与活动文生图共用同一套尺寸选项（自定义 + imageRatios，含 px 副标题）
 const CUSTOM_RATIO = "自定义";
-const ratioOpts: DropdownOption[] = [
-  ...imageRatios.map((r) => ({ name: r.name, ico: "szSquare" as const })),
-  { name: CUSTOM_RATIO, ico: "pencil" },
-];
+const ratioOpts = eventGeneralRatioOpts.map((o) => ({ ...o, sub: undefined }));
 
 /* 「复制到左侧」回填载荷：把记录的结构化信息带回左侧表单逐项还原 */
 export interface IpCopyPayload {
@@ -94,8 +94,11 @@ export interface IpCopyPayload {
 /* 点「立即生成」后交给父级的载荷：父级据此调文生图并填入右侧画廊 */
 export interface IpGenPayload {
   title: string; // 卡片标题（主体/品牌名，取描述前若干字）
-  prompt: string; // 优化后的画面描述，作为文生图 prompt
-  ratioName: string; // 画面比例名（含「自定义 w:h」）
+  prompt: string; // 文生图 prompt（创新设计为用户原文；扩展设计为拼装描述）
+  ratioName: string; // 画面尺寸名（与活动文生图一致：预设名或「自定义」）
+  count?: number; // 生成张数 1 / 2 / 4
+  customW?: string; // 「自定义」时的像素宽（与活动一致）
+  customH?: string; // 「自定义」时的像素高
   // 用户原始输入（供「IP故事」据此生成描述/故事，不依赖识别图片）
   rawDesc?: string; // 用户填写的创意描述原文
   colors?: string[]; // 偏好颜色
@@ -114,7 +117,7 @@ export interface IpGenPayload {
     desc?: string; // 图片描述词框内容
     refImg?: string; // 实际传给模型的参考图（data URL）
   };
-  // —— IP创新设计的结构化展示信息（卡片头按 参考图→创意描述→偏好颜色→画面尺寸 排列，没填的跳过）——
+  // —— IP创新设计的结构化展示信息（卡片头按 创意描述→参考图→偏好颜色→画面尺寸 排列，没填的跳过）——
   create?: {
     refImg?: string; // 用户上传的参考图（无则不展示）
     desc: string; // 创意描述原文
@@ -125,8 +128,8 @@ export interface IpGenPayload {
 
 
 /* IP 设计专属表单：IP创新设计 / IP扩展设计 双 Tab
-   onPropose(open, initialDesc?)：点「帮我提案」时通知父级在右侧结果区展示提案面板，
-   并把当前创意描述带过去作为初始文本；open=false 表示关闭。 */
+   onPropose(open, initialDesc?, useKB?)：点「帮我提案」时通知父级在右侧结果区展示提案面板，
+   并把当前创意描述带过去作为初始文本；open=false 表示关闭。知识库开关仅作用于提案。 */
 export function ImageIpPanel({
   onGenerate,
   loading,
@@ -141,7 +144,7 @@ export function ImageIpPanel({
 }: {
   onGenerate: (payload?: IpGenPayload) => void;
   loading: boolean;
-  onPropose?: (open: boolean, initialDesc?: string) => void;
+  onPropose?: (open: boolean, initialDesc?: string, useKB?: boolean) => void;
   proposeFill?: string;
   copyFill?: IpCopyPayload | null; // 复制回填的结构化载荷（颜色/尺寸/参考图等）
   fillSeq?: number; // 回填序号，变化即触发回填（内容相同也生效）
@@ -172,11 +175,12 @@ export function ImageIpPanel({
 
   const wrapGenerate = (payload?: IpGenPayload) => {
     if (!payload) return onGenerate(payload);
+    // 立即生成 / 扩展设计均不走知识库；知识库仅「帮我提案」使用
     onGenerate({
       ...payload,
-      regionEnhance: useLora || useKB,
+      regionEnhance: useLora,
       useLora,
-      useKB,
+      useKB: false,
       regionId,
     });
   };
@@ -215,16 +219,10 @@ export function ImageIpPanel({
         <IpExtend
           onGenerate={wrapGenerate}
           useLora={useLora}
-          useKB={useKB}
           onLoraChange={(next) => {
             setUseLora(next);
             setRegionEnhance(next || useKB);
           }}
-          onKBChange={(next) => {
-            setUseKB(next);
-            setRegionEnhance(useLora || next);
-          }}
-          regionId={regionId}
           loading={loading}
           toast={toast}
           extendSeed={extendSeed}
@@ -268,13 +266,15 @@ function IpCreate({
   const [desc, setDesc] = useState("");
   const [colors, setColors] = useState<string[]>([]);
   const [ratio, setRatio] = useState(imageRatios[0].name);
-  // 自定义画面比例的宽 : 高
-  const [cw, setCw] = useState("1");
-  const [ch, setCh] = useState("1");
+  const [count, setCount] = useState(1);
+  // 自定义画面尺寸：像素宽高（与活动文生图一致）
+  const [cw, setCw] = useState("1080");
+  const [ch, setCh] = useState("1920");
   const isCustomRatio = ratio === CUSTOM_RATIO;
   // 参考图：选中后存预览 URL；uploaded 由是否有图派生
   const [refUrl, setRefUrl] = useState("");
   const uploaded = !!refUrl;
+  const [zoomSrc, setZoomSrc] = useState<string | null>(null); // 点击小参考图看大图
   const refInputRef = useRef<HTMLInputElement>(null);
   const [picking, setPicking] = useState(false);
   const [current, setCurrent] = useState("#000000");
@@ -285,13 +285,14 @@ function IpCreate({
   const [brandWarnOpen, setBrandWarnOpen] = useState(false);
   const brandWarnBypassed = useRef(false);
 
-  // 创意描述输入框：随内容增多自动向下变高
+  // 创意描述：内容变多自动撑高；用户手动拉大后保留该高度（不被内容回写压回去）
   const descRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     const el = descRef.current;
     if (!el) return;
+    const kept = el.offsetHeight;
     el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    el.style.height = `${Math.max(kept, el.scrollHeight)}px`;
   }, [desc]);
 
   // 回填创意描述：提案面板「开始生成」、生成历史「复制」均经 proposeFill。
@@ -301,9 +302,18 @@ function IpCreate({
     // 复制带来的结构化信息：还原偏好颜色 / 画面尺寸 / 参考图
     if (copyFill && copyFill.kind === "create") {
       if (copyFill.colors) setColors(copyFill.colors);
-      // 画面尺寸：命中预设比例名才设；自定义/未命中则保持当前
-      if (copyFill.ratioName && imageRatios.some((r) => r.name === copyFill.ratioName)) {
+      // 画面尺寸：命中预设比例名，或「自定义」
+      if (copyFill.ratioName === CUSTOM_RATIO) {
+        setRatio(CUSTOM_RATIO);
+      } else if (copyFill.ratioName && eventGeneralRatioOpts.some((r) => r.name === copyFill.ratioName)) {
         setRatio(copyFill.ratioName);
+      } else if (copyFill.ratioName && imageRatios.some((r) => r.name === copyFill.ratioName)) {
+        setRatio(copyFill.ratioName);
+      } else if (copyFill.ratioName?.startsWith("自定义")) {
+        // 兼容旧记录「自定义 w:h」比例串
+        const m = copyFill.ratioName.match(/(\d+)\s*[:：×x]\s*(\d+)/);
+        setRatio(CUSTOM_RATIO);
+        if (m) { setCw(m[1]); setCh(m[2]); }
       }
       if (copyFill.refImg) {
         // 旧本地预览 URL 释放后填入复制来的参考图（data URL，可直接展示）
@@ -337,10 +347,7 @@ function IpCreate({
     };
   }, []);
 
-  // 创意描述优化：调 LLM 把用户描述扩写成详细的图像 prompt（结果仅后台使用，不展示）
-  const opt = useGenerateStream();
-
-  // 点「立即生成」：先在后台优化创意描述，完成后再触发图片生成
+  // 点「立即生成」：不扩写用户内容，直接用创意描述出图
   async function handleGenerate() {
     if (!desc.trim()) {
       toast("请输入创意描述！", "warn");
@@ -356,46 +363,40 @@ function IpCreate({
       return;
     }
     brandWarnBypassed.current = false;
-    // 自定义比例需为正整数
-    if (isCustomRatio && (!Number(cw) || !Number(ch))) {
-      toast("请填写有效的自定义宽高比例！", "warn");
-      return;
+    // 自定义尺寸需 ≥ 64px（与活动文生图一致）
+    if (isCustomRatio) {
+      const w = Number(cw) || 0;
+      const h = Number(ch) || 0;
+      if (w < 64 || h < 64) {
+        toast("请填写有效的自定义宽高（最少 64px）！", "warn");
+        return;
+      }
     }
-    const canvasSize = isCustomRatio ? `自定义 ${cw}:${ch}` : ratio;
-    const full = await opt.generate({
-      scene: "ip",
-      description: desc.trim(),
-      preferredColors: colors,
-      canvasSize,
-      hasReference: uploaded,
-      ...kbFields(useKB, regionId),
+    const raw = desc.trim();
+    // 偏好颜色为表单字段，简短并入 prompt（不扩写正文）
+    const prompt =
+      colors.length > 0 ? `${raw.replace(/[。．.]*$/, "")}，偏好配色：${colors.join("、")}` : raw;
+    // 标题：取开头角色名（如「茶小乐」），勿误取胸前标语等引号文案
+    const title = extractIpTitle(raw);
+    // 参考图转 data URL 供卡片头缩略展示（有上传才转）
+    const refImg = uploaded && refUrl ? await imgToDataUrl(refUrl) : "";
+    onGenerate({
+      title,
+      prompt,
+      ratioName: ratio,
+      customW: isCustomRatio ? cw : undefined,
+      customH: isCustomRatio ? ch : undefined,
+      count,
+      rawDesc: raw,
+      colors,
+      refImage: refImg || undefined,
+      create: {
+        refImg: refImg || undefined,
+        desc: raw,
+        colors: colors.length ? colors : undefined,
+        ratioName: isCustomRatio ? `自定义 ${cw}×${ch} px` : ratio,
+      },
     });
-    if (opt.state.error) {
-      toast(opt.state.error, "warn");
-      return;
-    }
-    if (full.trim()) {
-      // 标题：优先取描述里「」/引号内文字，否则取前 8 字
-      const m = desc.match(/[「“"'『]([^」”"'』]{1,12})[」”"'』]/);
-      const title = (m?.[1] || desc.trim().slice(0, 8) || "IP 形象").trim();
-      // 参考图转 data URL 供卡片头缩略展示（有上传才转）
-      const refImg = uploaded && refUrl ? await imgToDataUrl(refUrl) : "";
-      // full 即优化后的画面描述（不展示给用户），作为文生图 prompt 交给父级出图；
-      // 同时把用户原始创意描述 + 颜色带上，供「IP故事」据此生成（不识别图片）
-      onGenerate({
-        title,
-        prompt: full.trim(),
-        ratioName: canvasSize,
-        rawDesc: desc.trim(),
-        colors,
-        create: {
-          refImg: refImg || undefined,
-          desc: desc.trim(),
-          colors: colors.length ? colors : undefined,
-          ratioName: canvasSize,
-        },
-      });
-    }
   }
 
   // 收起取色器：把当前色加入色块列表
@@ -434,23 +435,17 @@ function IpCreate({
         onKBChange={(next) => onKBChange?.(next)}
         regionId={regionId}
       />
-      <ModelLoraSwitch
-        visible={true}
-        enabled={!!useLora}
-        onChange={(next) => onLoraChange?.(next)}
-      />
       <div className="field">
         <div className="ws-label">创意描述 <span className="req">*</span></div>
         <div className="ip-desc-wrap">
           <textarea
             ref={descRef}
             className="ip-desc"
-            style={{ resize: "none", overflow: "hidden" }}
             value={desc}
             onChange={(e) => setDesc(e.target.value)}
             placeholder={`例：「稻小金」——拟人化金色稻穗，头戴斗笠，圆眼弯眉，憨厚微笑，身穿汉服马甲，手持丰收镰刀。象征丰收喜悦，专属某县农业局品牌IP。`}
           />
-          <button className="ip-propose-btn" onClick={() => onPropose?.(true, desc)}>
+          <button className="ip-propose-btn" onClick={() => onPropose?.(true, desc, useKB)}>
             帮我提案
           </button>
           {desc.trim() && (
@@ -459,7 +454,6 @@ function IpCreate({
             </button>
           )}
         </div>
-        {/* AI 优化后的画面描述仅在后台用于生成图片，不展示给用户 */}
       </div>
 
       <div className="field ip-color-field" ref={colorBoxRef}>
@@ -489,32 +483,41 @@ function IpCreate({
       <div className="field">
         <div className="ws-label">画面尺寸</div>
         <Dropdown title="画面尺寸" options={ratioOpts} value={ratio} onChange={(o) => setRatio(o.name)} />
-        {/* 选「自定义」时出现 宽 : 高 比例输入 */}
+        {/* 选「自定义」时出现像素宽高（与活动文生图一致） */}
         {isCustomRatio && (
-          <div className="ip-ratio-custom">
-            <label className="ip-ratio-box">
-              <span className="ip-ratio-tag">宽</span>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={cw}
-                onChange={(e) => setCw(e.target.value.replace(/[^\d]/g, "").slice(0, 4))}
-                aria-label="宽度比例"
-              />
-            </label>
-            <span className="ip-ratio-colon">:</span>
-            <label className="ip-ratio-box">
-              <span className="ip-ratio-tag">高</span>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={ch}
-                onChange={(e) => setCh(e.target.value.replace(/[^\d]/g, "").slice(0, 4))}
-                aria-label="高度比例"
-              />
-            </label>
+          <div className="custom-size">
+            <input
+              type="number"
+              className="cs-input"
+              min={64}
+              placeholder="宽"
+              value={cw}
+              onChange={(e) => setCw(e.target.value)}
+            />
+            <span className="cs-unit">px</span>
+            <span className="cs-colon">:</span>
+            <input
+              type="number"
+              className="cs-input"
+              min={64}
+              placeholder="高"
+              value={ch}
+              onChange={(e) => setCh(e.target.value)}
+            />
+            <span className="cs-unit">px</span>
           </div>
         )}
+      </div>
+
+      <div className="field">
+        <div className="ws-label">生成数量</div>
+        <div className="seg">
+          {[1, 2, 4].map((n) => (
+            <div key={n} className={count === n ? "seg-item on" : "seg-item"} onClick={() => setCount(n)}>
+              {n}
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="field">
@@ -542,9 +545,19 @@ function IpCreate({
         >
           {uploaded ? (
             <>
-              {/* 真实参考图预览 */}
+              {/* 真实参考图预览：点击看大图（更换/删除按钮 stopPropagation） */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img className="ip-ref-img" src={refUrl} alt="参考图预览" />
+              <img
+                className="ip-ref-img"
+                src={refUrl}
+                alt="参考图预览"
+                title="点击查看大图"
+                role="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setZoomSrc(refUrl);
+                }}
+              />
               {/* 鼠标移入：中央浮出「更换 / 删除」两个图标 */}
               <div className="ip-ref-actions">
                 <button
@@ -583,16 +596,15 @@ function IpCreate({
         </div>
       </div>
 
+      <ModelLoraSwitch
+        visible={false}
+        enabled={!!useLora}
+        onChange={(next) => onLoraChange?.(next)}
+      />
       </div>
       <div className="ws-foot">
-        <button className="btn btn-primary btn-block gen-btn" disabled={loading || opt.state.loading} onClick={handleGenerate}>
-          {opt.state.loading ? (
-            "正在优化描述…"
-          ) : (
-            <>
-              立即生成 <PointsCost amount={POINT_COST.imageIp} />
-            </>
-          )}
+        <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={handleGenerate}>
+          立即生成 <PointsCost amount={multiImagePoints(count, "Seedream 5.0")} />
         </button>
       </div>
       {brandWarnOpen && (
@@ -605,6 +617,15 @@ function IpCreate({
           }}
         />
       )}
+      {zoomSrc && (
+        <div className="img-zoom-mask" onClick={() => setZoomSrc(null)}>
+          <button className="img-zoom-close" aria-label="关闭" onClick={() => setZoomSrc(null)}>
+            <Icon name="close" size={22} />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="img-zoom-img" src={zoomSrc} alt="参考图大图" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
     </>
   );
 }
@@ -612,22 +633,102 @@ function IpCreate({
 /* 把 LLM 返回的「方案一：… 方案二：… 方案三：…」文本解析成方案数组。
    兼容「方案一：」「方案1：」「方案一 」等写法；解析不出时整体作为一个方案兜底。 */
 function parseProposals(text: string): { full: string }[] {
-  const t = text.trim();
+  const t = stripOfficialMarkdown(text.trim());
   if (!t) return [];
   // 按「方案X：」切分，保留分隔点后的内容
   const parts = t
     .split(/\n*\s*方案[一二三四五六七八九十\d]+[：:、.\s]*/)
-    .map((s) => s.trim())
+    .map((s) => stripProposeWordCount(stripOfficialMarkdown(s.trim())))
     .filter(Boolean);
   if (parts.length >= 2) return parts.map((full) => ({ full }));
   // 兜底：按空行分段
-  const segs = t.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+  const segs = t
+    .split(/\n{2,}/)
+    .map((s) => stripProposeWordCount(stripOfficialMarkdown(s.trim())))
+    .filter(Boolean);
   if (segs.length >= 2) return segs.map((full) => ({ full }));
-  return [{ full: t }];
+  return [{ full: stripProposeWordCount(t) }];
+}
+
+/* —— 帮我提案：后台任务（面板关闭也不中断，收齐三套方案后再落结果）—— */
+export type ProposeJobStage = "idle" | "loading" | "result" | "error";
+export type ProposeJob = {
+  stage: ProposeJobStage;
+  input: string;
+  proposals: { full: string }[];
+  error: string;
+  seq: number;
+};
+
+let proposeJob: ProposeJob = { stage: "idle", input: "", proposals: [], error: "", seq: 0 };
+let proposePanelMounted = 0;
+const proposeJobListeners = new Set<() => void>();
+let proposeBgToast: ((s: string, k?: "warn") => void) | null = null;
+
+function emitProposeJob() {
+  proposeJobListeners.forEach((fn) => fn());
+}
+
+function patchProposeJob(patch: Partial<ProposeJob>) {
+  proposeJob = { ...proposeJob, ...patch };
+  emitProposeJob();
+}
+
+/** 父级注册：面板已关时，后台跑完用 toast 提醒 */
+export function setProposeBackgroundToast(fn: ((s: string, k?: "warn") => void) | null) {
+  proposeBgToast = fn;
+}
+
+function useProposeJob(): ProposeJob {
+  const [, bump] = useState(0);
+  useEffect(() => {
+    const fn = () => bump((n) => n + 1);
+    proposeJobListeners.add(fn);
+    proposePanelMounted += 1;
+    return () => {
+      proposeJobListeners.delete(fn);
+      proposePanelMounted = Math.max(0, proposePanelMounted - 1);
+    };
+  }, []);
+  return proposeJob;
+}
+
+async function startProposeJob(opts: {
+  description: string;
+  useKB: boolean;
+  regionId?: string;
+}): Promise<void> {
+  const description = opts.description.trim();
+  if (!description) return;
+  const seq = proposeJob.seq + 1;
+  patchProposeJob({ stage: "loading", input: description, proposals: [], error: "", seq });
+  // 不传 AbortSignal：点外部关闭面板时仍跑完全部方案
+  const full = await collectGenerate({
+    scene: "ip-propose",
+    description,
+    ...kbFields(opts.useKB, opts.regionId),
+  });
+  if (seq !== proposeJob.seq) return; // 已被更新一次生成覆盖
+  if (!full.trim()) {
+    patchProposeJob({ stage: "error", error: "提案生成失败，请稍后重试", proposals: [] });
+    if (proposePanelMounted === 0) proposeBgToast?.("IP 提案生成失败，请稍后重试", "warn");
+    return;
+  }
+  const list = parseProposals(full);
+  if (list.length === 0) {
+    patchProposeJob({ stage: "error", error: "未能生成提案内容，请修改描述后重试", proposals: [] });
+    if (proposePanelMounted === 0) proposeBgToast?.("未能生成提案内容，请修改描述后重试", "warn");
+    return;
+  }
+  patchProposeJob({ stage: "result", proposals: list, error: "" });
+  if (proposePanelMounted === 0) {
+    proposeBgToast?.(`IP 提案已生成（${list.length} 套），点击「帮我提案」查看`);
+  }
 }
 
 /* 「帮我提案」面板：内嵌渲染在右侧结果区（不再是居中弹窗）。
    三阶段：form 填写 → loading 生成中 → result 三套设计提案。
+   点「开始生成」后会收齐全部方案；点外部关闭面板时任务继续在后台跑。
    initialText：打开时把左侧创意描述的已有内容复制进来作为初始值。
    选中某套方案后通过 onGenerate 回填到左侧创意描述并关闭面板。 */
 export function ProposePanel({
@@ -644,18 +745,28 @@ export function ProposePanel({
   regionId?: string;
 }) {
   const toast = useToast();
-  const [text, setText] = useState(initialText);
+  const job = useProposeJob();
+  const [text, setText] = useState(() => job.input || initialText);
   const [fileName, setFileName] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
-  const [stage, setStage] = useState<"form" | "loading" | "result">("form");
-  const [proposals, setProposals] = useState<{ full: string }[]>([]);
-  const [errMsg, setErrMsg] = useState("");
   const empty = !text.trim();
+  const loading = job.stage === "loading";
+  // 有进行中的任务或已出结果时，优先展示任务态（重新打开面板可续看）
+  const stage: "form" | "loading" | "result" =
+    job.stage === "loading" ? "loading" : job.stage === "result" && job.proposals.length ? "result" : "form";
+  const errMsg = job.stage === "error" ? job.error : "";
 
-  // 帮我提案：调 LLM 按「IP 特征」生成三个设计方案
-  const opt = useGenerateStream();
+  // 打开面板时：若无后台任务，用左侧创意描述作初始值；若有任务则同步任务输入
+  useEffect(() => {
+    if (job.stage === "loading" || job.stage === "result") {
+      if (job.input) setText(job.input);
+    } else if (initialText) {
+      setText(initialText);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // 点击面板以外的区域：关闭面板（延后挂载，避免打开它的同一次点击立即关闭）
+  // 点击面板以外的区域：仅关闭面板，不中断生成
   const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -676,33 +787,19 @@ export function ProposePanel({
       toast("请输入画面描述！", "warn");
       return;
     }
+    if (loading) return;
     notifyRegionEnhance(toast, regionEnhance);
-    setErrMsg("");
-    setStage("loading");
-    // 调 LLM：以输入文本作为「IP 特征」生成三个设计方案
-    const full = await opt.generate({
-      scene: "ip-propose",
+    toast("正在生成全部提案，关闭面板也会在后台继续…");
+    await startProposeJob({
       description: text.trim(),
-      ...kbFields(regionEnhance, regionId),
+      useKB: regionEnhance,
+      regionId,
     });
-    if (opt.state.error) {
-      setErrMsg("提案生成失败，请稍后重试");
-      setStage("form");
-      return;
-    }
-    const list = parseProposals(full);
-    if (list.length === 0) {
-      setErrMsg("未能生成提案内容，请修改描述后重试");
-      setStage("form");
-      return;
-    }
-    setProposals(list);
-    setStage("result");
   }
 
-  // 点右上角「引用」：把该方案完整内容回填到左侧创意描述
+  // 点右上角「引用」：把该方案完整内容回填到左侧创意描述（再清一次 Markdown，避免漏网）
   function pickProposal(p: { full: string }) {
-    onGenerate(p.full);
+    onGenerate(stripProposeWordCount(stripOfficialMarkdown(p.full)));
   }
 
   // 结果阶段：设计提案列表（hover 弹出完整描述预览，点右上角引用按钮回填）
@@ -712,7 +809,11 @@ export function ProposePanel({
         <div className="propose-panel" ref={panelRef}>
           <div className="propose-head">
             <span className="propose-title">
-              <button className="propose-back" onClick={() => setStage("form")} aria-label="返回">
+              <button
+                className="propose-back"
+                onClick={() => patchProposeJob({ stage: "idle", proposals: [], error: "" })}
+                aria-label="返回"
+              >
                 <Icon name="chevron" size={16} className="ico-rot90" />
               </button>
               设计提案
@@ -722,7 +823,7 @@ export function ProposePanel({
             </button>
           </div>
           <div className="propose-list">
-            {proposals.map((p, i) => (
+            {job.proposals.map((p, i) => (
               <div key={i} className="propose-item">
                 <div className="propose-item-head">
                   <div className="propose-item-name">方案{["一", "二", "三"][i] ?? i + 1}：</div>
@@ -747,7 +848,6 @@ export function ProposePanel({
   }
 
   // 填写 / 生成中阶段
-  const loading = stage === "loading";
   return (
     <div className="propose-pane">
       <div className="propose-panel" ref={panelRef}>
@@ -796,11 +896,16 @@ export function ProposePanel({
           disabled={loading}
         >
           {loading ? (
-            <span className="propose-loading"><Icon name="refresh" size={15} className="ico-spin" /> 生成中</span>
+            <span className="propose-loading"><Icon name="refresh" size={15} className="ico-spin" /> 正在生成全部方案…</span>
           ) : (
             <>开始生成</>
           )}
         </button>
+        {loading && (
+          <div className="propose-err" style={{ color: "var(--c-muted)" }}>
+            关闭面板后也会在后台继续，完成后可再次打开查看
+          </div>
+        )}
         {errMsg && <div className="propose-err">{errMsg}</div>}
       </div>
     </div>
@@ -818,10 +923,7 @@ function IpExtend({
   copyFill,
   fillSeq,
   useLora = true,
-  useKB = true,
   onLoraChange,
-  onKBChange,
-  regionId,
 }: {
   onGenerate: (payload?: IpGenPayload) => void;
   loading: boolean;
@@ -832,14 +934,13 @@ function IpExtend({
   copyFill?: IpCopyPayload | null;
   fillSeq?: number;
   useLora?: boolean;
-  useKB?: boolean;
   onLoraChange?: (next: boolean) => void;
-  onKBChange?: (next: boolean) => void;
-  regionId?: string;
 }) {
   // 每个延展项各记一个选中预设（默认未选 = 该项第一个预设「不使用预设」）
   const [picks, setPicks] = useState<Record<string, string>>({});
   const [extDesc, setExtDesc] = useState("");
+  const [count, setCount] = useState(1);
+  const [zoomSrc, setZoomSrc] = useState<string | null>(null); // 点击 IP/参考图看大图
   // 各延展项已选预设对应的提示词段（按类别存，拼接成「图片描述词」；同类换选替换、不使用预设清除）
   const [segments, setSegments] = useState<Partial<Record<IpExtendTab, string>>>({});
   // 「自定义视角」3D 控制：水平旋转(yaw)/垂直角度(pitch)/拍摄距离(dist)
@@ -1056,6 +1157,7 @@ function IpExtend({
       title,
       prompt: description,
       ratioName: "正方形 1:1",
+      count,
       rawDesc: description,
       refImage,
       ext: { ipImg: refImage || ipImgUrl, tab: tabsLabel, desc: extDesc.trim() || undefined, refImg: refImage },
@@ -1065,16 +1167,6 @@ function IpExtend({
   return (
     <>
       <div className="ws-scroll">
-      <RegionEnhanceStrip
-        useKB={useKB}
-        onKBChange={(next) => onKBChange?.(next)}
-        regionId={regionId}
-      />
-      <ModelLoraSwitch
-        visible={true}
-        enabled={!!useLora}
-        onChange={(next) => onLoraChange?.(next)}
-      />
       <div className="field">
         <div className="ws-label-row">
           <div className="ws-label">上传 IP 图 <span className="req">*</span></div>
@@ -1108,6 +1200,12 @@ function IpExtend({
                   className="ip-ref-img"
                   src={ipImgUrl}
                   alt="IP 图预览"
+                  title="点击查看大图"
+                  role="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setZoomSrc(ipImgUrl);
+                  }}
                   onError={() => setIpImgError(true)}
                 />
               )}
@@ -1230,7 +1328,17 @@ function IpExtend({
               {refImgUrl ? (
                 <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img className="ip-ref-img" src={refImgUrl} alt="参考图预览" />
+                  <img
+                    className="ip-ref-img"
+                    src={refImgUrl}
+                    alt="参考图预览"
+                    title="点击查看大图"
+                    role="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setZoomSrc(refImgUrl);
+                    }}
+                  />
                   <div className="ip-ref-actions">
                     <button className="ip-ref-act" onClick={(e) => { e.stopPropagation(); refInputRef.current?.click(); }} title="更换参考图" aria-label="更换参考图">
                       <Icon name="upload" size={18} />
@@ -1251,10 +1359,26 @@ function IpExtend({
             </div>
           </div>
 
+      <div className="field">
+        <div className="ws-label">生成数量</div>
+        <div className="seg">
+          {[1, 2, 4].map((n) => (
+            <div key={n} className={count === n ? "seg-item on" : "seg-item"} onClick={() => setCount(n)}>
+              {n}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <ModelLoraSwitch
+        visible={false}
+        enabled={!!useLora}
+        onChange={(next) => onLoraChange?.(next)}
+      />
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={handleExtGenerate}>
-          立即生成 <PointsCost amount={POINT_COST.imageIpExt} />
+          立即生成 <PointsCost amount={multiImagePoints(count, "Seedream 5.0")} />
         </button>
       </div>
 
@@ -1269,6 +1393,15 @@ function IpExtend({
             handleExtGenerate();
           }}
         />
+      )}
+      {zoomSrc && (
+        <div className="img-zoom-mask" onClick={() => setZoomSrc(null)}>
+          <button className="img-zoom-close" aria-label="关闭" onClick={() => setZoomSrc(null)}>
+            <Icon name="close" size={22} />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="img-zoom-img" src={zoomSrc} alt="大图预览" onClick={(e) => e.stopPropagation()} />
+        </div>
       )}
     </>
   );

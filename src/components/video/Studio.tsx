@@ -123,8 +123,27 @@ function buildSubtitlesFromShots(shots: Shot[]): Subtitle[] {
   return out;
 }
 
-// 生成模式：文本生成（纯文生，无图）/ 智能多帧（每镜生成一张「注入角色参考图」的镜头图锁人物，各自 img2video，不跨镜承接）/ 首尾帧（首、尾帧链式）
+// 生成模式：
+// - 文本生成 / 智能多帧：按参考图生成（画面描述里 @ 出镜元素的参考图 + ②用户生成/上传的参考图；智能多帧另可把本镜「镜头图」一并作参考图）。不传 first_frame。
+// - 首尾帧：按首帧 + 尾帧图 flf2v 生成。
 type GenMode = "text" | "smart" | "keyframe";
+
+/** 暂时只开放「文本生成」；智能多帧 / 首尾帧入口与相关面板不展示 */
+const STUDIO_SHOW_ADVANCED_GEN_MODES = false;
+
+/** 分镜制作顶栏能力说明：隐藏高级模式时去掉「首尾帧」文案 */
+function studioGenModeHint(modelName?: string): string {
+  const raw = modelLimitHint(modelName);
+  if (STUDIO_SHOW_ADVANCED_GEN_MODES) return raw;
+  return raw
+    .replace(/与首尾帧/g, "")
+    .replace(/、首尾帧/g, "")
+    .replace(/\/\s*首尾帧/g, "")
+    .replace(/首尾帧、?/g, "")
+    .replace(/支持文生、图生；/g, "支持文生与图生；")
+    .replace(/；{2,}/g, "；")
+    .replace(/；\s*$/g, "");
+}
 
 // 角色音色配置：由「声音设置」弹窗产出，整体存入 Asset.voice（onChange 整体替换）
 interface AssetVoice {
@@ -890,7 +909,11 @@ export function Studio({
     return {
       projectName: initialName?.trim() || "未命名大片",
       stepKey: studioSteps.find((s) => s.key === initialStep)?.key ?? "script",
-      script: "", // 新建项目从空开始 → 剧本编辑默认落在第一步「原始创意」，走三步向导
+      script: "",
+      studioInput: "",
+      studioIdea: "",
+      studioSummary: "",
+      scriptType: "自定义场景",
 
       settings: { 模型: "Seedance 1.5 Pro", 视频比例: "16:9", 视频风格: videoStyles[0].name, 视频质量: "480P", 配音: "温柔女声", 配乐: "舒缓", 字幕: "显示", 本地增强: "使用", ...readNewSettingsDraft() },
       totalSec: 12, // 新建默认单镜拉满当前默认模型上限
@@ -982,9 +1005,11 @@ export function Studio({
   const [studioInputRaw, setStudioInput] = useSessionField<string>("studioInput"); // ① 用户需求输入（生成原始创意用，需持久化）
   const [studioIdeaRaw, setStudioIdea] = useSessionField<string>("studioIdea"); // ① 原始创意
   const [studioSummaryRaw, setStudioSummary] = useSessionField<string>("studioSummary"); // ① 镜头摘要
+  const [scriptTypeRaw, setScriptType] = useSessionField<string>("scriptType"); // ① 片子类型，② 清单提取沿用
   const studioInput = studioInputRaw ?? "";
   const studioIdea = studioIdeaRaw ?? "";
   const studioSummary = studioSummaryRaw ?? "";
+  const scriptType = !scriptTypeRaw || scriptTypeRaw === "默认" ? "自定义场景" : scriptTypeRaw;
   // 字幕 CRUD：拖动改位置 / 拖边缘改时长 / 编辑文字 / 增删。start、dur 均钳制在 [0, 总时长]。
   const totalDurAll = () => shots.reduce((a, s) => a + s.dur, 0) || 1;
   function editSubtitle(id: string, patch: Partial<Subtitle>) {
@@ -1247,9 +1272,13 @@ export function Studio({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepKey]);
 
-  // 进③「分镜制作」时，若用户没手动选过生成模式：按②是否已生成元素参考图自动选——
-  // 未生成任何元素图 → 文本生成；已有元素图 → 智能多帧（可用镜头图锁人物一致）。
+  // 进③「分镜制作」：高级模式隐藏时固定「文本生成」；否则按②是否已有元素图自动选。
   useEffect(() => {
+    if (stepKey !== "storyboard" && stepKey !== "clips") return;
+    if (!STUDIO_SHOW_ADVANCED_GEN_MODES) {
+      if (genMode !== "text") setGenMode("text");
+      return;
+    }
     if (stepKey !== "storyboard") return;
     if (genModeTouched) return;
     const liveAssets = (getStudioSnapshot() as { assets?: Asset[] }).assets ?? assets;
@@ -2141,8 +2170,9 @@ export function Studio({
     // 尾帧必须有人物：只要本镜或下一镜有角色，结尾帧就必须清晰留住人物，绝不能收成纯空镜/风景——
     // 否则承接镜的首帧里没有人脸可承接，模型只能把人物凭空重画，跨镜就不一致（这是换主角镜头崩人物的根因）。
     const tailNeedsChar = hasCharInShot || nextChars.length > 0;
-    // 智能多帧模式：每镜独立由自己的镜头图 img2video、不跨镜承接 → 不需要「留住人物给下一镜承接」的尾帧约束。
-    const tailRule = (isChained && genMode !== "smart")
+    // 智能多帧 / 文本：按参考图生成、不跨镜首帧承接 → 不需要「留住人物给下一镜」的尾帧约束。
+    // 首尾帧：衔接靠尾帧图→下一镜首帧图，仍用文案约束本镜收束。
+    const tailRule = (isChained && genMode === "keyframe")
       ? (tailNeedsChar
           ? `。【结尾帧要求·必须有人物】本镜最后 1 秒必须让${tailCharNames || "主要人物"}清晰、稳定、正面地出现在画面中（占据画面主要位置、光线充足、面容清晰、构图稳定，不要背影、不要模糊、不要走出画面，绝不能收成没有人的纯空镜或风景），作为下一镜的首帧，让下一镜承接同一批人物、保持画面连贯一致`
           : "。【结尾帧要求】本镜与下一镜都无人物，最后 1 秒收束在稳定的环境/景物画面，便于自然衔接")
@@ -2152,8 +2182,9 @@ export function Studio({
     const subjectLead = boundChars.length
       ? `【画面主体】本镜必须清晰呈现角色${boundChars.map((a) => `「${a.name}」`).join("、")}：人物清晰出镜、位于画面主要位置、体量足够大、面部清楚可见，是本镜的主角，绝不能拍成没有人物的纯风景空镜。`
       : "";
-    // 承接镜（首帧来自上一镜真实尾帧）：强调画面里已有的人就是上一镜同一批人，绝不换脸换人——首帧承接下保跨镜一致的关键补强。
-    const isChainFrame = !!imageOverride && !opts?.editText?.trim() && genMode !== "smart"; // 智能多帧的首帧是本镜自己的镜头图，非承接上一镜
+    // 承接镜（首帧来自上一镜真实尾帧 / 首尾帧链）：强调画面里已有的人就是上一镜同一批人。
+    // 文本 / 智能多帧走参考图、不传首帧 → 不写承接注记。
+    const isChainFrame = !!imageOverride && !opts?.editText?.trim() && genMode === "keyframe";
     const continuityNote = isChainFrame
       ? "【承接上一镜】本镜首帧承接自上一镜结尾：画面里出现的人物与上一镜是同一批人，保持他们的相貌、发型、发色、年龄、体态、服饰颜色与款式和上一镜一致，始终是同一个人，不要替换成别人或改变造型，只让他们按本镜剧情自然继续动作与表演"
       : "";
@@ -2174,20 +2205,23 @@ export function Studio({
     const prompt = [stylePrefix, continuityNote, subjectLead, `${stripMentions(cur.shotDesc)}${elemText}${editNote}`, speakNote, shotMeta, consistencyNote].filter(Boolean).join("，") + tailRule;
     const generateAudio = settings.配音 !== "不配音" && modelNativeAudio(settings.模型);
 
-    // 首帧 = 外部传入的衔接帧（imageOverride）优先，否则本镜自设首帧图（cur.firstFrame）。imageOverride 由 genShot/genAll 按模式给：
-    //   首尾帧(keyframe)=首帧图（镜头1 自设首帧 / 第 2 镜起上一镜尾帧图）；文本/智能多帧=上一镜真实视频尾帧。
-    // 都没有则纯文生（首镜常见）。参考图「不」作首帧。
-    const imageUrl = imageOverride ?? cur.firstFrame;
-    // 参考图（reference_image）：锁本镜人物/场景/道具外观。
-    // 策略：默认「首帧承接」为跨镜一致的主手段；参考图能否叠加取决于模型能力。
-    //  - 有首帧的镜（第 2 镜起 / 自设首帧）：默认只用首帧承接，不加参考图（Seedance 混用会被网关拒→降级丢参考图）；
-    //    仅当模型支持「首帧 + 参考图」同时使用（modelSupportsFrameAndRef）时，才在首帧之上叠加参考图锁脸。
-    //  - 无首帧的镜（首镜纯文生）：直接注入参考图去锁外观。
-    const refImgUrls = Array.from(new Set(lockElems.filter((a) => a.refImg).map((a) => a.refImg as string)));
-    const referenceImageUrls = imageUrl
-      ? (modelSupportsFrameAndRef(settings.模型) ? refImgUrls : [])
-      : refImgUrls;
-    const tailImageUrl = opts?.tailOverride ?? (genMode === "keyframe" ? cur.lastFrame : undefined);
+    // ── 喂图策略按生成模式 ──
+    // · 文本 / 智能多帧：不传 first_frame，按 reference_image 生成。
+    //   参考图来源：画面描述 @ 绑定的出镜元素参考图（② 用户生成/上传）+ 智能多帧本镜「镜头图」（若有）。
+    // · 首尾帧：传 first_frame + last_frame，按 flf2v 生成（不叠参考图，避免 Seedance 混用拒收）。
+    // · 编辑视频：保留首尾帧约束，中间按 editText 改。
+    const isEditVideo = !!opts?.editText?.trim();
+    const useRefGen = (genMode === "text" || genMode === "smart") && !isEditVideo;
+    const imageUrl = useRefGen ? undefined : (imageOverride ?? cur.firstFrame);
+    const charRefUrls = lockElems.filter((a) => a.kind === "角色" && a.refImg).map((a) => a.refImg as string);
+    const otherRefUrls = lockElems.filter((a) => a.kind !== "角色" && a.refImg).map((a) => a.refImg as string);
+    const smartShotRef = genMode === "smart" && cur.firstFrame ? [cur.firstFrame] : [];
+    const refImgUrls = Array.from(new Set([...charRefUrls, ...otherRefUrls]));
+    // 角色优先 → 本镜镜头图 → 场景/道具；最多 9 张（模型/网关可接受范围）
+    const referenceImageUrls = useRefGen
+      ? Array.from(new Set([...charRefUrls, ...smartShotRef, ...otherRefUrls])).slice(0, 9)
+      : (imageUrl && modelSupportsFrameAndRef(settings.模型) ? refImgUrls : []);
+    const tailImageUrl = opts?.tailOverride ?? (genMode === "keyframe" && !isEditVideo ? cur.lastFrame : undefined);
 
     // ── 参考音色生成（Seedance 2.0 reference_audio）──
     // 本镜有台词 + 出镜角色在②选了音色 → 用其音色把台词合成音频作 reference_audio，模型据此匹配对白嗓音、音画同步。
@@ -2199,8 +2233,9 @@ export function Studio({
     const speakerAsset: Asset | undefined =
       (namedOrSingle?.voice?.id ? namedOrSingle : undefined) || boundChars.find((a) => a.voice?.id);
     let refAudioUri = "";
-    // 触发条件：有台词 + 出镜角色选了音色 + 有可用参考图（本镜镜头图/首帧 或 该角色参考图）
-    if (spoken && speakerAsset?.voice?.id && (imageUrl || speakerAsset.refImg)) {
+    // 触发条件：有台词 + 出镜角色选了音色 + 有可用参考图（镜头图 / 元素参考图）
+    const hasAnyRefForAudio = !!(cur.firstFrame || speakerAsset?.refImg || refImgUrls.length);
+    if (spoken && speakerAsset?.voice?.id && hasAnyRefForAudio) {
       const vt = findVoice(speakerAsset.voice.id)?.tts;
       if (vt) {
         try {
@@ -2231,11 +2266,8 @@ export function Studio({
       }
     }
     const useAudioRef = !!refAudioUri;
-    // 参考音色模式的参考图（作 reference_image，不作首帧，才能与参考音频共存）：
-    //   ① 优先「本镜镜头图/首帧」（imageUrl，智能多帧=已把人物摆进场景，画面最贴）；
-    //   ② 没有镜头图 → 用该说话角色（出镜元素里的对应人物）的参考图；
-    //   ③ 再没有 → 全部出镜元素参考图兜底。
-    const audioRefImgs = imageUrl ? [imageUrl] : (speakerAsset?.refImg ? [speakerAsset.refImg] : refImgUrls);
+    // 参考音色模式的参考图（作 reference_image，不作首帧，才能与参考音频共存）
+    const audioRefImgs = (referenceImageUrls.length ? referenceImageUrls : (speakerAsset?.refImg ? [speakerAsset.refImg] : refImgUrls)).slice(0, 9);
 
     return fetch("/api/video", {
       method: "POST",
@@ -2248,9 +2280,9 @@ export function Studio({
         resolution: qualityToRes(settings.视频质量, settings.模型),
         generateAudio,
         quality: settings.视频质量,
-        // 参考音色模式：镜头图/参考图作 reference_image + 参考音频，不带首帧/尾帧；否则维持原有首帧承接逻辑
-        ...(!useAudioRef && imageUrl ? { imageUrl } : {}),
-        ...(!useAudioRef && tailImageUrl ? { tailImageUrl } : {}),
+        // 参考音色 / 文本·智能多帧：只传参考图；首尾帧 / 编辑：传首尾帧
+        ...(!useAudioRef && !useRefGen && imageUrl ? { imageUrl } : {}),
+        ...(!useAudioRef && !useRefGen && tailImageUrl ? { tailImageUrl } : {}),
         ...((useAudioRef ? audioRefImgs : referenceImageUrls).length ? { referenceImageUrls: useAudioRef ? audioRefImgs : referenceImageUrls } : {}),
         ...(useAudioRef ? { audioUrl: refAudioUri } : {}),
       }),
@@ -2284,10 +2316,9 @@ export function Studio({
       });
   }
 
-  // 逐镜生成（单镜手动触发）。首帧策略按生成模式区分：
-  // - 首尾帧(keyframe)：首帧按「首帧图」——镜头1 用自设首帧，第 2 镜起用上一镜的「尾帧图」（inheritedFirst）；
-  //   尾帧按本镜「尾帧图」。即完全按用户设定的两张图 flf2v，衔接靠「镜头N首帧图 == 镜头N-1尾帧图」（同一张图）保证。
-  // - 文本/智能多帧：第 2 镜起强制无缝——以上一镜生成视频的真实最后一帧作为首帧，保证 N 首帧 == N-1 真实尾帧。
+  // 逐镜生成（单镜手动触发）。喂图策略按生成模式：
+  // - 文本 / 智能多帧：按参考图（@ 出镜元素 + 用户参考图；智能多帧可附带镜头图），不传首帧、不跨镜抽帧承接。
+  // - 首尾帧：镜头1 用自设首帧，第 2 镜起用上一镜尾帧图；尾帧用本镜尾帧图（flf2v）。
   async function genShot(id: string) {
     const liveShots = (getStudioSnapshot() as { shots?: Shot[] }).shots ?? shots;
     const idx = liveShots.findIndex((s) => s.id === id);
@@ -2300,36 +2331,18 @@ export function Studio({
     }
     const prev = idx > 0 ? liveShots[idx - 1] : undefined;
     let chainFrame: string | undefined;
-    if (genMode === "smart") {
-      // 智能多帧：每镜用「自己那张注入角色参考图的镜头图」当首帧，不跨镜承接（一致性已在镜头图阶段锁死）。
-      if (!cur.firstFrame) {
-        setShots((p) => p.map((s) => (s.id === id ? { ...s, status: "failed", pct: 0, failReason: "本镜还没有镜头图，请先点「生成全部镜头图」或单镜「AI 生成」" } : s)));
-        toast("请先为本镜生成镜头图（智能多帧模式）", "warn");
-        return;
-      }
-      chainFrame = cur.firstFrame;
+    if (genMode === "text" || genMode === "smart") {
+      // 按参考图生成：不传 first_frame
+      chainFrame = undefined;
     } else if (genMode === "keyframe") {
       // 首尾帧：首帧按图。镜头1 用自设首帧；第 2 镜起用上一镜尾帧图（与 UI「承接上一镜尾帧」一致）。
       chainFrame = idx > 0 ? prev?.lastFrame : cur.firstFrame;
-    } else if (idx > 0 && prev?.status === "done" && prev.videoUrl) {
-      // 文本/智能多帧的强制无缝：抽上一镜真实尾帧作首帧。
-      setShots((p) => p.map((s) => (s.id === id ? { ...s, status: "gen", pct: 2, failReason: undefined } : s)));
-      const res = await extractLastFrame(prev.videoUrl);
-      chainFrame = res.frame;
-      if (!chainFrame) {
-        // 抽帧失败「不」静默降级为纯文生（那样本镜首帧必然对不上上一镜尾帧）。标记失败让用户重试。
-        const reason = res.reason ?? "未能读取上一镜尾帧，无法衔接，请重试";
-        setShots((p) => p.map((s) => (s.id === id ? { ...s, status: "failed", pct: 0, failReason: reason } : s)));
-        toast(reason, "warn");
-        return;
-      }
     }
-    // 两头无缝：若「后一镜」已有视频（多见于重新生成中间镜头），抽它的真实首帧作本镜尾帧，
-    // 保证 本镜尾帧 == 后一镜首帧，与前一镜首帧衔接一起形成前后都无缝。
-    // 正常顺序生成时后一镜尚未生成，此分支不触发；抽帧失败也不阻断，只是尾端尽力贴合。
+    // 两头无缝：仅首尾帧 / 编辑场景需要；文本·智能多帧不抽下一镜首帧作尾帧。
+    // 若「后一镜」已有视频（多见于重新生成中间镜头），抽它的真实首帧作本镜尾帧。
     const nextShot = liveShots[idx + 1];
     let tailOverride: string | undefined;
-    if (nextShot && nextShot.status === "done" && nextShot.videoUrl) {
+    if (genMode === "keyframe" && nextShot && nextShot.status === "done" && nextShot.videoUrl) {
       setShots((p) => p.map((s) => (s.id === id ? { ...s, status: "gen", pct: 2, failReason: undefined } : s)));
       const nres = await extractLastFrame(nextShot.videoUrl, "first");
       if (nres.frame) tailOverride = nres.frame;
@@ -2406,7 +2419,7 @@ export function Studio({
     }
   }
 
-  // 批量生成：按镜头顺序「依次」生成，每镜完成后抽取尾帧作为下一镜首帧，保证全片画面连贯。
+  // 批量生成：按镜头顺序依次生成。文本/智能多帧按参考图；首尾帧按首尾帧图衔接。
   async function genAll() {
     if (genAllRunning.current) return toast("正在批量生成中，请稍候…", "warn"); // 防重入：正在跑就别再点
     if (genInFlight.current.size > 0) return toast("有镜头正在生成中，请等它完成再批量生成", "warn");
@@ -2418,55 +2431,40 @@ export function Studio({
     // 一致性预检：有「角色」元素但缺参考图 → 各镜人物会长得不一样，先提醒去②生成角色参考图。
     const charsNoRef = assets.filter((a) => a.kind === "角色" && !a.refImg);
     if (charsNoRef.length) {
+      const refHint = genMode === "text" || genMode === "smart"
+        ? "文本/智能多帧按参考图生成，缺角色参考图时人物易不一致。"
+        : "缺角色参考图时，人物在各镜之间会长得不一样。";
       const go = await appConfirm(
-        `有 ${charsNoRef.length} 个角色还没有参考图（${charsNoRef.map((a) => a.name).slice(0, 4).join("、")}${charsNoRef.length > 4 ? "…" : ""}）。缺角色参考图时，人物在各镜之间会长得不一样。建议先到「② 场景角色道具」用「一键生成全部图片」给角色出参考图，再来生成视频。仍要现在生成吗？`
+        `有 ${charsNoRef.length} 个角色还没有参考图（${charsNoRef.map((a) => a.name).slice(0, 4).join("、")}${charsNoRef.length > 4 ? "…" : ""}）。${refHint}建议先到「② 场景角色道具」用「一键生成全部图片」给角色出参考图，再来生成视频。仍要现在生成吗？`
       );
       if (!go) return;
     }
     const vOpts = studioVideoCostOpts(settings);
     const cost = pending.reduce((sum, s) => sum + videoSecondsPoints(s.dur, vOpts), 0);
+    const modeHint =
+      genMode === "keyframe"
+        ? "按首尾帧图依次生成"
+        : "按画面描述中 @ 出镜元素与用户参考图生成（智能多帧可附带本镜镜头图）";
     const ok = await appConfirm(
-      `本次将按顺序依次生成 ${pending.length} 个分镜（真实视频，单镜约 3–4 分钟，后一镜自动衔接前一镜尾帧），预计消耗 ${cost} 算力（按「${resolveVideoModel(settings.模型).name} · ${settings.视频质量 || "720P"}」与各镜时长计价）。是否继续？`
+      `本次将按顺序依次生成 ${pending.length} 个分镜（${modeHint}，真实视频，单镜约 3–4 分钟），预计消耗 ${cost} 算力（按「${resolveVideoModel(settings.模型).name} · ${settings.视频质量 || "720P"}」与各镜时长计价）。是否继续？`
     );
     if (!ok) return;
     genAllRunning.current = true;
     genAllCancelRef.current = false;
     setGenAllBusy(true);
     toast(`已开始按顺序生成 ${pending.length} 个分镜`);
-    // 用当前快照按顺序遍历；靠局部 prevUrl 传递衔接帧，避免依赖异步中的 state
     const snapshot = shots;
-    let prevUrl: string | undefined;
     try {
     for (let k = 0; k < snapshot.length; k++) {
       const s = snapshot[k];
-      if (s.status === "done") {
-        prevUrl = s.videoUrl;
-        continue;
-      }
+      if (s.status === "done") continue;
       if (genAllCancelRef.current) { toast("已暂停批量生成（当前镜头已完成的会保留，可再次点击继续）"); break; } // 「暂停」：停在下一镜之前
       let chain: string | undefined;
-      if (genMode === "smart") {
-        // 智能多帧：每镜用自己那张镜头图当首帧，不承接。缺镜头图则停下提示先生成。
-        if (!s.firstFrame) {
-          setShots((p) => p.map((sh) => (sh.id === s.id ? { ...sh, status: "failed", pct: 0, failReason: "本镜还没有镜头图，请先「生成全部镜头图」" } : sh)));
-          toast(`镜头 ${k + 1} 还没有镜头图，请先点「生成全部镜头图」再批量生成视频`, "warn");
-          break;
-        }
-        chain = s.firstFrame;
+      if (genMode === "text" || genMode === "smart") {
+        chain = undefined; // 按参考图，不传首帧
       } else if (genMode === "keyframe") {
         // 首尾帧：首帧按图——镜头1 用自设首帧，第 2 镜起用上一镜尾帧图（尾帧仍由 runShot 取本镜尾帧图）
         chain = k > 0 ? snapshot[k - 1]?.lastFrame : s.firstFrame;
-      } else if (k > 0 && prevUrl) {
-        // 文本模式的强制无缝：第 2 镜起从上一镜真实尾帧接续，保证镜头 N 首帧 == 镜头 N-1 真实尾帧
-        const res = await extractLastFrame(prevUrl);
-        chain = res.frame;
-        if (!chain) {
-          // 抽帧失败不静默降级为纯文生，否则本镜首帧对不上上一镜尾帧。停止批量、标记失败，让用户重试。
-          const reason = res.reason ?? "未能读取上一镜尾帧，无法衔接，请重试";
-          setShots((p) => p.map((sh) => (sh.id === s.id ? { ...sh, status: "failed", pct: 0, failReason: reason } : sh)));
-          toast(`镜头 ${k + 1}：${reason}（已停止，请重试该镜后继续）`, "warn");
-          break;
-        }
       }
       const url = await runShot(s.id, chain);
       if (!url) {
@@ -2474,8 +2472,7 @@ export function Studio({
         toast(`镜头 ${k + 1} 生成失败，已停止批量生成，请重试该镜后继续`, "warn");
         break;
       }
-      await ensureVideoCached(url); // 本镜先缓存到本地，下一镜抽尾帧直接读本地完整视频，衔接更稳
-      prevUrl = url;
+      await ensureVideoCached(url);
     }
     } finally {
       genAllRunning.current = false;
@@ -2845,8 +2842,7 @@ export function Studio({
     }
   }
 
-  // 只导出字幕（.srt 文件）：把时间轴字幕按 SRT 格式导出，可导入剪辑软件二次使用
-  // 把时间轴字幕拼成 SRT 文本（供「只导出字幕」和「素材包」复用）
+  // 把时间轴字幕拼成 SRT 文本（供剪映素材包等复用）
   function buildSrt(): string {
     const fmt = (t: number) => {
       const ms = Math.max(0, Math.round(t * 1000));
@@ -3149,7 +3145,6 @@ export function Studio({
                   genAllBusy={genAllBusy}
                   stopGenAll={stopGenAll}
                   exportFilm={exportFilm}
-                  exportSubtitles={exportSubtitles}
                   exportAudio={exportAudioOnly}
                   exportClips={exportClips}
                   exportDraft={exportDraftPack}
@@ -3178,6 +3173,8 @@ export function Studio({
                   setStudioIdea={setStudioIdea}
                   studioSummary={studioSummary}
                   setStudioSummary={setStudioSummary}
+                  scriptType={scriptType}
+                  setScriptType={setScriptType}
                 />
               </div>
 
@@ -3208,7 +3205,6 @@ export function Studio({
                   exportFilm={exportFilm}
                   exportDraft={exportDraftPack}
                   exportClips={exportClips}
-                  exportSubtitles={exportSubtitles}
                   autoAlignBusy={autoAlignBusy}
                   exporting={exporting}
                   exportPct={exportPct}
@@ -3277,9 +3273,8 @@ export function Studio({
           settings={settings}
           onSave={(next) => {
             setSettings((s) => ({ ...s, ...next }));
-            // 新模型若不支持当前生成模式，回退到文本生成
-            if (genMode === "smart" && !modelSupportsI2v(next.模型)) setGenMode("text");
-            if (genMode === "keyframe" && !modelSupportsFlf(next.模型)) setGenMode("text");
+            // 新模型若不支持当前生成模式，回退到文本生成；高级模式关闭时一律文本生成
+            if (!STUDIO_SHOW_ADVANCED_GEN_MODES || (genMode === "keyframe" && !modelSupportsFlf(next.模型))) setGenMode("text");
             // 单镜时长超出新模型上限时夹紧
             const cap = studioShotDurCap(next.模型);
             const floor = studioShotDurFloor(next.模型);
@@ -3341,7 +3336,7 @@ function EditProjectModal({
                 : f.opts;
             return (
             <div className="sh-set-field" key={f.label}>
-              <div className="sh-set-label">{f.label}</div>
+              <div className="sh-set-label">{f.title ?? f.label}</div>
               <div className="chip-row">
                 {opts.map((o) => {
                   const on = (draft[f.label] ?? opts[0]) === o;
@@ -3369,7 +3364,7 @@ function EditProjectModal({
                 })}
               </div>
               {f.label === "模型" && (
-                <div className="field-hint" style={{ marginTop: 6 }}>{modelLimitHint(modelName)}</div>
+                <div className="field-hint" style={{ marginTop: 6 }}>{studioGenModeHint(modelName)}</div>
               )}
             </div>
             );
@@ -3506,6 +3501,8 @@ function ScriptStep({
   setSummary,
   styleHint,
   useKB,
+  scriptType,
+  setScriptType,
   rebuildShots,
   setSettings,
   finishRef,
@@ -3522,6 +3519,8 @@ function ScriptStep({
   setSummary: (s: string) => void;
   styleHint: string; // 项目视频风格描述词，注入剧本三阶段生成保持全片文字风格一致
   useKB: boolean; // 是否使用「魔方智绘知识库」生成脚本
+  scriptType: string;
+  setScriptType: (s: string) => void;
   rebuildShots: () => void;
   setSettings: (f: (s: Record<string, string>) => Record<string, string>) => void;
   finishRef?: { current: (() => void) | null }; // 把 finish 暴露给头部「下一步」按钮
@@ -3529,13 +3528,14 @@ function ScriptStep({
   goStep: (k: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [vType, setVType] = useState(SCRIPT_TEMPLATES[0].key); // 片子类型（默认 文旅宣传）
+  const vType = scriptType || "自定义场景";
+  const setVType = setScriptType;
   // 底层：调 /api/generate 流式生成，返回清理后的完整文本；onChunk 可选（实时回填编辑框）。不管理 busy。
   async function runGen(scene: string, inputText: string, onChunk?: (s: string) => void): Promise<string> {
     const resp = await fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scene, input: inputText, styleHint, ...kbFields(useKB) }),
+      body: JSON.stringify({ scene, input: inputText, styleHint, scriptType: vType, ...kbFields(useKB) }),
     });
     if (!resp.ok || !resp.body) {
       const j = (await resp.json().catch(() => ({}))) as { error?: string };
@@ -3594,13 +3594,16 @@ function ScriptStep({
   // 一句话 → 完整镜头脚本：资深编剧一步产出结构化分镜级脚本（studio-script-pro），实时回填右侧脚本框（供③分镜直接拆分）。
   async function genFromInput(text?: string) {
     if (busy) return;
+    if (script.trim()) return toast("右侧已有脚本，请先清空再生成", "warn");
     const q = (text ?? input).trim();
     if (!q) return toast("先用一句话说说：类型 + 故事", "warn");
     const dur = parseTargetDuration(q);
     const durNote = dur
       ? `\n【目标总时长】约 ${dur.min}-${dur.max} 秒。务必让所有镜头的【时长】之和落在 ${dur.min}-${dur.max} 秒区间内——据此合理安排镜头数量与每镜时长（单镜不低于 4 秒，一般 4-8 秒），镜头数 ≈ 目标秒数 ÷ 5；绝不能因每镜过短导致总时长严重不足。`
       : "";
-    const typed = `【片子类型】${vType}\n【需求】${q}${durNote}`;
+    const typed = vType && vType !== "自定义场景" && vType !== "默认"
+      ? `【片子类型】${vType}\n【需求】${q}${durNote}`
+      : `${q}${durNote}`;
     setBusy(true);
     setScript("");
     try {
@@ -3699,14 +3702,21 @@ function ScriptStep({
               value={input}
               placeholder="一句话描述：类型 + 故事，例如：给西安做一个面向学生的暑期文旅宣传片"
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); genFromInput(); } }}
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (!script.trim()) genFromInput(); } }}
             />
             <div className="script2-input-row">
               <select className="script2-type" value={vType} onChange={(e) => setVType(e.target.value)} title="片子类型">
+                <option value="自定义场景">自定义场景</option>
                 {SCRIPT_TEMPLATES.map((t) => <option key={t.key} value={t.key}>{t.key}</option>)}
               </select>
               <span className="script2-input-hint" />
-              <button className="script2-send" type="button" disabled={busy} onClick={() => genFromInput()} title="生成完整镜头脚本">
+              <button
+                className="script2-send"
+                type="button"
+                disabled={busy || !!script.trim()}
+                onClick={() => genFromInput()}
+                title={script.trim() ? "右侧已有脚本，清空后再生成" : "生成完整镜头脚本"}
+              >
                 {busy ? (
                   <>
                     <Icon name="refresh" size={15} className="ico-spin" /> 生成中…
@@ -3738,11 +3748,11 @@ function ScriptStep({
           </div>
           <div className="script2-out-body">
             {busy && !script.trim() && <div className="script2-out-busy"><Icon name="refresh" size={14} className="ico-spin" /> 正在生成完整镜头脚本…</div>}
-            <AutoGrowTextarea
+            <textarea
               className="script2-body"
               value={script}
               placeholder={"已有脚本？粘贴到这里，或拖拽文件到这里上传\n支持 .txt / .docx 格式（PDF 请先转成 TXT/DOCX）\n\n或在左侧用一句话生成完整镜头脚本"}
-              onChange={setScript}
+              onChange={(e) => setScript(e.target.value)}
             />
           </div>
         </div>
@@ -3866,7 +3876,6 @@ function StudioStepView(props: {
   genAllBusy: boolean; // 批量生成视频运行态
   stopGenAll: () => void; // 暂停批量生成视频
   exportFilm: (opts?: { subtitles: boolean; audio: boolean }) => void;
-  exportSubtitles: () => void;
   exportAudio: () => void;
   exportClips: () => void; // 重新导出全部分镜素材
   exportDraft: () => void; // 导出剪映素材包（片段+字幕）
@@ -3895,6 +3904,8 @@ function StudioStepView(props: {
   setStudioIdea: (s: string) => void;
   studioSummary: string;
   setStudioSummary: (s: string) => void;
+  scriptType: string;
+  setScriptType: (s: string) => void;
 }) {
   const { goStep, toast } = props;
   // ③ 分镜制作（脚本+视频三栏合一）：当前选中的镜头 id（底部分镜条选中 → 中间预览 + 右侧脚本）
@@ -3918,6 +3929,8 @@ function StudioStepView(props: {
         setSummary={props.setStudioSummary}
         styleHint={videoStyles.find((v) => v.name === props.settings.视频风格)?.stylePrompt ?? ""}
         useKB={settingsUseRegionEnhance(props.settings)}
+        scriptType={props.scriptType}
+        setScriptType={props.setScriptType}
         rebuildShots={props.rebuildShots}
         setSettings={props.setSettings}
         finishRef={props.scriptFinishRef}
@@ -3939,6 +3952,7 @@ function StudioStepView(props: {
         })}
         script={props.script}
         stylePrompt={videoStyles.find((v) => v.name === props.settings.视频风格)?.stylePrompt ?? ""}
+        scriptType={props.scriptType}
         genSettings={props.assetGenSettings}
         setGenSettings={props.setAssetGenSettings}
         genAllImages={props.genAllImages}
@@ -3962,45 +3976,42 @@ function StudioStepView(props: {
         <div className="sbm-body">
         <div className="sp-genmode">
           <span className="sp-setlbl">生成模式</span>
-          <span className={props.genMode === "text" ? "sel-chip on" : "sel-chip"} onClick={() => props.setGenMode("text")}>文本生成</span>
-          <span
-            className={props.genMode === "smart" ? "sel-chip on" : "sel-chip"}
-            style={modelSupportsI2v(props.settings.模型) ? undefined : { opacity: 0.4, cursor: "not-allowed" }}
-            title={modelSupportsI2v(props.settings.模型) ? undefined : `${resolveVideoModel(props.settings.模型).name} 不支持图生视频`}
-            onClick={() => {
-              if (!modelSupportsI2v(props.settings.模型)) {
-                toast(`${resolveVideoModel(props.settings.模型).name} 不支持智能多帧（需图生），请更换模型`, "warn");
-                return;
-              }
-              props.setGenMode("smart");
-            }}
-          >
-            智能多帧
-          </span>
-          <span
-            className={props.genMode === "keyframe" ? "sel-chip on" : "sel-chip"}
-            style={modelSupportsFlf(props.settings.模型) ? undefined : { opacity: 0.4, cursor: "not-allowed" }}
-            title={modelSupportsFlf(props.settings.模型) ? undefined : `${resolveVideoModel(props.settings.模型).name} 不支持首尾帧`}
-            onClick={() => {
-              if (!modelSupportsFlf(props.settings.模型)) {
-                toast(`${resolveVideoModel(props.settings.模型).name} 不支持首尾帧，请更换模型`, "warn");
-                return;
-              }
-              props.setGenMode("keyframe");
-            }}
-          >
-            首尾帧
-          </span>
-          <span className="field-hint" style={{ marginLeft: 8 }}>{modelLimitHint(props.settings.模型)}</span>
+          <span className={props.genMode === "text" ? "sel-chip on" : "sel-chip"} onClick={() => props.setGenMode("text")} title="按画面描述与 @ 出镜元素参考图生成">文本生成</span>
+          {STUDIO_SHOW_ADVANCED_GEN_MODES && (
+            <>
+              <span
+                className={props.genMode === "smart" ? "sel-chip on" : "sel-chip"}
+                title="按 @ 出镜元素参考图生成，可附带本镜镜头图作额外参考"
+                onClick={() => props.setGenMode("smart")}
+              >
+                智能多帧
+              </span>
+              <span
+                className={props.genMode === "keyframe" ? "sel-chip on" : "sel-chip"}
+                style={modelSupportsFlf(props.settings.模型) ? undefined : { opacity: 0.4, cursor: "not-allowed" }}
+                title={modelSupportsFlf(props.settings.模型) ? undefined : `${resolveVideoModel(props.settings.模型).name} 不支持首尾帧`}
+                onClick={() => {
+                  if (!modelSupportsFlf(props.settings.模型)) {
+                    toast(`${resolveVideoModel(props.settings.模型).name} 不支持首尾帧，请更换模型`, "warn");
+                    return;
+                  }
+                  props.setGenMode("keyframe");
+                }}
+              >
+                首尾帧
+              </span>
+            </>
+          )}
+          <span className="field-hint" style={{ marginLeft: 8 }}>{studioGenModeHint(props.settings.模型)}</span>
           {/* 出镜元素识别中提示 */}
           {props.elemMatchBusy && (
             <span className="sb-recog-hint" title="正在自动识别每镜出现的场景/角色/道具并补齐绑定">
               <Icon name="refresh" size={14} className="ico-spin" /> AI 识别出镜元素中…
             </span>
           )}
-          {/* 右侧按钮组：镜头图（智能多帧）在左、批量生成全部视频在右 */}
+          {/* 右侧按钮组：镜头图（智能多帧，暂隐）在左、批量生成全部视频在右 */}
           <div className="sbm-genbtns-right">
-            {props.genMode === "smart" && (
+            {STUDIO_SHOW_ADVANCED_GEN_MODES && props.genMode === "smart" && (
               props.kfBusy ? (
                 <button className="btn btn-soft btn-sm" onClick={props.stopGenKeyframes}>
                   <Icon name="refresh" size={14} className="ico-spin" /> 生成镜头图 {props.kfProg.done}/{props.kfProg.total} · 点击停止
@@ -4020,7 +4031,7 @@ function StudioStepView(props: {
                     />
                   </button>
                 ) : (
-                  <button className="btn btn-primary btn-sm" onClick={() => props.genAllKeyframes(false)} title="为还没镜头图的镜头生成锁人物镜头图">
+                  <button className="btn btn-primary btn-sm" onClick={() => props.genAllKeyframes(false)} title="为还没镜头图的镜头生成参考镜头图（可选，生成视频时作附加参考）">
                     生成全部镜头图{" "}
                     <PointsCost
                       amount={multiImagePoints(
@@ -4095,7 +4106,7 @@ function StudioStepView(props: {
                   <div className="sbm-acts">
                     <span className="sbm-acts-title">镜头 {selIdx + 1}</span>
                     {sel.status === "done" && sel.videoUrl && (
-                      <button className="btn btn-ghost btn-sm" title="编辑视频：保持首尾帧不变，修改中间画面" onClick={() => props.onEditVideo(sel)}>
+                      <button className="btn btn-ghost btn-sm" title="编辑视频：修改中间画面" onClick={() => props.onEditVideo(sel)}>
                         编辑
                       </button>
                     )}
@@ -4133,9 +4144,9 @@ function StudioStepView(props: {
           <div className="sbm-right">
             {sel ? (
               <>
-                {(props.genMode === "smart" || props.genMode === "keyframe") && (
+                {STUDIO_SHOW_ADVANCED_GEN_MODES && (props.genMode === "smart" || props.genMode === "keyframe") && (
                   <div className="sb-frames">
-                    <span className="sb-assets-lbl">{props.genMode === "keyframe" ? "首尾帧" : "锁人物镜头图"}</span>
+                    <span className="sb-assets-lbl">{props.genMode === "keyframe" ? "首尾帧" : "参考镜头图（可选）"}</span>
                     <ShotFrames
                       shot={sel}
                       mode={props.genMode === "keyframe" ? "keyframe" : "smart"}
@@ -4851,6 +4862,7 @@ function AssetsStep({
   onAssetRemoved,
   script,
   stylePrompt,
+  scriptType,
   genSettings,
   setGenSettings,
   genAllImages,
@@ -4868,6 +4880,7 @@ function AssetsStep({
   onAssetRemoved: (id: string, name: string) => void; // 删元素时清理所有镜头的绑定 + 画面描述里的 @名字
   script: string;
   stylePrompt: string; // 项目视频风格的画面描述词（智能匹配为空），生图/改图时注入保持整体风格一致
+  scriptType: string;
   genSettings: Record<string, AssetGenSetting>;
   setGenSettings: (updater: Record<string, AssetGenSetting> | ((p: Record<string, AssetGenSetting>) => Record<string, AssetGenSetting>)) => void;
   genAllImages: (redoAll?: boolean, skipConfirm?: boolean) => void; // 一键生成全部参考图（提升到 Studio，切步骤/页面后台仍继续）
@@ -4907,7 +4920,7 @@ function AssetsStep({
       const resp = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scene: "studio-assets", input: script, styleHint: stylePrompt, ...studioKbFields() }),
+        body: JSON.stringify({ scene: "studio-assets", input: script, styleHint: stylePrompt, scriptType, ...studioKbFields() }),
       });
       if (!resp.ok || !resp.body) {
         const j = (await resp.json().catch(() => ({}))) as { error?: string };
@@ -5277,7 +5290,7 @@ function AssetCardEdit({
       <div className={`sp-card2-img${uploadMenu ? " sp-card2-img--menu" : ""}`}>
         {asset.refImg ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={asset.refImg} alt={asset.name} onClick={(e) => { e.stopPropagation(); setZoom(true); }} />
+          <img src={asset.refImg} alt={asset.name} title="点击查看大图" onClick={(e) => { e.stopPropagation(); setZoom(true); }} />
         ) : (
           <span className="sp-card2-ph">
             <Icon
@@ -6723,11 +6736,11 @@ function ShotFrames({
       openLibraryPicker={openLibraryPicker}
     />
   );
-  // 智能多帧：每镜一张镜头图（用 firstFrame 存）。强制无缝下第 2 镜起首帧由上一镜尾帧接续 → 只读继承，不再可编辑。
+  // 智能多帧：每镜可选一张镜头图（用 firstFrame 存），作 reference_image 附加参考，不作首帧；不强制跨镜承接。
   if (mode === "smart") {
     return (
       <>
-        <div className="sf-row">{isFirst ? editableSlot("first", shot.firstFrame, firstRef, "镜头图") : inheritedFirst}</div>
+        <div className="sf-row">{editableSlot("first", shot.firstFrame, firstRef, "镜头图")}</div>
         {frameModal}
         {frameZoom}
       </>
@@ -6775,7 +6788,6 @@ function Timeline({
   exportFilm,
   exportDraft,
   exportClips,
-  exportSubtitles,
   autoAlignBusy = false,
   exporting,
   exportPct,
@@ -6805,7 +6817,6 @@ function Timeline({
   exportFilm: (opts?: { subtitles: boolean; audio: boolean }) => void; // 导出成片
   exportDraft: () => void; // 导出剪映素材包
   exportClips: () => void; // 重新导出全部分镜素材
-  exportSubtitles: () => void; // 只导出字幕(.srt)
   autoAlignBusy?: boolean;
   exporting: boolean; // 导出进行中
   exportPct: number; // 导出进度百分比
@@ -6939,7 +6950,7 @@ function Timeline({
 
   return (
     <div className="tl2">
-      {/* 右上角「导出 ▾」：合成成片 / 剪映素材包 / 素材 / 字幕 */}
+      {/* 右上角「导出 ▾」：成片 / 剪映素材包 / 重新导出素材 */}
       <div className="tl2-export">
         <button className="btn btn-primary btn-sm" disabled={exporting} onClick={() => setExportMenu((v) => !v)}>
           {exporting ? `导出中 ${exportPct}%` : "导出 ▾"}
@@ -6956,10 +6967,6 @@ function Timeline({
               </button>
               <button className="sp-export-item" onClick={() => { setExportMenu(false); exportClips(); }}>
                 <span className="sp-export-it"><b>重新导出素材</b><small>把全部分镜片段逐个下载到本地</small></span>
-              </button>
-              <div className="sp-export-sep" />
-              <button className="sp-export-item sp-export-item-sm" onClick={() => { setExportMenu(false); exportSubtitles(); }}>
-                <span className="sp-export-it"><b>只导出字幕（.srt）</b></span>
               </button>
             </div>
           </>

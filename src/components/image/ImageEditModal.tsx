@@ -6,7 +6,7 @@ import type { IconName } from "@/data/icons";
 import { useToast } from "@/components/ui/Toast";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
-import { imgToDataUrl, displaySrc } from "@/lib/image";
+import { imgToDataUrl, displaySrc, seedreamOutputSize } from "@/lib/image";
 import { imageTools } from "@/data/image";
 import { DeepEditModal } from "./DeepEditModal";
 import { PointsCost } from "@/components/ui/PointsCost";
@@ -119,10 +119,8 @@ export function ImageEditModal({
     } else if (toolKey === "expand") {
       const w = Math.max(512, Number(expandW) || 2048);
       const h = Math.max(512, Number(expandH) || 2048);
-      // 保持目标宽高比，放大到 ≥369 万像素
-      const scl = Math.sqrt(3686400 / (w * h));
-      const r8 = (n: number) => Math.ceil((n * Math.max(1, scl)) / 8) * 8;
-      size = `${r8(w)}x${r8(h)}`;
+      // 保持目标宽高比，按 Seedream 规则放大到 ≥369 万像素
+      size = seedreamOutputSize(w, h);
       prompt += `（目标画面比例约 ${w}:${h}）`;
     }
     const r = await fetch("/api/image", {
