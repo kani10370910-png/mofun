@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, type CSSProperties } from "react";
+import { GeneratingSlot } from "@/components/ui/GeneratingSlot";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { activeGalleryItems, flyerRatios, imageRatios, posterRatios, rollupRatios } from "@/data/image";
@@ -37,21 +38,6 @@ export interface EventRunRow {
   useLora?: boolean;
   /** 本次是否开启知识库（用于历史角标展示） */
   useKB?: boolean;
-}
-
-const EVENT_LOAD_PHASES_BASE = [
-  "正在构思画面…",
-  "AI 正在排版构图…",
-  "细化视觉细节中，稍等片刻…",
-  "即将完成，请耐心等待…",
-];
-
-function eventLoadPhases(regionEnhance: boolean, useLora?: boolean) {
-  if (!regionEnhance) return EVENT_LOAD_PHASES_BASE;
-  return [
-    useLora ? "正在应用本地 Lora 与知识库…" : "正在引用本地知识库…",
-    ...EVENT_LOAD_PHASES_BASE,
-  ];
 }
 
 // 按生成时间分组标题：今天 / 昨天 / 更早
@@ -313,10 +299,7 @@ export function ActiveGallery({
                   // eslint-disable-next-line @next/next/no-img-element
                   <img className="ag-img" src={assetUrl(caseImg)} alt={it.name} loading="lazy" />
                 ) : loading ? (
-                  <span className="ag-case-loading">
-                    <Icon name="sparkle" size={28} />
-                    <em>AI 生成中…</em>
-                  </span>
+                  <GeneratingSlot fill />
                 ) : it.emoji ? (
                   <span className="ag-emoji">{it.emoji}</span>
                 ) : null}
@@ -395,15 +378,6 @@ function EventRunRowView({
   const nativeRatio = workTag === "活动";
   const aspect = nativeRatio ? ratioToAspect(row.ratioName, row.customW, row.customH) : undefined;
   const cardStyle = aspect ? { aspectRatio: aspect } : undefined;
-  const useRegion = row.regionEnhance === true;
-  const phases = eventLoadPhases(useRegion, row.regionLora);
-  const [phaseIdx, setPhaseIdx] = useState(0);
-  useEffect(() => {
-    if (!loading) return;
-    setPhaseIdx(0);
-    const t = window.setInterval(() => setPhaseIdx((p) => (p + 1) % phases.length), 8_000);
-    return () => window.clearInterval(t);
-  }, [loading, phases.length]);
   // 完成后按收藏筛选；加载中/错误行不筛（保留进度占位/错误展示）
   const cells = row.grads.map((g, i) => ({ g, i, key: `${row.id}-${i}` }));
   const shown = !loading && !row.error && onlyFav ? cells.filter(({ key }) => favs.has(key)) : cells;
@@ -423,7 +397,7 @@ function EventRunRowView({
               : row.ratioName}
           </span>
         )}
-        {useRegion && (
+        {row.regionEnhance && (
           <RegionEnhanceBadge
             regionId={row.regionId}
             useLora={row.useLora ?? row.regionLora ?? row.regionEnhance}
@@ -446,13 +420,11 @@ function EventRunRowView({
       <div className={`lh-imgs${nativeRatio ? " lh-imgs-native" : ""}`}>
         {shown.map(({ g, i, key }) =>
           loading ? (
-            <div className={`lh-img ${g} lh-loading${nativeRatio ? " ev-native" : ""}`} key={i} style={cardStyle}>
-              <span className="lh-progress">{row.pct}%完成</span>
-              <span className="lh-think">
-                <Icon name="sparkle" size={22} />
-                <em>{phases[phaseIdx]}</em>
-              </span>
-            </div>
+            <GeneratingSlot
+              key={i}
+              className={`lh-img${nativeRatio ? " ev-native" : ""}`}
+              aspect={aspect || "1 / 1"}
+            />
           ) : row.error ? (
             <div className={`lh-img ${g}${nativeRatio ? " ev-native" : ""}`} key={i} style={{ ...cardStyle, display: "grid", placeItems: "center", padding: 12, textAlign: "center" }}>
               <span className="lh-fail">{row.error}</span>
@@ -507,7 +479,7 @@ function EventResultCard({
   const [reloadKey, setReloadKey] = useState(0); // 强制重新加载图片
 
   const card = (kind: string): AssetCard => ({
-    emoji: "🎨",
+    emoji: "",
     grad: grad as AssetCard["grad"],
     kind,
     name: `${name.slice(0, 12) || `${workTag}图`} · ${workTag} ${index}`,
@@ -545,7 +517,7 @@ function EventResultCard({
   if (!img) {
     return (
       <div className={`lh-img ${grad}${nativeCls}`} style={{ display: "grid", placeItems: "center", ...cardStyle }}>
-        <span className="lh-emoji" title="该张生成失败">⚠️</span>
+        <span className="lh-emoji" title="该张生成失败"></span>
       </div>
     );
   }

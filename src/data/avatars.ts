@@ -35,7 +35,7 @@ export const AVATAR_PRESETS: AvatarPreset[] = [
     tags: ["文旅宣传", "景区介绍", "旅游推荐"],
     gender: "男",
     age: "青年",
-    emoji: "🧑‍🦱",
+    emoji: "",
     grad: "linear-gradient(135deg,#43a47b 0%,#2d8b65 100%)",
     cover: "/avatars/av1.jpg",
     cut: "/avatars/av1-cut.png",
@@ -50,7 +50,7 @@ export const AVATAR_PRESETS: AvatarPreset[] = [
     tags: ["农产品", "种植技术", "农情播报"],
     gender: "女",
     age: "中年",
-    emoji: "👩‍🌾",
+    emoji: "",
     grad: "linear-gradient(135deg,#f5a623 0%,#e8861c 100%)",
     cover: "/avatars/av2.jpg", // 模型生成的农技推广全身像（稻田实景）
     demo: "/avatars-video/av2.mp4", // 悬停预览口播 demo（wan2.2 s2v 生成，头肩口播）

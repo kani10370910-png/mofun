@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { EditorRail, type RailItem } from "@/components/ui/EditorRail";
 import { GenModal } from "@/components/ui/GenModal";
 import { useToast } from "@/components/ui/Toast";
+import { useAuth } from "@/lib/AuthContext";
 import { useSimGenerate } from "@/lib/useSimGenerate";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
@@ -17,10 +19,18 @@ import { genStages } from "@/data/genStages";
 import { VID_ICON } from "@/data/icons";
 import type { IconName } from "@/data/icons";
 import type { VideoType } from "@/lib/types";
-import { Studio } from "./Studio";
 import { StudioHome } from "./StudioHome";
 import { OnelineVideo } from "./OnelineVideo";
 import { AvatarEditor } from "./AvatarEditor";
+
+const Studio = dynamic(() => import("./Studio").then((m) => m.Studio), {
+  ssr: false,
+  loading: () => (
+    <div className="page studio" style={{ minHeight: "calc(100vh - 72px)", display: "grid", placeItems: "center" }}>
+      <p style={{ color: "var(--c-muted)", fontSize: 14, margin: 0 }}>正在打开项目…</p>
+    </div>
+  ),
+});
 
 const iconOf = (k: string): IconName => VID_ICON[k] ?? "video";
 const MOTION = (v: number) => (v < 33 ? "轻微" : v < 67 ? "适中" : "强烈");
@@ -42,26 +52,31 @@ export function VideoEditor({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const { economyRev } = useAuth();
+  void economyRev;
   const sim = useSimGenerate();
   const { addWork } = useLibrary();
 
   // 「制作大片」：sub === "studio"（首页）或 "studio:step"（编辑器）
   const isStudio = initialSub === "studio" || (initialSub ?? "").startsWith("studio");
-  // 进入编辑器的条件：带步骤后缀（studio:step）、从生成历史进入、或从首页点项目进入；
-  // 否则（裸 studio）展示制作大片首页（轮播 + 项目文件夹 + 模板）。
+  // 进入编辑器：带步骤后缀、从生成历史进入、或从首页点了具体项目（必须带 pid/name）。
+  // 空的 from= / 只有 from=home 没有项目 id 时回到制作大片首页，避免白屏。
+  const from = (initialFrom || "").trim();
   const openStudioEditor =
-    (initialSub ?? "").startsWith("studio:") || initialFrom === "history" || initialFrom === "home";
+    (initialSub ?? "").startsWith("studio:") ||
+    from === "history" ||
+    (from === "home" && Boolean(initialPid?.trim() || initialName?.trim()));
   // 当前视频类型完全以 URL（initialSub）为准，避免本地 state 与 URL 冲突导致切不出 Studio
   const current = isStudio ? "studio" : videoTypes.find((t) => t.key === initialSub)?.key ?? videoTypes[0].key;
 
   const [input, setInput] = useState(
-    initialInput || "安吉明前白茶产品介绍：海拔800米高山茶园产地、氨基酸高鲜爽回甘的特点、限量预订产地直发的购买方式"
+    initialInput || "萧山杨梅产品介绍：杜家杨梅林产地、紫红饱满核小肉厚酸甜爆汁的特点、限量预订产地直发的购买方式"
   );
   const [camera, setCamera] = useState("自动运镜（AI 智能匹配）");
   const [motion, setMotion] = useState(50);
   const [dur, setDur] = useState("5s");
   const [advOpen, setAdvOpen] = useState(false);
-  const [advPrompt, setAdvPrompt] = useState("航拍俯瞰高山茶园，晨雾逆光，暖色调，浅景深特写嫩芽");
+  const [advPrompt, setAdvPrompt] = useState("航拍俯瞰杨梅林，晨雾逆光，暖色调，浅景深特写紫红鲜果");
   const [result, setResult] = useState<VideoType | null>(null);
 
   const railItems: RailItem[] = videoTypes.map((t) => ({ key: t.key, name: t.name }));
@@ -81,22 +96,21 @@ export function VideoEditor({
           iconOf={iconOf}
           onPickType={switchType}
           onOpen={(pid, name) =>
-            router.push(
-              `/video?sub=studio:script&from=home&pid=${encodeURIComponent(pid)}${name ? `&name=${encodeURIComponent(name)}` : ""}`
-            )
+            router.push(`/video?sub=studio&from=home&pid=${encodeURIComponent(pid)}${name ? `&name=${encodeURIComponent(name)}` : ""}`)
           }
         />
       );
     }
     return (
       <Studio
+        key={initialPid || initialName || "studio"}
         initialStep={(initialSub ?? "").split(":")[1] || "script"}
         initialName={initialName}
         initialPid={initialPid}
         railItems={railItems}
         iconOf={iconOf}
         onPickType={switchType}
-        showBack={initialFrom === "history" || initialFrom === "home"}
+        showBack={from === "history" || from === "home"}
       />
     );
   }
@@ -137,7 +151,7 @@ export function VideoEditor({
       setResult(type);
       const name = (input.trim().slice(0, 12) || type.name) + ` ${dur}`;
       addWork({
-        emoji: "🎬",
+        emoji: "",
         grad: "thumb-grad-3",
         kind: "视频",
         name,
@@ -289,11 +303,11 @@ function VideoResultView({
     <>
       <div className="result-card">
         <div className="result-head">
-          <span className="rh-title">🎬 {type.name} · 预览</span>
+          <span className="rh-title">{type.name} · 预览</span>
           <span className="tag green">{dur}</span>
         </div>
         <div className="video-result thumb-grad-3">
-          <div className="play">▶</div>
+          <div className="play"></div>
           <span className="vr-dur">{durLabel}</span>
         </div>
         <div className="result-foot" style={{ flexWrap: "wrap" }}>
@@ -307,8 +321,8 @@ function VideoResultView({
             改字幕/配乐
           </button>
           <button className="btn btn-primary btn-sm" onClick={() => toast("已存入个人仓库（演示）")}>
-            📦 存入个人仓库
-          </button>
+ 存入个人仓库
+ </button>
         </div>
       </div>
       <div className="param-recap">

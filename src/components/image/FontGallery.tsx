@@ -6,6 +6,7 @@ import { useToast } from "@/components/ui/Toast";
 import { fontCases, fontStories, fontHistory } from "@/data/image";
 import type { FontCase, FontStory, Grad, AssetCard, FontHistoryGroup } from "@/lib/types";
 import { nowStamp } from "@/lib/datetime";
+import { GeneratingSlot } from "@/components/ui/GeneratingSlot";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { FontEditModal } from "./FontEditModal";
 import { ResultCardActions } from "./ResultCardActions";
@@ -30,13 +31,6 @@ export interface FontRunRow {
   error?: string;
   results: { grad: Grad; img?: string }[];
 }
-
-const FONT_LOAD_PHASES = [
-  "正在生成字体…",
-  "AI 正在调配笔触…",
-  "细化字形中…",
-  "即将完成，请稍等…",
-];
 
 // 按生成时间算分组标题：今天 / 昨天 / 更早（月-日 时:分）
 function groupLabel(time: string): string {
@@ -404,14 +398,10 @@ function FontRunRowView({
         {shown.map(({ r, i, key }) =>
           loading ? (
             <div
-              className={`font-hist-card lh-loading ${row.dir.includes("竖") ? "is-vert" : ""} ${r.grad}`}
+              className={`font-hist-card ${row.dir.includes("竖") ? "is-vert" : ""}`}
               key={i}
             >
-              <span className="lh-progress">{row.pct}%完成</span>
-              <span className="lh-think">
-                <span className="font-spinner" />
-                <em>{FONT_LOAD_PHASES[row.loadingPhase ?? 0]}</em>
-              </span>
+              <GeneratingSlot fill />
             </div>
           ) : row.error ? (
             <div
@@ -470,7 +460,7 @@ function FontResultCard({
   /** 收白边后的预览；失败则退回原图 */
   const [tightSrc, setTightSrc] = useState<string | null>(null);
   const asset = (kind: string): AssetCard => ({
-    emoji: "🔤",
+    emoji: "",
     grad: grad as AssetCard["grad"],
     kind,
     name: `${text} · 艺术字 ${index}`,

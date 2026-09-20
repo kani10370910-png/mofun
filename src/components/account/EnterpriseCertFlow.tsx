@@ -5,6 +5,8 @@ import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { useAuth } from "@/lib/AuthContext";
 import { resolveRegionIdFromText } from "@/data/regionAssets";
+import { loadPointsWallet, pointsToAuthPatch } from "@/lib/points";
+import { addOwnedIdentity, canCreateOwnedEnterprise, identityUserPatch } from "@/lib/identity";
 
 type CertStep = "intro" | "detect" | "verify" | "entity" | "done";
 
@@ -32,7 +34,7 @@ const FAQ_ITEMS: { q: string; a: string }[] = [
   },
   {
     q: "可以中途撤回吗？",
-    a: "可以。在主体变更完成前可随时关闭流程或在组织信息中退出认证，账号恢复为个人版。",
+    a: "可以。在主体变更完成前可随时关闭流程或在个人信息中退出认证，账号恢复为个人版。",
   },
   {
     q: "原认证主体校验要填什么？",
@@ -48,7 +50,7 @@ const FAQ_ITEMS: { q: string; a: string }[] = [
   },
   {
     q: "认证失败或信息填错怎么办？",
-    a: "可返回上一步修改后重提；已升级成功的可在组织信息点击「退出认证」恢复个人版后再重新发起。",
+    a: "可返回上一步修改后重提；已升级成功的可在个人信息点击「退出认证」恢复个人版后再重新发起。",
   },
 ];
 
@@ -62,7 +64,7 @@ export function EnterpriseCertFlow({
   defaultName?: string;
 }) {
   const toast = useToast();
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, switchIdentity } = useAuth();
   const [step, setStep] = useState<CertStep>("intro");
   const [agreed, setAgreed] = useState(false);
   const [showAgree, setShowAgree] = useState(false);
@@ -115,8 +117,8 @@ export function EnterpriseCertFlow({
   if (!open) return null;
 
   function startDetect() {
-    if (!user?.personalVerified) {
-      toast("请先完成个人实名认证后再变更企业主体", "warn");
+    if (!canCreateOwnedEnterprise(user)) {
+      toast("每个手机号最多自建 1 家企业，可切换到已有企业身份使用", "warn");
       onClose();
       return;
     }
@@ -174,24 +176,35 @@ export function EnterpriseCertFlow({
     }
     setBusy(true);
     window.setTimeout(() => {
+      if (!user) {
+        setBusy(false);
+        toast("请先登录", "warn");
+        return;
+      }
       const name = companyName.trim();
       const regionId = resolveRegionIdFromText([address, name].join(" "));
+      const companyId =
+        user.phone && /^1\d{10}$/.test(user.phone)
+          ? `ENT-${user.phone.slice(-8)}`
+          : `ENT-${(user.userId || Date.now().toString(36)).replace(/\W/g, "").slice(-8)}`;
+      const ident = addOwnedIdentity(user, { name, companyId });
+      const wallet = loadPointsWallet(ident.id, { enterprise: true });
       updateUser({
-        enterpriseVerified: true,
+        ...identityUserPatch(user, ident),
+        ...pointsToAuthPatch(wallet),
         personalVerified: true,
         orgName: name,
         company: name,
         address,
         regionId,
-        realName: legalName.trim() || realName.trim() || user?.realName,
-        planLabel: "企业版",
-        roleBadge: "企业版",
-        roleTitle: "企业管理员",
+        realName: legalName.trim() || realName.trim() || user.realName,
         memberCount: "1/10",
+        companyId,
       });
+      switchIdentity(ident.id);
       setBusy(false);
       setStep("done");
-      toast("企业认证已完成，已升级为企业版");
+      toast("企业已创建，个人空间仍保留，可在顶栏切换身份");
     }, 500);
   }
 
@@ -415,7 +428,7 @@ export function EnterpriseCertFlow({
             <div className="am-cert-done-ico">✓</div>
             <h4 className="am-cert-section-title">主体变更完成</h4>
             <p className="am-cert-hero-sub">
-              已变更为企业认证，账号升级为「企业版」。可在组织信息与成员管理中管理企业成员。
+              已创建企业身份，个人空间仍保留。可在顶栏切换工作身份，并在成员管理中管理企业成员。
             </p>
             <button type="button" className="am-cert-primary" onClick={onClose}>
               完成

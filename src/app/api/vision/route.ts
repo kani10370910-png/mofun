@@ -1,5 +1,9 @@
 import { NextRequest } from "next/server";
 import { hydrateKbFields } from "@/lib/kbServer";
+import { AGENT } from "@/lib/agentCodes";
+import { agentCanRun, fetchAgentByCode, firstNodeModel, workflowOrigin } from "@/lib/opsAgents";
+import { executeAgentWorkflow } from "@/lib/workflow/execute";
+import { fetchOpsModelCreds, openaiCompatBase, opsApiKey } from "@/lib/opsModels";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,7 +14,7 @@ export const dynamic = "force-dynamic";
    走视觉网关（默认复用图像网关 anyfast 的 Key/BaseURL，可用 VISION_* 覆盖）：
    - VISION_API_KEY  | 回退 IMAGE_API_KEY
    - VISION_BASE_URL | 回退 IMAGE_BASE_URL
-   - VISION_MODEL    | 默认 doubao-seed-1-6-250615（豆包视觉），按网关支持的模型改
+   - VISION_MODEL    | 默认 doubao-seed-1-6-vision-250815（豆包视觉）
 
    入参：{ image: string(URL 或 data URL), prompt?: string }
    返回：{ text: string } —— 模型对图片的文字描述。 */
@@ -18,10 +22,13 @@ export async function POST(req: NextRequest) {
   let body: {
     image?: string;
     prompt?: string;
+    agentCode?: string;
     useKB?: boolean;
     regionId?: string;
     county?: string;
     kbContext?: string;
+    skipWorkflow?: boolean;
+    model?: string;
   };
   try {
     body = await req.json();
@@ -32,15 +39,38 @@ export async function POST(req: NextRequest) {
   const image = (body.image || "").trim();
   if (!image) return Response.json({ error: "缺少图片" }, { status: 400 });
 
-  const apiKey = process.env.VISION_API_KEY || process.env.IMAGE_API_KEY || "";
+  const visAgent = await fetchAgentByCode(body.agentCode || AGENT.activityI2t);
+  if (!body.skipWorkflow && agentCanRun(visAgent, ["vision"])) {
+    const result = await executeAgentWorkflow({
+      agent: visAgent,
+      origin: workflowOrigin(req),
+      input: {
+        text: body.prompt,
+        image,
+        useKB: body.useKB,
+        regionId: body.regionId,
+        county: body.county,
+        modelOverride: body.model,
+      },
+    });
+    if (result.ok && result.text) return Response.json({ text: result.text });
+    if (!result.ok) return Response.json({ error: result.error || "工作流视觉理解失败" }, { status: 502 });
+  }
+
+  let visionModel = process.env.VISION_MODEL || "doubao-seed-1-6-vision-250815";
+  const bound = firstNodeModel(visAgent?.workflow, "vision");
+  if (body.model) visionModel = body.model;
+  else if (bound) visionModel = bound;
+  const model = visionModel;
+  const creds = await fetchOpsModelCreds(model);
+  const apiKey = opsApiKey(creds, process.env.VISION_API_KEY || process.env.IMAGE_API_KEY || "");
+  const baseURL = openaiCompatBase(creds?.base_url || process.env.VISION_BASE_URL || process.env.IMAGE_BASE_URL || "https://www.anyfast.com.cn/v1");
   if (!apiKey) {
     return Response.json(
-      { error: "尚未配置视觉模型 API Key：请在 .env.local 填写 VISION_API_KEY 或 IMAGE_API_KEY 后重启服务。" },
+      { error: "运营端未配置该视觉模型的 API 密钥：请在供应商列表或模型里填写后重试。" },
       { status: 503 },
     );
   }
-  const baseURL = (process.env.VISION_BASE_URL || process.env.IMAGE_BASE_URL || "https://www.anyfast.com.cn/v1").replace(/\/$/, "");
-  const model = process.env.VISION_MODEL || "doubao-seed-1-6-250615";
   const timeoutMs = Number(process.env.VISION_TIMEOUT_MS || 60000);
 
   let prompt =

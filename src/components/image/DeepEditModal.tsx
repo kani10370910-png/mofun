@@ -246,7 +246,7 @@ export function DeepEditModal({
                   <div className="dpanel-iconsgrid">
                     {Array.from({ length: 8 }).map((_, i) => (
                       <button key={i} className="dpanel-iconcell" onClick={() => toast("已插入素材（演示）")}>
-                        <span>🏷️</span>
+                        <span></span>
                       </button>
                     ))}
                   </div>

@@ -23,8 +23,8 @@ export const templateSubs: Record<"content" | "image" | "video", string[]> = {
 /** 精选热门（场景化命名）；与灵感全量合并后展示 */
 const featuredTemplates: Template[] = [
   {
-    emoji: "🍃",
-    name: "明前白茶上市海报",
+    emoji: "",
+    name: "萧山杨梅上市海报",
     scene: "农产品",
     type: "image",
     sub: "海报",
@@ -35,12 +35,12 @@ const featuredTemplates: Template[] = [
     fill: {
       eventSub: "海报",
       input:
-        "明前白茶上市海报，以米白与茶绿为主色，中央展示铁罐装白茶与新鲜芽叶，背景高山茶园薄雾。上方文案「明前头采 · 鲜爽回甘」，右侧标签突出「海拔800米」「氨基酸拉满」「产地直发」。底部标注开茶季与限量预订，整体清新国风，写实商业摄影质感。",
+        "萧山杨梅上市海报，以米白与洋红为主色，中央展示一筐紫红杨梅与枝头鲜果，背景杨梅林晨光。上方文案「初夏头茬 · 酸甜爆汁」，右侧标签突出「核小肉厚」「当日采摘」「产地直发」。底部标注开摘季与限量预订，整体清新时令，写实商业摄影质感。",
     },
   },
   {
-    emoji: "📕",
-    name: "白茶种草社媒推文",
+    emoji: "",
+    name: "杨梅种草社媒推文",
     scene: "农产品",
     type: "content",
     sub: "社媒推文",
@@ -49,15 +49,15 @@ const featuredTemplates: Template[] = [
     grad: "thumb-grad-2",
     img: "/active/xuanchuan-baicha.png",
     fill: {
-      product: "安吉白茶",
-      brand: "云间茶舍",
-      audience: "喝茶爱好者",
-      advantage: "海拔800米高山云雾茶园，明前头采，氨基酸高、鲜爽回甘，产地直发顺丰包邮",
+      product: "萧山杨梅",
+      brand: "杜家鲜果",
+      audience: "喜欢应季鲜果的人",
+      advantage: "萧山杜家杨梅林，初夏头茬，紫红饱满、核小肉厚、酸甜爆汁，当日采摘冷链直发",
       platforms: "微信朋友圈,小红书",
     },
   },
   {
-    emoji: "🎬",
+    emoji: "",
     name: "竹乡风光一句话成片",
     scene: "旅游景点",
     type: "video",
@@ -72,7 +72,7 @@ const featuredTemplates: Template[] = [
     },
   },
   {
-    emoji: "📰",
+    emoji: "",
     name: "竹博园公众号帮写",
     scene: "旅游景点",
     type: "content",
@@ -84,11 +84,11 @@ const featuredTemplates: Template[] = [
     fill: {
       title: "走进中国竹乡：一座竹博园里的绿意中国",
       keywords: "安吉竹博园,竹文化,乡村旅游,亲子研学",
-      input: "一杯明前白茶，半部竹乡春天",
+      input: "一座竹博园，半部绿意中国",
     },
   },
   {
-    emoji: "🛍️",
+    emoji: "",
     name: "高山笋干电商海报",
     scene: "电商推广",
     type: "image",
@@ -104,7 +104,7 @@ const featuredTemplates: Template[] = [
     },
   },
   {
-    emoji: "🥢",
+    emoji: "",
     name: "笋干礼盒商拍图",
     scene: "电商推广",
     type: "image",
@@ -119,7 +119,7 @@ const featuredTemplates: Template[] = [
     },
   },
   {
-    emoji: "🏪",
+    emoji: "",
     name: "农家乐店招设计",
     scene: "农家乐·民宿",
     type: "image",
@@ -136,7 +136,7 @@ const featuredTemplates: Template[] = [
     },
   },
   {
-    emoji: "📑",
+    emoji: "",
     name: "乡村旅游长图",
     scene: "旅游景点",
     type: "image",
@@ -152,7 +152,7 @@ const featuredTemplates: Template[] = [
     },
   },
   {
-    emoji: "🥬",
+    emoji: "",
     name: "鲜笋促销宣传单",
     scene: "电商推广",
     type: "image",
@@ -168,8 +168,8 @@ const featuredTemplates: Template[] = [
     },
   },
   {
-    emoji: "🏮",
-    name: "茶文化节品牌推广文",
+    emoji: "",
+    name: "杨梅季品牌推广文",
     scene: "节庆活动",
     type: "content",
     sub: "品牌推广",
@@ -178,16 +178,16 @@ const featuredTemplates: Template[] = [
     grad: "thumb-grad-2",
     img: "/active/yilabao-chawenhua.png",
     fill: {
-      product: "安吉茶文化节",
-      brand: "云间茶舍",
-      audience: "文旅游客与茶友",
-      advantage: "明前开茶仪式、茶园研学、非遗炒制体验、限量头采礼盒",
+      product: "萧山杨梅季",
+      brand: "杜家鲜果",
+      audience: "文旅游客与鲜果爱好者",
+      advantage: "开摘仪式、杨梅林研学、现摘现尝、限量鲜果礼盒",
       platforms: "微信朋友圈,小红书,抖音,微信公众号",
-      input: "传递「一片叶子富一方百姓」的共富故事，邀约线下参节",
+      input: "传递「一颗杨梅甜一方水土」的共富故事，邀约线下参节",
     },
   },
   {
-    emoji: "📊",
+    emoji: "",
     name: "和美乡村政策科普图",
     scene: "政策科普",
     type: "image",
@@ -203,7 +203,7 @@ const featuredTemplates: Template[] = [
     },
   },
   {
-    emoji: "🎨",
+    emoji: "",
     name: "茶乡国风 logo",
     scene: "农产品",
     type: "image",
@@ -219,7 +219,7 @@ const featuredTemplates: Template[] = [
     },
   },
   {
-    emoji: "📱",
+    emoji: "",
     name: "文旅推介数字人模特",
     scene: "旅游景点",
     type: "video",
@@ -230,11 +230,11 @@ const featuredTemplates: Template[] = [
     img: "/avatars/av1.jpg",
     fill: {
       input:
-        "各位游客朋友大家好！欢迎来到竹乡安吉，这里山清水秀、四季如画。今天就由我带大家一起打卡竹海云雾、明前茶园与竹博园，走进自然、感受人文。",
+        "各位游客朋友大家好！欢迎来到竹乡安吉，这里山清水秀、四季如画。今天就由我带大家一起打卡竹海云雾、杨梅林与竹博园，走进自然、感受人文。",
     },
   },
   {
-    emoji: "📺",
+    emoji: "",
     name: "招商宣传制作大片",
     scene: "招商宣传",
     type: "video",
@@ -249,7 +249,7 @@ const featuredTemplates: Template[] = [
     },
   },
   {
-    emoji: "🍵",
+    emoji: "",
     name: "民宿菜单设计",
     scene: "农家乐·民宿",
     type: "image",
@@ -265,7 +265,7 @@ const featuredTemplates: Template[] = [
     },
   },
   {
-    emoji: "🎏",
+    emoji: "",
     name: "招商推介易拉宝",
     scene: "招商宣传",
     type: "image",
@@ -281,7 +281,7 @@ const featuredTemplates: Template[] = [
     },
   },
   {
-    emoji: "🔤",
+    emoji: "",
     name: "茶旅节 AI 艺术字",
     scene: "节庆活动",
     type: "image",
@@ -297,8 +297,8 @@ const featuredTemplates: Template[] = [
     },
   },
   {
-    emoji: "🧸",
-    name: "白茶 IP 形象设计",
+    emoji: "",
+    name: "杨梅 IP 形象设计",
     scene: "农产品",
     type: "image",
     sub: "IP设计",
@@ -308,13 +308,13 @@ const featuredTemplates: Template[] = [
     img: "/ipcase/chalinger.png",
     fill: {
       input:
-        "「茶灵儿」——以高山云雾茶为灵感的清新少女 IP，绿色双丸子头点缀嫩芽发饰，眉眼弯弯、笑容甜美。身着青绿色改良汉服，腰系茶篓，手捧一杯热茶冒着袅袅热气。整体国风清新、色调以茶绿与米白为主，Q 版三头身、扁平插画风格，适合茶文旅品牌主视觉。",
+        "「梅小圆」——以萧山杨梅为灵感的清新少女 IP，酒红双丸子头点缀杨梅发饰，眉眼弯弯、笑容甜美。身着浅粉改良汉服，腰系小果篓，手捧一颗紫红杨梅。整体清新时令、色调以洋红与米白为主，Q 版三头身、扁平插画风格，适合鲜果文旅品牌主视觉。",
       colors: "#7FB069,#F5EFE0",
       ratio: "正方形 1:1",
     },
   },
   {
-    emoji: "💬",
+    emoji: "",
     name: "政策科普社媒推文",
     scene: "政策科普",
     type: "content",
@@ -332,7 +332,7 @@ const featuredTemplates: Template[] = [
     },
   },
   {
-    emoji: "🎉",
+    emoji: "",
     name: "节庆活动一句话成片",
     scene: "节庆活动",
     type: "video",
@@ -343,7 +343,7 @@ const featuredTemplates: Template[] = [
     img: "/active/haibao-shexiang.png",
     fill: {
       input:
-        "茶文化节活动成片：开茶仪式鼓点、采茶舞、市集烟火与游客打卡，喜庆暖色，字幕「明前开茶 · 邀你来赴一场春天」",
+        "杨梅季活动成片：开摘仪式鼓点、采果体验、市集烟火与游客打卡，喜庆暖色，字幕「初夏开摘 · 邀你来赴一场杨梅季」",
     },
   },
 ];

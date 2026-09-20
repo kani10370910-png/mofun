@@ -21,8 +21,16 @@ function LoginQueryOpener() {
   const { user, ready, openLogin } = useAuth();
   useEffect(() => {
     if (!ready || user) return;
-    if (sp.get("login") === "1") {
-      openLogin("phone");
+    const invite = (sp.get("code") || "").trim();
+    if (invite) {
+      try {
+        window.sessionStorage.setItem("mofun.invite.code", invite);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (sp.get("login") === "1" || invite) {
+      openLogin();
       const next = sp.get("next");
       router.replace(next && next.startsWith("/") ? next : "/");
     }
@@ -38,6 +46,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     pathname.startsWith("/login") ||
     pathname.startsWith("/account") ||
     pathname.startsWith("/enterprise");
+  const lockHome = pathname === "/" || pathname === "/agent" || pathname.startsWith("/agent/");
+  const hideShellBeian = lockHome || pathname.startsWith("/account");
 
   useEffect(() => {
     applyHomeSeasonTheme(readHomeSeason());
@@ -52,19 +62,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       {!hideTop && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<header className="topbar" aria-hidden="true" />}>
           <TopBar />
         </Suspense>
       )}
       <main
         className={
-          hideTop ? "main main-flush" : pathname === "/" ? "main main-home-lock" : "main"
+          hideTop ? "main main-flush" : lockHome ? "main main-home-lock" : "main"
         }
         id="main"
       >
         {children}
       </main>
-      {pathname !== "/" && !pathname.startsWith("/account") && <SiteBeian />}
+      {!hideShellBeian && <SiteBeian />}
       <ConfirmHost />
       <LoginModal />
       <Suspense fallback={null}>

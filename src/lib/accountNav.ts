@@ -13,20 +13,21 @@ export function accountReturnPath(from: string | null | undefined): string {
   return path;
 }
 
-/** 打开账户相关页时附带 from=当前页 */
-export function accountHref(tab: "personal" | "member" | "creations" | "org" | string, fromPath: string): string {
+/** 打开账户相关页时附带 from=当前页；sub 用于会员中心内的算力明细等子页 */
+export function accountHref(
+  tab: "personal" | "member" | "creations" | "space" | "invite" | string,
+  fromPath: string,
+  sub?: string,
+): string {
   const base =
     tab === "personal" || tab === ""
       ? "/account"
       : `/account?tab=${encodeURIComponent(tab)}`;
   const from = accountReturnPath(fromPath);
-  if (from === "/") {
-    // 仍带 from=/ ，便于账户内切换 tab 时保留；退出时回首页
-    const sep = base.includes("?") ? "&" : "?";
-    return `${base}${sep}from=${encodeURIComponent(from)}`;
-  }
   const sep = base.includes("?") ? "&" : "?";
-  return `${base}${sep}from=${encodeURIComponent(from)}`;
+  let href = `${base}${sep}from=${encodeURIComponent(from)}`;
+  if (sub) href += `&sub=${encodeURIComponent(sub)}`;
+  return href;
 }
 
 /** 账户内切换 tab 时保留 from */

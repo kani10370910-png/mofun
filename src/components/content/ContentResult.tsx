@@ -43,7 +43,7 @@ export function ContentResult({
     const titleBase = (product || "").trim() || scene.title;
     const name = `${titleBase} · ${scene.title}`.slice(0, 40);
     const res = addWork({
-      emoji: "📝",
+      emoji: "",
       grad: "thumb-grad-3",
       kind: "文案",
       name,

@@ -1,10 +1,11 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
 import { useToast } from "@/components/ui/Toast";
-import { imageModels, imageRatios, posterRatios, rollupRatios, flyerRatios, editModels, editPresets, logoStyles, paintStyles, productSquareRatios, productSceneRatios, productDetailRatios, productLongRatios } from "@/data/image";
+import { loadLogoStyles, getLogoStylesCached } from "@/lib/opsCatalog";
+import { imageModels, imageRatios, posterRatios, rollupRatios, flyerRatios, editModels, editPresets, paintStyles, productSquareRatios, productSceneRatios, productDetailRatios, productLongRatios } from "@/data/image";
 import { signageStudioSizes } from "@/data/signageStudio";
 import type { SizePreset, PaintStyle } from "@/lib/types";
 import type { ImageType } from "@/lib/types";
@@ -15,6 +16,7 @@ import { useGenerateStream } from "@/lib/useGenerateStream";
 import { RegionEnhanceStrip, ModelLoraSwitch } from "@/components/image/RegionEnhanceStrip";
 import { PointsCost } from "@/components/ui/PointsCost";
 import { eventImagePoints, multiImagePoints } from "@/lib/pointCosts";
+import { LOGO_GEN_MODELS } from "@/lib/featureModels";
 import {
   accountRegionId,
   kbFields,
@@ -403,9 +405,9 @@ export function ImageEventPanel({
               setState({
                 ...state,
                 tab: "i2i",
-                // 图生图不使用知识库：切换时自动关闭，避免误用
                 useKB: false,
-                regionEnhance: state.useLora,
+                useLora: false,
+                regionEnhance: false,
               })
             }
           >
@@ -425,7 +427,7 @@ export function ImageEventPanel({
 
       {state.tab === "t2i" ? (
         <>
-          {/* 成图类型：暂时隐藏，不展示；state.sub 仍保留默认「自定义」，扩写/尺寸逻辑不变 */}
+          {/* 成图类型：暂时隐藏；扩写用统一系统提示词，成图意图从描述识别以启用五类专属小节 */}
           <div className="field">
             <div className="ws-label">
               画面描述 <span className="req">*</span>
@@ -464,7 +466,7 @@ export function ImageEventPanel({
                 setState({
                   ...state,
                   model: o.name,
-                  // 选中区域文化大模型时默认开启 Lora；切走则关闭
+                  // 魔方 / Z 模型可挂 Lora；切到 Seedream 等则关闭
                   useLora: loraOk,
                   regionEnhance: loraOk || state.useKB,
                 });
@@ -728,26 +730,13 @@ export function ImageEventPanel({
               options={editOpts}
               value={toUiImageModelName(state.editModel) || state.editModel}
               onChange={(o) => {
-                const loraOk = modelSupportsCountyLora(o.name);
                 setState({
                   ...state,
                   editModel: o.name,
-                  // 选中区域文化大模型时默认开启 Lora；切走则关闭
-                  useLora: loraOk,
-                  regionEnhance: loraOk || state.useKB,
+                  useLora: false,
+                  regionEnhance: false,
                 });
               }}
-            />
-            <ModelLoraSwitch
-              visible={modelSupportsCountyLora(state.editModel)}
-              enabled={state.useLora}
-              onChange={(next) =>
-                setState({
-                  ...state,
-                  useLora: next,
-                  regionEnhance: next || state.useKB,
-                })
-              }
             />
           </div>
         </>
@@ -776,6 +765,7 @@ export interface LogoImageState {
   brand: string;
   input: string;
   count: number;
+  model: string;
   useLora: boolean;
   useKB: boolean;
   /** @deprecated */
@@ -794,27 +784,22 @@ export function ImageLogoPanel({
   loading: boolean;
 }) {
   const set = <K extends keyof LogoImageState>(k: K, v: LogoImageState[K]) => setState({ ...state, [k]: v });
-  const { user } = useAuth();
-  const regionId = accountRegionId(user);
+  const [styles, setStyles] = useState(getLogoStylesCached());
+  useEffect(() => {
+    void loadLogoStyles().then(setStyles);
+  }, []);
 
   return (
     <>
       <div className="ws-scroll">
-      <RegionEnhanceStrip
-        useKB={state.useKB}
-        onKBChange={(next) =>
-          setState({ ...state, useKB: next, regionEnhance: state.useLora || next })
-        }
-        regionId={regionId}
-      />
       <div className="field">
         <div className="ws-label">logo 风格</div>
         <div className="logo-style-grid">
-          {logoStyles.map((s) => (
+          {styles.map((s) => (
             <div key={s.key} className={state.style === s.name ? "logo-style on" : "logo-style"} onClick={() => set("style", s.name)}>
               <div className="ls-thumb">
                 {s.img ? (
-                  <AutoBgImg className="ls-thumb-img" src={asset(s.img!)} alt={s.name} ratio={1.45} />
+                  <AutoBgImg className="ls-thumb-img" src={asset(s.img!)} alt={s.name} ratio={1} />
                 ) : (
                   s.emoji
                 )}
@@ -834,7 +819,7 @@ export function ImageLogoPanel({
           maxLength={20}
           value={state.brand}
           onChange={(e) => set("brand", e.target.value)}
-          placeholder="必填项，例如：安吉白茶"
+          placeholder="必填项，例如：萧山杨梅"
         />
       </div>
       <div className="field">
@@ -845,7 +830,7 @@ export function ImageLogoPanel({
           value={state.input}
           onChange={(e) => set("input", e.target.value)}
           onClear={() => set("input", "")}
-          placeholder="示例：为「安吉白茶」设计图文插画风 LOGO，以高山云雾茶园与嫩芽为主体，国风清新、色彩明快，搭配品牌名中文字体（选填）"
+          placeholder="示例：为「萧山杨梅」设计图文插画风 LOGO，以杨梅林与紫红鲜果为主体，清新时令、色彩明快，搭配品牌名中文字体（选填）"
         />
       </div>
       <div className="field">
@@ -858,18 +843,20 @@ export function ImageLogoPanel({
           ))}
         </div>
       </div>
-      {/* Logo 默认即梦 Seedream 5.0，不支持本地 Lora，开关暂隐藏 */}
-      <ModelLoraSwitch
-        visible={false}
-        enabled={state.useLora}
-        onChange={(next) =>
-          setState({ ...state, useLora: next, regionEnhance: next || state.useKB })
-        }
-      />
+      <div className="field">
+        <div className="ws-label">生图模型</div>
+        <Dropdown
+          title="模型选择"
+          triggerIcon="storage"
+          options={LOGO_GEN_MODELS.map((m) => ({ name: m.name, desc: m.desc }))}
+          value={state.model}
+          onChange={(o) => set("model", o.name)}
+        />
+      </div>
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
-          立即生成 <PointsCost amount={multiImagePoints(state.count, "Seedream 5.0")} />
+          立即生成 <PointsCost amount={multiImagePoints(state.count, state.model)} />
         </button>
       </div>
     </>

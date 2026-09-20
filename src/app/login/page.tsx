@@ -17,7 +17,7 @@ function LoginRedirect() {
       router.replace(next.startsWith("/") ? next : "/");
       return;
     }
-    openLogin("phone");
+    openLogin();
     router.replace(next.startsWith("/") ? next : "/");
   }, [ready, user, next, router, openLogin]);
 

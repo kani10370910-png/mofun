@@ -5,12 +5,16 @@ import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
+import { DEFAULT_IP_VIEWS_MODEL } from "@/lib/featureModels";
+import { AGENT } from "@/lib/agentCodes";
 import { imgToDataUrl, displaySrc } from "@/lib/image";
 import { findWorkForSession, mergeBundleItem, primaryBundle } from "@/lib/workBundle";
 import { buildWorkSummaryText } from "@/lib/workMeta";
 import { IpPeriphModal } from "./IpPeriphModal";
 import { PointsCost } from "@/components/ui/PointsCost";
 import { POINT_COST, imageShotPoints } from "@/lib/pointCosts";
+import { useAuth } from "@/lib/AuthContext";
+import { useTakeCharge } from "@/lib/chargeGenerate";
 
 /* IP 设计生成信息弹窗（点「编辑/下载」弹出）：
    左侧大图预览（可放大），右侧：生成信息 + 图片处理（AI抠图/生成三视图）+ 生成周边入口 + 2K 高清下载。
@@ -29,6 +33,9 @@ export function IpDownloadModal({
 }) {
   const toast = useToast();
   const { addWork, updateAsset, works } = useLibrary();
+  const { economyRev } = useAuth();
+  void economyRev;
+  const takeCharge = useTakeCharge();
   const [zoom, setZoom] = useState(false);
   const [mattingBusy, setMattingBusy] = useState(false); // AI 抠图中（就地处理）
   const [periph, setPeriph] = useState(false); // 生成周边工作台
@@ -63,7 +70,7 @@ export function IpDownloadModal({
       return;
     }
     addWork({
-      emoji: "🧸",
+      emoji: "",
       grad: "thumb-grad-1",
       kind: "图片",
       name: `${name} · IP 设计`,
@@ -88,6 +95,11 @@ export function IpDownloadModal({
   // 生成三视图：以当前 IP 图为参考（图生图），保持人物一致性，出正/侧/背三视图横排
   async function genThreeView() {
     if (tvBusy || !img) return;
+    const charged = takeCharge(imageShotPoints(DEFAULT_IP_VIEWS_MODEL), "IP三视图");
+    if (!charged.ok) {
+      toast(charged.message, "warn");
+      return;
+    }
     setTvBusy(true);
     // 先放一个 loading 占位到结果小图区
     const id = `tv-${Date.now()}`;
@@ -102,7 +114,7 @@ export function IpDownloadModal({
       const r = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, size: "2048x2048", ...(refImage ? { image: refImage } : {}) }),
+        body: JSON.stringify({ prompt, size: "2048x2048", model: DEFAULT_IP_VIEWS_MODEL, agentCode: AGENT.ipThreeView, ...(refImage ? { image: refImage } : {}) }),
       });
       const j = await r.json();
       const url = j?.images?.[0] as string | undefined;
@@ -124,6 +136,11 @@ export function IpDownloadModal({
   // 结果（透明 PNG）直接进「处理结果」小图区 + 切到左侧大图，不再进独立工作台。
   async function runMatting() {
     if (mattingBusy || !img) return;
+    const charged = takeCharge(POINT_COST.imageMatte, "IP抠图");
+    if (!charged.ok) {
+      toast(charged.message, "warn");
+      return;
+    }
     setMattingBusy(true);
     const id = `cut-${Date.now()}`;
     setResults((prev) => [{ id, label: "抠图", url: "", loading: true }, ...prev]);
@@ -208,9 +225,9 @@ export function IpDownloadModal({
               </button>
             </>
           ) : (
-            <span className="ipdl-preview-ph">🧸</span>
-          )}
-          <span className="ipdl-mark">由 AI 生成</span>
+            <span className="ipdl-preview-ph"></span>
+ )}
+ <span className="ipdl-mark">由 AI 生成</span>
         </div>
 
         {/* 右：生成信息 + 工具 + 下载 */}
@@ -229,12 +246,12 @@ export function IpDownloadModal({
                 // eslint-disable-next-line @next/next/no-img-element
                 <img className="ipdl-thumb" src={displaySrc(img)} alt={name} />
               ) : (
-                <span className="ipdl-thumb ipdl-thumb-ph">🧸</span>
-              )}
-            </div>
+                <span className="ipdl-thumb ipdl-thumb-ph"></span>
+ )}
+ </div>
 
-            {desc && (
-              <div className="ipdl-field">
+ {desc && (
+ <div className="ipdl-field">
                 <div className="ipdl-label">延展内容：</div>
                 <div className="ipdl-desc">{desc}</div>
               </div>
@@ -245,7 +262,7 @@ export function IpDownloadModal({
               <div className="ipdl-group-title">图片处理</div>
               <div className="ipdl-tools">
                 <button className="ipdl-tool" onClick={() => img && setPeriph(true)} disabled={!img}>
-                  <Icon name="sparkle" size={20} />
+                  <Icon name="imgIp" size={20} />
                   <span>生成周边 <PointsCost amount={POINT_COST.imageIpPeriph} /></span>
                 </button>
                 <button className="ipdl-tool" onClick={runMatting} disabled={mattingBusy || !img}>
@@ -295,14 +312,14 @@ export function IpDownloadModal({
                       {r.loading ? (
                         <span className="periph-cell-load"><span className="dl-spinner" /></span>
                       ) : r.error ? (
-                        <span className="periph-cell-ph">🖼️</span>
-                      ) : (
-                        <>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={displaySrc(r.url)} alt={r.label} />
-                          {/* 右上角勾选：选中后可批量下载（点勾选不触发换图） */}
-                          <span
-                            className={`ipdl-check${selected.has(r.id) ? " on" : ""}`}
+                        <span className="periph-cell-ph"></span>
+ ) : (
+ <>
+ {/* eslint-disable-next-line @next/next/no-img-element */}
+ <img src={displaySrc(r.url)} alt={r.label} />
+ {/* 右上角勾选：选中后可批量下载（点勾选不触发换图） */}
+ <span
+ className={`ipdl-check${selected.has(r.id) ? " on" : ""}`}
                             role="checkbox"
                             aria-checked={selected.has(r.id)}
                             aria-label={`选择${r.label}`}

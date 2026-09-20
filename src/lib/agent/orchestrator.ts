@@ -114,7 +114,7 @@ function forceRefUploadTurn(
     askPair,
     think,
     lead ||
-      "这一步需要你先上传图片：请点输入框旁的附件 📎，上传后再点「我已上传参考图」继续（未上传无法生成）。"
+      "这一步需要你先上传图片：请点输入框旁的附件，上传后再点「我已上传参考图」继续（未上传无法生成）。"
   );
 }
 
@@ -161,7 +161,7 @@ function askGroupTurn(
       extras.push({ id: "act-defaults", label: "你定 / 用推荐继续", kind: "defaults" });
     }
     if (spec.id === "image.ip" && toAsk.some((s) => s.key === "creativeDesc")) {
-      extras.push({ id: "act-ip-propose", label: "✨ 帮我提案", kind: "propose" });
+      extras.push({ id: "act-ip-propose", label: " 帮我提案", kind: "propose" });
     }
 
   const tip =
@@ -752,7 +752,7 @@ export function postDeliveryActions(spec: SpecialistDef): AgentAction[] {
   if (spec.exits.includes("propose")) {
     actions.push({ id: "act-propose-again", label: "重新出方案", kind: "propose" });
   }
-  return actions;
+  return actions.slice(0, 3);
 }
 
 function readyTurn(spec: SpecialistDef, state: AgentRuntimeState, think: boolean, lead?: string): AssistantTurn {
@@ -1002,7 +1002,7 @@ export function runAgentTurn(params: {
           specWait,
           state,
           think,
-          "还没有检测到你上传的图片。请先点输入框旁的附件 📎 上传，上传后再点「我已上传参考图」。"
+          "还没有检测到你上传的图片。请先点输入框旁的附件 上传，上传后再点「我已上传参考图」。"
         );
       }
     } else {

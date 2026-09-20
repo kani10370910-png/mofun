@@ -1,0 +1,14 @@
+node_modules
+.next
+.open-next
+.vercel
+.wrangler
+out
+docs
+scripts
+public
+.env
+.env.local
+*.tar.gz
+DEPLOY.md
+README.md

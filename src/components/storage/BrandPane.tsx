@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/Toast";
 import type { AssetCard, Brand, BrandAsset } from "@/lib/types";
 import { asset } from "@/lib/asset";
 import { useAuth } from "@/lib/AuthContext";
+import { identityScopedStorageKey } from "@/lib/identity";
 import { useLibrary, assetKey } from "@/lib/store";
 import { LibraryPickerModal } from "@/components/image/LibraryPickerModal";
 import { AssetCardView } from "./StorageView";
@@ -138,6 +139,9 @@ const MINE_LEGACY_KEYS = ["mofun.brands.mine.v4", "mofun.brands.mine.v3"];
 const OTHERS_STORAGE_KEY = "mofun.brands.others.v1";
 const PUBLISHED_STORAGE_KEY = "mofun.brands.published.v1";
 const HIDDEN_BRANDS_STORAGE_KEY = "mofun.brands.hidden.v1";
+function brandStoreKey(base: string) {
+  return identityScopedStorageKey(base);
+}
 const MINE_ID = "mine-primary";
 const DEFAULT_COLORS = ["#188772", "#2bb89c", "#e6c07b", "#2d2d2d"];
 const SEED_ASSET_IDS = new Set(["mine-a1", "mine-a2", "mine-a3", "mine-a4"]);
@@ -156,7 +160,7 @@ function canDeleteCompanyBrand(id: string) {
 function loadHiddenBrandIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
-    const raw = window.localStorage.getItem(HIDDEN_BRANDS_STORAGE_KEY);
+    const raw = window.localStorage.getItem(brandStoreKey(HIDDEN_BRANDS_STORAGE_KEY));
     if (!raw) return new Set();
     const parsed = JSON.parse(raw) as string[];
     return new Set(Array.isArray(parsed) ? parsed.filter(Boolean) : []);
@@ -170,7 +174,7 @@ function hideBrandFromList(id: string) {
   try {
     const hidden = loadHiddenBrandIds();
     hidden.add(id);
-    window.localStorage.setItem(HIDDEN_BRANDS_STORAGE_KEY, JSON.stringify([...hidden]));
+    window.localStorage.setItem(brandStoreKey(HIDDEN_BRANDS_STORAGE_KEY), JSON.stringify([...hidden]));
   } catch {
     /* ignore quota */
   }
@@ -215,7 +219,7 @@ function buildDemoPublishedRecords(): PublishedBrandRecord[] {
             type: "logo",
             name: "莫干山民宿联盟 LOGO",
             sub: "已定稿 · 可用于合作门店与线上渠道",
-            emoji: "🏡",
+            emoji: "",
             img: "/poster-gen/hist-yucun.jpg",
           },
           {
@@ -230,20 +234,20 @@ function buildDemoPublishedRecords(): PublishedBrandRecord[] {
             type: "font",
             name: "标准字体",
             sub: "标题 阿里巴巴普惠体 · 正文 思源黑体",
-            emoji: "🔤",
+            emoji: "",
           },
           {
             id: "demo-mg-a4",
             type: "slogan",
             name: "品牌 Slogan",
             sub: "「来莫干山，住一晚治愈生活」",
-            emoji: "💬",
+            emoji: "",
           },
         ],
         works: [],
         materials: [
           {
-            emoji: "🏡",
+            emoji: "",
             kind: "图片",
             name: "联盟门店门头.jpg",
             sub: "4032×3024",
@@ -251,7 +255,7 @@ function buildDemoPublishedRecords(): PublishedBrandRecord[] {
             img: "/poster-gen/hist-yucun.jpg",
           },
           {
-            emoji: "🌲",
+            emoji: "",
             kind: "图片",
             name: "竹海景观航拍.jpg",
             sub: "6000×4000",
@@ -279,7 +283,7 @@ function buildDemoPublishedRecords(): PublishedBrandRecord[] {
             type: "logo",
             name: "浔味食品 LOGO",
             sub: "已定稿 · 门店与包装统一使用",
-            emoji: "🥢",
+            emoji: "",
             img: "/poster-gen/ins-baicha.jpg",
           },
           {
@@ -294,20 +298,20 @@ function buildDemoPublishedRecords(): PublishedBrandRecord[] {
             type: "font",
             name: "标准字体",
             sub: "标题 站酷快乐体 · 正文 思源黑体",
-            emoji: "🔤",
+            emoji: "",
           },
           {
             id: "demo-xw-a4",
             type: "slogan",
             name: "品牌 Slogan",
             sub: "「寻味江南，味在浔味」",
-            emoji: "💬",
+            emoji: "",
           },
         ],
         works: [],
         materials: [
           {
-            emoji: "🍱",
+            emoji: "",
             kind: "图片",
             name: "招牌套餐实拍.jpg",
             sub: "2480×3508",
@@ -315,7 +319,7 @@ function buildDemoPublishedRecords(): PublishedBrandRecord[] {
             img: "/poster-gen/ins-baicha.jpg",
           },
           {
-            emoji: "🏪",
+            emoji: "",
             kind: "图片",
             name: "标准店招效果.jpg",
             sub: "1920×1080",
@@ -323,7 +327,7 @@ function buildDemoPublishedRecords(): PublishedBrandRecord[] {
             img: "/poster-gen/ins-yucun.jpg",
           },
           {
-            emoji: "📦",
+            emoji: "",
             kind: "图片",
             name: "礼盒包装主视觉.png",
             sub: "2000×2000",
@@ -348,13 +352,13 @@ function isCoreAssetType(type: BrandAsset["type"]): type is CoreAssetType {
 function coreAssetMeta(type: CoreAssetType): { name: string; emoji: string; idSuffix: string } {
   switch (type) {
     case "logo":
-      return { name: "品牌 LOGO", emoji: "🍃", idSuffix: "logo" };
+      return { name: "品牌 LOGO", emoji: "", idSuffix: "logo" };
     case "color":
-      return { name: "标准色规范", emoji: "🎨", idSuffix: "color" };
+      return { name: "标准色规范", emoji: "", idSuffix: "color" };
     case "font":
-      return { name: "标准字体", emoji: "🔤", idSuffix: "font" };
+      return { name: "标准字体", emoji: "", idSuffix: "font" };
     case "slogan":
-      return { name: "品牌 Slogan", emoji: "💬", idSuffix: "slogan" };
+      return { name: "品牌 Slogan", emoji: "", idSuffix: "slogan" };
   }
 }
 
@@ -443,7 +447,7 @@ function readImageFiles(files: FileList | File[]): Promise<AssetCard[]> {
             const now = new Date();
             resolve({
               id: `mat-${now.getTime()}-${i}`,
-              emoji: "图",
+              emoji: "",
               kind: "图片",
               name: file.name.replace(/\.[^.]+$/, "") || "未命名素材",
               sub: `${Math.round(file.size / 1024)} KB`,
@@ -541,11 +545,13 @@ function readStoredMine(key: string): Brand | null {
 
 function loadMineBrand(): Brand {
   if (typeof window === "undefined") return createDefaultMineBrand();
-  const current = readStoredMine(MINE_STORAGE_KEY);
+  const current = readStoredMine(brandStoreKey(MINE_STORAGE_KEY));
   if (current) return current;
-  for (const key of MINE_LEGACY_KEYS) {
-    const legacy = readStoredMine(key);
-    if (legacy && (legacy.assets.length > 0 || legacy.materials.length > 0)) return legacy;
+  if (brandStoreKey(MINE_STORAGE_KEY) === MINE_STORAGE_KEY) {
+    for (const key of MINE_LEGACY_KEYS) {
+      const legacy = readStoredMine(key);
+      if (legacy && (legacy.assets.length > 0 || legacy.materials.length > 0)) return legacy;
+    }
   }
   return createDefaultMineBrand();
 }
@@ -554,7 +560,7 @@ function saveMineBrand(brand: Brand) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(
-      MINE_STORAGE_KEY,
+      brandStoreKey(MINE_STORAGE_KEY),
       JSON.stringify({ ...brand, id: MINE_ID, name: "我的品牌", owned: true }),
     );
   } catch {
@@ -610,7 +616,7 @@ function normalizeUserCompanyBrand(raw: Brand): Brand | null {
 function loadUserCompanyBrands(): Brand[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(OTHERS_STORAGE_KEY);
+    const raw = window.localStorage.getItem(brandStoreKey(OTHERS_STORAGE_KEY));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as Brand[];
     if (!Array.isArray(parsed)) return [];
@@ -624,7 +630,7 @@ function saveUserCompanyBrands(list: Brand[]) {
   if (typeof window === "undefined") return;
   try {
     const onlyUser = list.filter((b) => isUserCompanyBrandId(b.id));
-    window.localStorage.setItem(OTHERS_STORAGE_KEY, JSON.stringify(onlyUser));
+    window.localStorage.setItem(brandStoreKey(OTHERS_STORAGE_KEY), JSON.stringify(onlyUser));
   } catch {
     /* ignore quota */
   }
@@ -876,7 +882,7 @@ export function BrandPane({
       id,
       name,
       industry: industry || "未填写行业",
-      logo: logo || "🏷️",
+      logo: logo || "",
       grad: GRADS[brands.length % GRADS.length],
       owned: false,
       assets: ensureCoreAssets([], slotIdPrefix(id)),
@@ -1509,7 +1515,7 @@ function BrandExpand({
     const now = Date.now();
     const cards: AssetCard[] = items.map((it, i) => ({
       id: `mat-lib-${now}-${i}`,
-      emoji: "图",
+      emoji: "",
       kind: "图片",
       name: it.name || "仓库素材",
       sub: "来自仓库",
@@ -2241,16 +2247,7 @@ function AssetForm({
                 type === "color"
                   ? sub.trim() || colorSubLabel(nextColors || [])
                   : sub.trim() || EMPTY_ASSET_SUB;
-              const emojiByType =
-                type === "logo"
-                  ? "🏷️"
-                  : type === "color"
-                    ? "🎨"
-                    : type === "font"
-                      ? "🔤"
-                      : type === "slogan"
-                        ? "💬"
-                        : "✨";
+              const emojiByType = "";
               onSave(
                 withLogoImgs({
                   id: initial?.id || `ba-${Date.now()}`,
@@ -2435,15 +2432,15 @@ function NewBrandForm({
           <div className="ws-label">
             公司 / 品牌名称 <span className="req">*</span>
           </div>
-          <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：安吉白茶·产业品牌" />
+          <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：萧山杨梅·产业品牌" />
         </div>
         <div className="field">
           <div className="ws-label">所属行业</div>
           <input type="text" value={industry} onChange={(e) => setIndustry(e.target.value)} placeholder="例如：农产品区域公用品牌" />
         </div>
         <div className="field">
-          <div className="ws-label">品牌标识 Emoji</div>
-          <input type="text" value={logo} maxLength={2} onChange={(e) => setLogo(e.target.value)} placeholder="例如：🍃" />
+          <div className="ws-label">品牌标识</div>
+          <input type="text" value={logo} maxLength={8} onChange={(e) => setLogo(e.target.value)} placeholder="可选简称或首字" />
         </div>
         <div className="gen-actions">
           <button className="btn btn-ghost btn-block" onClick={onClose}>

@@ -3,21 +3,21 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
-import { AvatarUpload } from "@/components/account/AvatarUpload";
 import { useAuth } from "@/lib/AuthContext";
-import { useToast } from "@/components/ui/Toast";
-import { resolvePlanLabel, hasEnterpriseInfo, resolveDisplayName } from "@/lib/auth";
+import { resolvePlanLabel, hasEnterpriseInfo } from "@/lib/auth";
 import { accountReturnPath, accountTabHref } from "@/lib/accountNav";
+import { asset } from "@/lib/asset";
 import type { IconName } from "@/data/icons";
 
-export type AccountTab = "org" | "personal" | "members" | "creations" | "member";
+export type AccountTab = "personal" | "members" | "creations" | "member" | "space" | "invite";
 
 const TABS: { key: AccountTab; label: string; ico: IconName; enterpriseOnly?: boolean }[] = [
   { key: "personal", label: "个人信息", ico: "user" },
-  { key: "org", label: "组织信息", ico: "building" },
   { key: "members", label: "成员管理", ico: "user", enterpriseOnly: true },
-  { key: "creations", label: "品牌资产", ico: "image" },
-  { key: "member", label: "会员中心", ico: "sparkle" },
+  { key: "creations", label: "品牌资产", ico: "image", enterpriseOnly: true },
+  { key: "member", label: "会员中心", ico: "coin" },
+  { key: "space", label: "存储空间", ico: "storage" },
+  { key: "invite", label: "邀请有礼", ico: "gift" },
 ];
 
 export function AccountShell({
@@ -33,59 +33,45 @@ export function AccountShell({
 }) {
   const router = useRouter();
   const sp = useSearchParams();
-  const toast = useToast();
-  const { user, ready, openLogin, updateUser } = useAuth();
+  const { user, ready, openLogin } = useAuth();
   const returnTo = accountReturnPath(sp.get("from"));
+  const leaveHref = asset(returnTo || "/");
+
+  function leaveManagement(e?: { preventDefault?: () => void; stopPropagation?: () => void }) {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    window.location.href = leaveHref;
+  }
 
   useEffect(() => {
     if (!ready) return;
     if (!user) {
-      openLogin("phone");
+      openLogin();
       router.replace(returnTo);
     }
   }, [ready, user, router, openLogin, returnTo]);
 
-  // 与顶栏、组织信息统一：优先自定义昵称
-  const displayName = user ? resolveDisplayName(user) : "个人账户";
-  const avatarText = /^1\d{10}$/.test(displayName)
-    ? displayName.slice(-1)
-    : displayName.slice(0, 1);
   const planLabel = resolvePlanLabel(user);
   const isEnterprise = hasEnterpriseInfo(user);
   const visibleTabs = TABS.filter((t) => isEnterprise || !t.enterpriseOnly);
 
   useEffect(() => {
-    if (!user || isEnterprise) return;
-    if (active === "members") {
-      onTabChange("personal");
-    }
-  }, [user, isEnterprise, active, onTabChange]);
+    if (!isEnterprise && (active === "members" || active === "creations")) onTabChange("personal");
+  }, [isEnterprise, active, onTabChange]);
 
   return (
     <div className="am-page">
       <aside className="am-side">
-        <div className="am-side-head">
-          <AvatarUpload
-            className="am-side-avatar"
-            src={user?.avatarUrl}
-            fallback={avatarText}
-            onUploaded={(url) => {
-              updateUser({ avatarUrl: url });
-              toast("头像已更新");
-            }}
-            onError={(m) => toast(m, "warn")}
-          />
-          <div className="am-side-meta">
-            <div className="am-side-name-row">
-              <span className="am-side-name">{displayName}</span>
-              <button type="button" className="am-exit" onClick={() => router.push(returnTo)}>
-                <Icon name="chevron" size={14} className="am-exit-ico" /> 退出管理
-              </button>
-            </div>
-            <span className="am-plan-badge">
-              <Icon name="sparkle" size={11} /> {planLabel}
-            </span>
-          </div>
+        <div className="am-side-top">
+          <span className="am-side-title">个人中心</span>
+          <a
+            className="am-exit"
+            href={leaveHref}
+            onPointerDown={leaveManagement}
+            onClick={leaveManagement}
+          >
+            <Icon name="chevron" size={14} className="am-exit-ico" /> 退出管理
+          </a>
         </div>
 
         <nav className="am-nav">
@@ -93,13 +79,8 @@ export function AccountShell({
             <button
               key={t.key}
               type="button"
-              className={`${active === t.key ? "am-nav-item on" : "am-nav-item"}${t.key === "member" ? " is-disabled" : ""}`}
-              onClick={() => {
-                if (t.key === "member") return;
-                onTabChange(t.key);
-              }}
-              title={t.key === "member" ? "该功能正在开发中" : undefined}
-              aria-disabled={t.key === "member"}
+              className={active === t.key ? "am-nav-item on" : "am-nav-item"}
+              onClick={() => onTabChange(t.key)}
             >
               <Icon name={t.ico} size={16} />
               <span>{t.label}</span>
@@ -127,8 +108,9 @@ export function useAccountTab(): [AccountTab, (t: AccountTab) => void] {
     raw === "members" ||
     raw === "creations" ||
     raw === "brand" ||
-    raw === "org" ||
     raw === "member" ||
+    raw === "space" ||
+    raw === "invite" ||
     raw === "membershipCard"
       ? raw === "membershipCard"
         ? "member"
@@ -141,13 +123,19 @@ export function useAccountTab(): [AccountTab, (t: AccountTab) => void] {
   const [tab, setTab] = useState<AccountTab>(initial);
 
   useEffect(() => {
+    if (raw === "org") {
+      router.replace(accountTabHref("personal", sp.get("from")));
+      setTab("personal");
+      return;
+    }
     const next =
       raw === "personal" ||
       raw === "members" ||
       raw === "creations" ||
       raw === "brand" ||
-      raw === "org" ||
       raw === "member" ||
+      raw === "space" ||
+      raw === "invite" ||
       raw === "membershipCard"
         ? raw === "membershipCard"
           ? "member"
@@ -158,7 +146,7 @@ export function useAccountTab(): [AccountTab, (t: AccountTab) => void] {
           ? "members"
           : "personal";
     setTab(next);
-  }, [raw]);
+  }, [raw, router, sp]);
 
   const change = (t: AccountTab) => {
     setTab(t);

@@ -99,12 +99,12 @@ export function buildLogoReedit(c: AssetCard, id: string): LogoRunRow {
     pct: 100,
     results: imgs.length
       ? imgs.map((imgUrl, i) => ({
-          emoji: "🎨",
+          emoji: "",
           grad: gradList(imgs.length, c.grad)[i],
           fav: false,
           img: imgUrl,
         }))
-      : [{ emoji: "🎨", grad: c.grad, fav: false, ...(img ? { img } : {}) }],
+      : [{ emoji: "", grad: c.grad, fav: false, ...(img ? { img } : {}) }],
   };
 }
 

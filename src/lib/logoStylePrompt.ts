@@ -3,6 +3,8 @@
  * 占位：「用户输入的品牌名称」「用户输入的创意描述」
  */
 
+import { fillOpsPrompt, getLogoStylesCached } from "@/lib/opsCatalog";
+
 export type LogoLoraHint = "字标" | "简约" | "新中式" | "扁平";
 
 function joinPrompt(parts: string[]): string {
@@ -23,6 +25,11 @@ export function buildLogoStylePrompt(style: string, brand: string, desc: string)
   const name = brand.trim() || "品牌";
   const d = desc.trim();
   const s = (style || "智能匹配").trim();
+  const ops = getLogoStylesCached().find((x) => x.name === s);
+  if (ops?.prompt) {
+    const filled = fillOpsPrompt(ops.prompt, name, d);
+    return `${filled}${filled.endsWith("。") ? "" : "。"}${LOGO_FRAME_HINT}。`;
+  }
 
   let body: string;
   switch (s) {

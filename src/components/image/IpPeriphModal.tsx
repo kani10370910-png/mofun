@@ -5,13 +5,17 @@ import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
+import { DEFAULT_IP_PERIPH_MODEL } from "@/lib/featureModels";
+import { AGENT } from "@/lib/agentCodes";
 import { ipExtendPresets, ipPresetPrompts } from "@/data/image";
 import { imgToDataUrl, displaySrc } from "@/lib/image";
 import { findWorkForSession, mergeBundleItem, primaryBundle } from "@/lib/workBundle";
 import { buildWorkSummaryText } from "@/lib/workMeta";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 import { PointsCost } from "@/components/ui/PointsCost";
-import { POINT_COST } from "@/lib/pointCosts";
+import { POINT_COST, imageShotPoints } from "@/lib/pointCosts";
+import { useAuth } from "@/lib/AuthContext";
+import { useTakeCharge } from "@/lib/chargeGenerate";
 
 /* 生成周边工作台（全屏，仿 AI 抠图工作台）：
    - 顶栏：左上「返回」（回到 IP设计生成信息弹窗），标题「生成周边」居中
@@ -46,6 +50,9 @@ export function IpPeriphModal({
 }) {
   const toast = useToast();
   const { addWork, updateAsset, works } = useLibrary();
+  const { economyRev } = useAuth();
+  void economyRev;
+  const takeCharge = useTakeCharge();
 
   // 周边预设品类（去掉「不使用预设」），默认选中第一个
   const presets = ipExtendPresets["周边"].filter((p) => p !== "不使用预设");
@@ -76,7 +83,7 @@ export function IpPeriphModal({
       return;
     }
     addWork({
-      emoji: "🧸",
+      emoji: "",
       grad: "thumb-grad-1",
       kind: "图片",
       name: `${name} · IP 设计`,
@@ -163,7 +170,7 @@ export function IpPeriphModal({
         const r = await fetch("/api/image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt, size: "2048x2048", ...(refImage ? { image: refImage } : {}) }),
+          body: JSON.stringify({ prompt, size: "2048x2048", model: DEFAULT_IP_PERIPH_MODEL, agentCode: AGENT.ipMerch, ...(refImage ? { image: refImage } : {}) }),
         });
         const j = await r.json();
         const url = (j?.images?.[0] as string) || "";
@@ -202,8 +209,17 @@ export function IpPeriphModal({
     }));
     setResults((prev) => [...rows, ...prev]);
 
-    // 串行逐个出图（并发会限流），实时回填
+    // 串行逐个出图（并发会限流），实时回填；每张发出请求前预扣
+    const shot = imageShotPoints(DEFAULT_IP_PERIPH_MODEL);
     for (const row of rows) {
+      const charged = takeCharge(shot, `IP周边·${row.label}`);
+      if (!charged.ok) {
+        setResults((prev) =>
+          prev.map((r) => (r.id === row.id ? { ...r, loading: false, error: true } : r)),
+        );
+        toast(charged.message, "warn");
+        break;
+      }
       const url = await genOnePeriph(row.text, refImage || undefined, row.custom);
       setResults((prev) =>
         prev.map((r) => (r.id === row.id ? { ...r, url, loading: false, error: !url } : r)),
@@ -236,12 +252,12 @@ export function IpPeriphModal({
               // eslint-disable-next-line @next/next/no-img-element
               <img className="matting-img" src={displaySrc(curImg)} alt={name} />
             ) : (
-              <span className="matting-ph">🧸</span>
-            )}
-          </div>
+              <span className="matting-ph"></span>
+ )}
+ </div>
 
-          {/* 右侧：品类多选 + 结果小图 */}
-          <aside className="periph-side">
+ {/* 右侧：品类多选 + 结果小图 */}
+ <aside className="periph-side">
             <div className="periph-side-title">周边品类（可多选）</div>
             <div className="periph-pres-row">
               {presets.map((p) => (
@@ -293,13 +309,13 @@ export function IpPeriphModal({
                     {r.loading ? (
                       <span className="periph-cell-load"><span className="dl-spinner" /></span>
                     ) : r.error ? (
-                      <span className="periph-cell-ph">🖼️</span>
-                    ) : (
-                      <>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={displaySrc(r.url)} alt={r.label} />
-                        <span
-                          className={`ipdl-check${selected.has(r.id) ? " on" : ""}`}
+                      <span className="periph-cell-ph"></span>
+ ) : (
+ <>
+ {/* eslint-disable-next-line @next/next/no-img-element */}
+ <img src={displaySrc(r.url)} alt={r.label} />
+ <span
+ className={`ipdl-check${selected.has(r.id) ? " on" : ""}`}
                           role="checkbox"
                           aria-checked={selected.has(r.id)}
                           aria-label={`选择${r.label}`}
@@ -315,8 +331,8 @@ export function IpPeriphModal({
               </div>
             ) : (
               <div className="periph-empty">
-                <div className="iw-empty-box">📦</div>
-                <div className="iw-empty-text">选择品类后点「生成周边」</div>
+                <div className="iw-empty-box"></div>
+ <div className="iw-empty-text">选择品类后点「生成周边」</div>
               </div>
             )}
 

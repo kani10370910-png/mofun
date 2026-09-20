@@ -1,6 +1,7 @@
 "use client";
 
 import { nowStamp } from "@/lib/datetime";
+import { identityScopedStorageKey } from "@/lib/identity";
 
 /* 「制作大片」项目文件存储：把一次创作（多分镜合集）作为一个项目持久化到 localStorage，
    在制作大片首页「我制作的大片」列表展示，可重新打开继续编辑。
@@ -21,6 +22,9 @@ export interface StudioProject extends StudioProjectMeta {
 }
 
 const KEY = "mofun.studio.projects";
+function storageKey() {
+  return identityScopedStorageKey(KEY);
+}
 
 // 读取失败时置位：此时绝不允许整表覆写（否则一次读失败 + 一次保存 = 全部项目被抹掉）
 let loadFailed = false;
@@ -28,7 +32,7 @@ let loadFailed = false;
 function loadAll(): StudioProject[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(KEY);
+    const raw = window.localStorage.getItem(storageKey());
     loadFailed = false;
     return raw ? (JSON.parse(raw) as StudioProject[]) : [];
   } catch {
@@ -36,8 +40,8 @@ function loadAll(): StudioProject[] {
     // 后续 saveAll 拒绝在此状态下覆写主键——修复「读失败返回 []，下次保存整表覆写导致所有项目丢失」的缺陷。
     loadFailed = true;
     try {
-      const raw = window.localStorage.getItem(KEY);
-      if (raw) window.localStorage.setItem(`${KEY}.corrupt-backup`, raw);
+      const raw = window.localStorage.getItem(storageKey());
+      if (raw) window.localStorage.setItem(`${storageKey()}.corrupt-backup`, raw);
     } catch { /* 备份失败也不能抛出 */ }
     return [];
   }
@@ -50,7 +54,7 @@ function saveAll(list: StudioProject[]) {
     return;
   }
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(list));
+    window.localStorage.setItem(storageKey(), JSON.stringify(list));
   } catch (e) {
     if (e instanceof DOMException && (e.name === "QuotaExceededError" || e.code === 22)) {
       window.dispatchEvent(new CustomEvent("mofun:storage-quota"));

@@ -10,9 +10,11 @@ export interface StreamState {
   done: boolean;
 }
 
-/** 一次性收集 /api/generate 的流式结果，返回完整文本（无 React 状态，供非 hook 场景调用）。
-    出错或被中断返回空串，调用方据空串回退原始输入。signal 可选用于中断。 */
-export async function collectGenerate(req: GenerateRequest, signal?: AbortSignal): Promise<string> {
+export async function collectGenerateResult(
+  req: GenerateRequest,
+  signal?: AbortSignal,
+  onChunk?: (full: string) => void,
+): Promise<{ text: string; error?: string }> {
   let full = "";
   try {
     const resp = await fetch("/api/generate", {
@@ -22,7 +24,14 @@ export async function collectGenerate(req: GenerateRequest, signal?: AbortSignal
       signal,
     });
     const ctype = resp.headers.get("Content-Type") || "";
-    if (!resp.ok || !resp.body || ctype.includes("application/json")) return "";
+    if (!resp.ok || !resp.body || ctype.includes("application/json")) {
+      const j = (await resp.json().catch(() => ({}))) as { error?: unknown };
+      const error =
+        typeof j.error === "string" && j.error.trim()
+          ? j.error.trim()
+          : `生成失败（${resp.status || "网络错误"}）`;
+      return { text: "", error };
+    }
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
@@ -38,18 +47,33 @@ export async function collectGenerate(req: GenerateRequest, signal?: AbortSignal
         const data = line.slice(5).trim();
         if (!data) continue;
         try {
-          const json = JSON.parse(data);
-          if (json.error || json.done) continue;
-          if (typeof json.text === "string") full += json.text;
+          const json = JSON.parse(data) as { error?: string; done?: boolean; text?: string };
+          if (json.error) return { text: full.trim(), error: json.error };
+          if (json.done) continue;
+          if (typeof json.text === "string") {
+            full += json.text;
+            onChunk?.(full);
+          }
         } catch {
           /* 跳过解析失败的帧 */
         }
       }
     }
-  } catch {
-    return "";
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") return { text: "" };
+    return { text: "", error: e instanceof Error ? e.message : "网络错误，请重试" };
   }
-  return full.trim();
+  return { text: full.trim() };
+}
+
+/** 一次性收集 /api/generate 的流式结果，返回完整文本（无 React 状态，供非 hook 场景调用）。
+    出错或被中断返回空串，调用方据空串回退原始输入。signal 可选用于中断。 */
+export async function collectGenerate(
+  req: GenerateRequest,
+  signal?: AbortSignal,
+  onChunk?: (full: string) => void,
+): Promise<string> {
+  return (await collectGenerateResult(req, signal, onChunk)).text;
 }
 
 /** 调 /api/generate 的流式 hook：逐块累加文本，支持中断 */

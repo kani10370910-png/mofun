@@ -29,11 +29,11 @@ export function ImageResult({
     <>
       <div className="toolbar" style={{ marginBottom: 12 }}>
         <span className="rh-title" style={{ color: "var(--c-primary-dark)", fontWeight: 600 }}>
-          🎨 已生成 {count} 套候选
+          已生成 {count} 套候选
         </span>
         <button className="btn btn-ghost btn-sm" onClick={onRegenerate}>
-          🔁 再生成一批
-        </button>
+ 再生成一批
+ </button>
       </div>
       <div className="param-recap">
         参数：{model} · {size} · 参考强度 {refStrength}

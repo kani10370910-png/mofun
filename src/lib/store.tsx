@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { AssetCard, WorkBundleItem } from "@/lib/types";
 import { purgeLocalStorageBloatOnce } from "@/lib/localStorageCleanup";
+import { IDENTITY_EVENT, identityScopedStorageKey } from "@/lib/identity";
 
 /* 用户「我的作品 / 我的素材」运行时仓库：
    品牌设计/视频等模块「储存」后写入这里，仓库页读取展示；localStorage 持久化。
@@ -49,6 +50,10 @@ const HIDDEN_WORKS_KEY = "mofun.hiddenWorks";
 const HIDDEN_MATERIALS_KEY = "mofun.hiddenMaterials";
 const FAVORITES_KEY = "mofun.favorites";
 const SCHEMA_FLAG = "mofun.library.schema-v2";
+
+function scoped(base: string) {
+  return identityScopedStorageKey(base);
+}
 
 function newId(): string {
   try {
@@ -144,7 +149,7 @@ function save(key: string, value: unknown): boolean {
     return true;
   } catch (e) {
     if (e instanceof DOMException && (e.name === "QuotaExceededError" || e.code === 22)) {
-      if ((key === WORKS_KEY || key === MATERIALS_KEY) && Array.isArray(value)) {
+      if ((key === scoped(WORKS_KEY) || key === scoped(MATERIALS_KEY) || key === WORKS_KEY || key === MATERIALS_KEY) && Array.isArray(value)) {
         try {
           window.localStorage.setItem(key, JSON.stringify(slimAssets(value as AssetCard[])));
           return true;
@@ -187,26 +192,33 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const [hiddenMaterials, setHiddenMaterials] = useState<string[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
 
-  useEffect(() => {
+  const reloadLibrary = useCallback(() => {
     purgeLocalStorageBloatOnce();
-    const rawWorks = load(WORKS_KEY);
-    const rawMats = load(MATERIALS_KEY);
+    const worksKey = scoped(WORKS_KEY);
+    const matsKey = scoped(MATERIALS_KEY);
+    const rawWorks = load(worksKey);
+    const rawMats = load(matsKey);
     const worksNorm = normalizeList(rawWorks);
     const matsNorm = normalizeList(rawMats);
     setWorks(worksNorm);
     setMaterials(matsNorm);
-    setHiddenWorks(loadKeys(HIDDEN_WORKS_KEY));
-    setHiddenMaterials(loadKeys(HIDDEN_MATERIALS_KEY));
-    setFavorites(loadKeys(FAVORITES_KEY));
-    // 一次性写回 Schema v2
+    setHiddenWorks(loadKeys(scoped(HIDDEN_WORKS_KEY)));
+    setHiddenMaterials(loadKeys(scoped(HIDDEN_MATERIALS_KEY)));
+    setFavorites(loadKeys(scoped(FAVORITES_KEY)));
     if (!window.localStorage.getItem(SCHEMA_FLAG) || JSON.stringify(rawWorks) !== JSON.stringify(worksNorm)) {
-      save(WORKS_KEY, worksNorm);
+      save(worksKey, worksNorm);
     }
     if (JSON.stringify(rawMats) !== JSON.stringify(matsNorm)) {
-      save(MATERIALS_KEY, matsNorm);
+      save(matsKey, matsNorm);
     }
     try { window.localStorage.setItem(SCHEMA_FLAG, "1"); } catch { /* ignore */ }
   }, []);
+
+  useEffect(() => {
+    reloadLibrary();
+    window.addEventListener(IDENTITY_EVENT, reloadLibrary);
+    return () => window.removeEventListener(IDENTITY_EVENT, reloadLibrary);
+  }, [reloadLibrary]);
 
   const addWork = useCallback((raw: AssetCard): LibraryWriteResult => {
     if (!raw?.name?.trim() || !raw?.kind?.trim()) {
@@ -215,7 +227,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     let result: LibraryWriteResult = { ok: false, reason: "quota" };
     setWorks((prev) => {
       const { next, action, item } = upsertList(prev, raw);
-      const saved = save(WORKS_KEY, next);
+      const saved = save(scoped(WORKS_KEY), next);
       result = saved
         ? { ok: true, action, item }
         : { ok: false, reason: "quota", item };
@@ -238,7 +250,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
         return prev;
       }
       const { next, action, item } = upsertList(prev, raw);
-      const saved = save(MATERIALS_KEY, next);
+      const saved = save(scoped(MATERIALS_KEY), next);
       result = saved
         ? { ok: true, action, item }
         : { ok: false, reason: "quota", item };
@@ -258,7 +270,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     setWorks((prev) => {
       const next = prev.filter((w) => assetKey(w) !== k && assetDedupeKey(w) !== dk);
       if (next.length !== prev.length) {
-        save(WORKS_KEY, next);
+        save(scoped(WORKS_KEY), next);
         return next;
       }
       return prev;
@@ -266,7 +278,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     setHiddenWorks((prev) => {
       const keys = Array.from(new Set([...prev, k, dk]));
       if (keys.length === prev.length) return prev;
-      save(HIDDEN_WORKS_KEY, keys);
+      save(scoped(HIDDEN_WORKS_KEY), keys);
       return keys;
     });
   }, []);
@@ -277,7 +289,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     setMaterials((prev) => {
       const next = prev.filter((m) => assetKey(m) !== k && assetDedupeKey(m) !== dk);
       if (next.length !== prev.length) {
-        save(MATERIALS_KEY, next);
+        save(scoped(MATERIALS_KEY), next);
         return next;
       }
       return prev;
@@ -285,7 +297,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     setHiddenMaterials((prev) => {
       const keys = Array.from(new Set([...prev, k, dk]));
       if (keys.length === prev.length) return prev;
-      save(HIDDEN_MATERIALS_KEY, keys);
+      save(scoped(HIDDEN_MATERIALS_KEY), keys);
       return keys;
     });
   }, []);
@@ -298,7 +310,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
       const next = on
         ? prev.filter((x) => x !== k && x !== dk)
         : [...prev, k];
-      save(FAVORITES_KEY, next);
+      save(scoped(FAVORITES_KEY), next);
       return next;
     });
   }, []);

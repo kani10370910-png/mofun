@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { logoCats, logoCases, logoHistory } from "@/data/image";
@@ -13,6 +13,7 @@ import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { AutoBgImg } from "./AutoBgImg";
 import { asset as assetUrl } from "@/lib/asset";
 import { RegionEnhanceBadge } from "./RegionEnhanceStrip";
+import { GeneratingSlot } from "@/components/ui/GeneratingSlot";
 import { ClampText } from "@/components/ui/ClampText";
 
 // 待删除目标：本次会话生成行（run）或静态历史行（hist，按组+行索引定位）
@@ -61,13 +62,6 @@ export interface LogoRunRow {
   useKB?: boolean;
   regionId?: string;
 }
-
-const LOGO_LOAD_PHASES = [
-  "正在理解品牌创意…",
-  "AI 正在设计 Logo 草稿…",
-  "优化细节与配色中…",
-  "即将完成，请稍等…",
-];
 
 /* logo 右侧画廊：生成历史（含内联加载进度）+ 参考灵感 */
 export function LogoGallery({
@@ -192,20 +186,22 @@ export function LogoGallery({
                           </b>
                           {it.desc && <ClampText text={it.desc} lines={2} className="lh-desc" />}
                         </span>
-                        <span className="lg-cat">{it.style}</span>
-                        {it.regionEnhance && (
-                          <RegionEnhanceBadge
-                            regionId={it.regionId}
-                            useLora={it.useLora ?? it.regionEnhance}
-                            useKB={it.useKB ?? it.regionEnhance}
-                          />
-                        )}
-                        <button className="lh-ico lh-tip" data-tip="复制" aria-label="复制" onClick={() => onCopy(it.style, it.prompt)}>
-                          <Icon name="copy" size={14} />
-                        </button>
-                        <button className="lh-ico lh-tip" data-tip="删除" aria-label="删除" onClick={() => setPending({ kind: "hist", gi, ii })}>
-                          <Icon name="trash" size={14} />
-                        </button>
+                        <div className="lh-meta-tags">
+                          <span className="lg-cat">{it.style}</span>
+                          {it.regionEnhance && (
+                            <RegionEnhanceBadge
+                              regionId={it.regionId}
+                              useLora={it.useLora ?? it.regionEnhance}
+                              useKB={it.useKB ?? it.regionEnhance}
+                            />
+                          )}
+                          <button className="lh-ico lh-tip" data-tip="复制" aria-label="复制" onClick={() => onCopy(it.style, it.prompt)}>
+                            <Icon name="copy" size={14} />
+                          </button>
+                          <button className="lh-ico lh-tip" data-tip="删除" aria-label="删除" onClick={() => setPending({ kind: "hist", gi, ii })}>
+                            <Icon name="trash" size={14} />
+                          </button>
+                        </div>
                       </div>
                       <div className="lh-imgs">
                         {shown.map(({ r, key }, idx) => (
@@ -301,12 +297,6 @@ function LogoRunRowView({
   onToggleFav: (key: string) => void;
 }) {
   const loading = row.pct < 100;
-  const [phaseIdx, setPhaseIdx] = useState(0);
-  useEffect(() => {
-    if (!loading) return;
-    const t = window.setInterval(() => setPhaseIdx((p) => (p + 1) % LOGO_LOAD_PHASES.length), 8_000);
-    return () => window.clearInterval(t);
-  }, [loading]);
   const cells = row.results.map((r, i) => ({ r, i, key: `r-${row.id}-${i}` }));
   const shown = !loading && !row.error && onlyFav ? cells.filter(({ key }) => isFav(key)) : cells;
   // 「只看收藏」下，已完成且无收藏结果的行整行隐藏
@@ -320,33 +310,28 @@ function LogoRunRowView({
           </b>
           {row.desc && <ClampText text={row.desc} lines={2} className="lh-desc" />}
         </span>
-        <span className="lg-cat">{row.style}</span>
-        {row.regionEnhance && (
-          <RegionEnhanceBadge regionId={row.regionId} useLora={row.useLora} useKB={row.useKB} />
-        )}
-        {!loading && (
-          <>
-            <button className="lh-ico lh-tip" data-tip="复制" aria-label="复制" onClick={() => onCopy(row.style, row.prompt)}>
-              <Icon name="copy" size={14} />
-            </button>
-            <button className="lh-ico lh-tip" data-tip="删除" aria-label="删除" onClick={onDelete}>
-              <Icon name="trash" size={14} />
-            </button>
-            <span className="lh-time-spacer" aria-hidden />
-            <span className="lh-time">{row.time}</span>
-          </>
-        )}
+        <div className="lh-meta-tags">
+          <span className="lg-cat">{row.style}</span>
+          {row.regionEnhance && (
+            <RegionEnhanceBadge regionId={row.regionId} useLora={row.useLora} useKB={row.useKB} />
+          )}
+          {!loading && (
+            <>
+              <button className="lh-ico lh-tip" data-tip="复制" aria-label="复制" onClick={() => onCopy(row.style, row.prompt)}>
+                <Icon name="copy" size={14} />
+              </button>
+              <button className="lh-ico lh-tip" data-tip="删除" aria-label="删除" onClick={onDelete}>
+                <Icon name="trash" size={14} />
+              </button>
+            </>
+          )}
+          {!loading && <span className="lh-time">{row.time}</span>}
+        </div>
       </div>
       <div className="lh-imgs">
         {shown.map(({ r, i, key }) =>
           loading ? (
-            <div className={`lh-img ${r.grad} lh-loading`} key={i}>
-              <span className="lh-progress">{row.pct}%完成</span>
-              <span className="lh-think">
-                <Icon name="sparkle" size={22} />
-                <em>{LOGO_LOAD_PHASES[phaseIdx]}</em>
-              </span>
-            </div>
+            <GeneratingSlot key={i} className="lh-img" aspect="1 / 1" />
           ) : row.error ? (
             <div className={`lh-img ${r.grad}`} key={i} style={{ display: "grid", placeItems: "center", padding: 12, textAlign: "center" }}>
               <span className="lh-fail">{row.error}</span>

@@ -7,6 +7,10 @@ import {
   qualityToModelRes,
   resolveVideoModel,
 } from "@/data/video";
+import { AGENT } from "@/lib/agentCodes";
+import { agentCanRun, fetchAgentByCode, firstNodeModel, workflowOrigin } from "@/lib/opsAgents";
+import { fetchOpsModelCreds, opsApiKey, videoGatewayRoot } from "@/lib/opsModels";
+import { executeAgentWorkflow } from "@/lib/workflow/execute";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +32,7 @@ export async function POST(req: NextRequest) {
     ratio: string;
     dur: string;
     model?: string;
+    agentCode?: string;
     imageUrl?: string;
     tailImageUrl?: string; // 首尾帧模式的尾帧图（Seedance firstTailGenerate）
     referenceImageUrl?: string; // 参考图（role: reference_image）：锁角色/风格，但不作首帧、不定义输出画面（单张，向后兼容）
@@ -37,15 +42,62 @@ export async function POST(req: NextRequest) {
     quality?: string; // 可选：UI 画质档（480P/720P/…），优先于 resolution 做模型能力映射
     audioUrl?: string; // 参考音频（Seedance 2.0 音频输入）：MP3/WAV，2-15s。模型据此匹配对白嗓音特征、音画同步
     audioUrls?: string[]; // 多段参考音频（最多 3 段、合计≤15s）
+    skipWorkflow?: boolean;
   };
 
-  const apiKey  = process.env.VIDEO_API_KEY  || process.env.IMAGE_API_KEY  || "";
-  const baseURL = (process.env.VIDEO_BASE_URL || process.env.IMAGE_BASE_URL || "").replace(/\/$/, "");
-  const model   = body.model || process.env.VIDEO_MODEL || "seedance-1.5-pro";
-  const resolved = resolveVideoModel(model);
+  const skipWorkflow = body.skipWorkflow === true;
+  if (!skipWorkflow) {
+    const code =
+      body.agentCode ||
+      (body.tailImageUrl ? AGENT.flashFlf : body.imageUrl ? AGENT.flashI2v : AGENT.flashT2v);
+    const wfAgent = await fetchAgentByCode(code);
+    if (agentCanRun(wfAgent, ["video"])) {
+      const result = await executeAgentWorkflow({
+        agent: wfAgent,
+        origin: workflowOrigin(req),
+        input: {
+          text: body.prompt,
+          image: body.imageUrl,
+          tailImage: body.tailImageUrl,
+          modelOverride: body.model,
+          ratio: body.ratio,
+          dur: body.dur,
+          quality: body.quality,
+          generateAudio: body.generateAudio,
+          referenceImageUrl: body.referenceImageUrl,
+          referenceImageUrls: body.referenceImageUrls,
+          audioUrl: body.audioUrl,
+          audioUrls: body.audioUrls,
+          resolution: body.resolution,
+        },
+      });
+      if (result.ok && result.video) return Response.json({ videoUrl: result.video });
+      if (!result.ok) return Response.json({ error: result.error || "工作流视频生成失败" }, { status: 502 });
+    }
+  }
 
-  console.log("[video] model:", model, "| resolved:", resolved.modelId, "| baseURL:", baseURL || "(empty)", "| key:", apiKey ? "set" : "MISSING", "| imageUrl:", body.imageUrl ? body.imageUrl.slice(0, 40) + `… (${(body.imageUrl.length/1024).toFixed(0)}KB)` : "none", "| tailImageUrl:", body.tailImageUrl ? `(${(body.tailImageUrl.length/1024).toFixed(0)}KB)` : "none");
-  if (!apiKey || !baseURL) return Response.json({ error: "no API key" }, { status: 503 });
+  const envKey = process.env.VIDEO_API_KEY  || process.env.IMAGE_API_KEY  || "";
+  const envBase = (process.env.VIDEO_BASE_URL || process.env.IMAGE_BASE_URL || "").replace(/\/$/, "");
+  let requestedModel = body.model;
+  if (!requestedModel && body.agentCode) {
+    const agent = await fetchAgentByCode(body.agentCode);
+    requestedModel = firstNodeModel(agent?.workflow, "video") || undefined;
+  } else if (!requestedModel && (body.imageUrl || body.tailImageUrl)) {
+    const code = body.tailImageUrl ? AGENT.flashFlf : AGENT.flashI2v;
+    const agent = await fetchAgentByCode(code);
+    requestedModel = firstNodeModel(agent?.workflow, "video") || undefined;
+  } else if (!requestedModel) {
+    const agent = await fetchAgentByCode(AGENT.flashT2v);
+    requestedModel = firstNodeModel(agent?.workflow, "video") || undefined;
+  }
+  const model   = requestedModel || process.env.VIDEO_MODEL || "seedance-1.5-pro";
+  const resolved = resolveVideoModel(model);
+  const opsModel = (await fetchOpsModelCreds(resolved.modelId)) || (await fetchOpsModelCreds(model));
+  const apiKey = opsApiKey(opsModel, envKey);
+  const baseURL = videoGatewayRoot(opsModel?.base_url || envBase);
+
+  console.log("[video] model:", model, "| resolved:", resolved.modelId, "| baseURL:", baseURL || "(empty)", "| key:", apiKey ? "ops" : "MISSING", "| imageUrl:", body.imageUrl ? body.imageUrl.slice(0, 40) + `… (${(body.imageUrl.length/1024).toFixed(0)}KB)` : "none", "| tailImageUrl:", body.tailImageUrl ? `(${(body.tailImageUrl.length/1024).toFixed(0)}KB)` : "none");
+  if (!apiKey || !baseURL) return Response.json({ error: "运营端未配置该模型的 API 密钥或基础 URL" }, { status: 503 });
 
   // 按模型能力校验图生 / 首尾帧
   if (body.tailImageUrl && !modelSupportsFlf(model)) {
@@ -239,7 +291,7 @@ async function handleSeedance(p: {
         if (retry) { submitRes = retry; if (retry.ok) degraded = true; }
       }
     }
-    // ④ 还不行 → 纯文生（丢所有图）。⚠️ 只对「本就没有首帧」的镜头（首镜纯文生）兜底；
+    // ④ 还不行 → 纯文生（丢所有图）。注意：只对「本就没有首帧」的镜头（首镜纯文生）兜底；
     //    有首帧的承接镜绝不退化为纯文生——那会同时毁掉「与上一镜尾帧的衔接」和「跨镜人物一致」，
     //    产出一段脱节又换人的视频还标成已生成。此时宁可保留失败态、把真实原因回传，让用户重试或换模型。
     if (!submitRes.ok && !hadFirstFrame) {

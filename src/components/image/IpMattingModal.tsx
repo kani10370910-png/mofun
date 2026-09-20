@@ -180,7 +180,7 @@ export function IpMattingModal({
       return;
     }
     const card: AssetCard = {
-      emoji: "✂️",
+      emoji: "",
       grad: "thumb-grad-1",
       kind: "素材",
       name: `${name} · 抠图`,
@@ -215,11 +215,11 @@ export function IpMattingModal({
               // eslint-disable-next-line @next/next/no-img-element
               <img className="matting-img" src={img} alt="原图" />
             ) : (
-              <span className="matting-ph">🧸</span>
-            )}
-          </div>
+              <span className="matting-ph"></span>
+ )}
+ </div>
 
-          <div className="matting-pane matting-result">
+ <div className="matting-pane matting-result">
             <span className="matting-tag">结果图</span>
             <div className="matting-checker">
               {phase === "running" ? (
@@ -248,8 +248,8 @@ export function IpMattingModal({
             </div>
             {records.length === 0 ? (
               <div className="iw-side-empty">
-                <div className="iw-empty-box">📦</div>
-                <div className="iw-empty-text">暂无操作记录</div>
+                <div className="iw-empty-box"></div>
+ <div className="iw-empty-text">暂无操作记录</div>
               </div>
             ) : (
               <div className="iw-side-list">

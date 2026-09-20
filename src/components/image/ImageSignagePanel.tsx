@@ -251,7 +251,7 @@ export function ImageSignagePanel({
             type="text"
             value={state.shopName}
             onChange={(e) => setState({ ...state, shopName: e.target.value, fromCase: false })}
-            placeholder="如：安吉白茶旗舰店"
+            placeholder="如：萧山杨梅旗舰店"
             maxLength={32}
           />
         </div>
@@ -264,7 +264,7 @@ export function ImageSignagePanel({
             value={state.slogan}
             onChange={(e) => setState({ ...state, slogan: e.target.value, fromCase: false })}
             onClear={() => setState({ ...state, slogan: "", fromCase: false })}
-            placeholder="如：明前芽茶 · 产地直发"
+            placeholder="如：当日采摘 · 产地直发"
           />
         </div>
 

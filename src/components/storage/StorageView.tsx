@@ -162,7 +162,7 @@ export function StorageView({ initialTab = "works" }: { initialTab?: Tab }) {
               }
               const time = nowStamp();
               const saved = addMaterial({
-                emoji: "图",
+                emoji: "",
                 kind: "图片",
                 name: file.name.replace(/\.[^.]+$/, "") || "其他",
                 sub: "其他",

@@ -1,3 +1,4 @@
+import { EVENT_I2I_MODELS, EVENT_T2I_MODELS } from "@/lib/featureModels";
 import type {
   ImageEntry,
   ImageType,
@@ -19,40 +20,40 @@ import type {
 
 /* ---------- 宣传图片：两种入口 + 图片类型 ---------- */
 export const imageEntries: ImageEntry[] = [
-  { key: "desc", ico: "✨", title: "描述做图", desc: "用文字描述需求，AI 直接出图", tag: "文生图" },
-  { key: "photo", ico: "📷", title: "照片做图", desc: "上传产品/实拍照片，AI 智能合成", tag: "图生图" },
+  { key: "desc", ico: "", title: "描述做图", desc: "用文字描述需求，AI 直接出图", tag: "文生图" },
+  { key: "photo", ico: "", title: "照片做图", desc: "上传产品/实拍照片，AI 智能合成", tag: "图生图" },
 ];
 
 // 每个成图类型自带「尺寸预设」数组（第一个为切换时默认选中）
 export const imageTypes: ImageType[] = [
-  { key: "event", ico: "🎉", name: "活动", grad: "thumb-grad-2", sizes: [
+  { key: "event", ico: "", name: "活动", grad: "thumb-grad-2", sizes: [
     { name: "海报", size: "1080 × 1440 px", ico: "szPortrait" },
     { name: "长图", size: "1080 × 3000 px", ico: "szPortrait" },
     { name: "菜单", size: "21 × 29.7 cm", ico: "szA4" },
     { name: "易拉宝", size: "80 × 180 cm", ico: "szRollup" },
     { name: "宣传单", size: "21 × 29.7 cm", ico: "szA4" },
   ] },
-  { key: "product", ico: "📷", name: "商拍", grad: "thumb-grad-1", sizes: [
+  { key: "product", ico: "", name: "商拍", grad: "thumb-grad-1", sizes: [
     { name: "白底主图", size: "800 × 800 px", ico: "szSquare" },
     { name: "产地场景", size: "1920 × 1080 px", ico: "szLandscape" },
     { name: "生活场景", size: "1080 × 1440 px", ico: "szPortrait" },
     { name: "细节特写", size: "1080 × 1440 px", ico: "szPortrait" },
     { name: "礼盒套图", size: "1080 × 1080 px", ico: "szSquare" },
   ] },
-  { key: "logo", ico: "✴️", name: "logo", grad: "thumb-grad-3", sizes: [
+  { key: "logo", ico: "", name: "logo", grad: "thumb-grad-3", sizes: [
     { name: "标准 LOGO", size: "1024 × 1024 px", ico: "szSquare" },
     { name: "透明底 LOGO", size: "1024 × 1024 px · PNG", ico: "szSquare" },
   ] },
-  { key: "ip", ico: "🧸", name: "IP设计", grad: "thumb-grad-4", sizes: [
+  { key: "ip", ico: "", name: "IP设计", grad: "thumb-grad-4", sizes: [
     { name: "IP 形象图", size: "1024 × 1024 px", ico: "szSquare" },
     { name: "IP 三视图", size: "1920 × 1080 px", ico: "szLandscape" },
     { name: "表情包九宫格", size: "1080 × 1080 px", ico: "szSquare" },
   ] },
-  { key: "font", ico: "🔤", name: "AI字体", grad: "thumb-grad-6", sizes: [
+  { key: "font", ico: "", name: "AI字体", grad: "thumb-grad-6", sizes: [
     { name: "艺术标题字", size: "1920 × 1080 px", ico: "szLandscape" },
     { name: "方形字图", size: "1080 × 1080 px", ico: "szSquare" },
   ] },
-  { key: "signage", ico: "🏪", name: "店招设计", grad: "thumb-grad-5", sizes: [
+  { key: "signage", ico: "", name: "店招设计", grad: "thumb-grad-5", sizes: [
     { name: "淘宝通栏1920×150", size: "1920 × 150 px", ico: "szLandscape" },
     { name: "淘宝PC950×120", size: "950 × 120 px", ico: "szLandscape" },
     { name: "无线750×200", size: "750 × 200 px", ico: "szLandscape" },
@@ -63,13 +64,7 @@ export const imageTypes: ImageType[] = [
 ];
 
 /* ---------- 宣传图片：生图模型（下拉只展示友好名；上游 ID 见 imageModelCatalog） ---------- */
-export const imageModels: ModelOption[] = [
-  { name: "MoFun区域文化大模型", desc: "可挂本地 Lora" },
-  { name: "Z-Image", desc: "真实感增强（待接入）" },
-  { name: "Seedream 4.0", desc: "高细节" },
-  { name: "Seedream 4.5", desc: "细节增强" },
-  { name: "Seedream 5.0", desc: "最新 Seedream" },
-];
+export const imageModels: ModelOption[] = EVENT_T2I_MODELS;
 
 /* ---------- 文生图：图片比例（活动文生图用） ---------- */
 export const imageRatios: SizePreset[] = [
@@ -82,11 +77,11 @@ export const imageRatios: SizePreset[] = [
 /* ---------- 文生图：画面风格（九宫格选择；首项「智能匹配」不拼风格词） ----------
    prompt 为出图时追加到画面描述后的风格提示；占位用 emoji+渐变，真图后补 img。 */
 export const paintStyles: PaintStyle[] = [
-  { key: "auto", name: "智能匹配", emoji: "🎨", grad: "thumb-grad-4", prompt: "" },
+  { key: "auto", name: "智能匹配", emoji: "", grad: "thumb-grad-4", prompt: "" },
   {
     key: "guochao",
     name: "国潮",
-    emoji: "🏮",
+    emoji: "",
     grad: "thumb-grad-2",
     prompt:
       "严格按新中式国潮插画风格出图：融合祥云、回纹、如意、缠枝等传统纹样与现代平面构成，朱红、鎏金、墨黑为主色，辅以青绿或黛蓝点缀，东方美学意境鲜明。造型兼顾写意与装饰，轮廓利落，细节有金石镌刻与织绣质感，标题区可有匾额式排版暗示。画面层次分明、对比强烈，禁止水彩湿边晕染、写实摄影景深、欧美卡通大眼造型与赛博霓虹科技感，整体呈现当代国风活动海报质感，辨识度高、气场足、文化符号清晰。",
@@ -94,7 +89,7 @@ export const paintStyles: PaintStyle[] = [
   {
     key: "watercolor",
     name: "水彩",
-    emoji: "🖌️",
+    emoji: "",
     grad: "thumb-grad-3",
     prompt:
       "严格按水彩画风格出图：颜料在水彩纸面自然晕染渗透，边缘柔和湿润，可见纸纹、水痕与颜料沉淀肌理，透明轻盈、色彩通透叠色。笔触流动，明暗靠水分浓淡过渡而非硬边阴影，大面积留白营造空气感。整体清新诗意、适合文旅与节气氛围，禁止扁平矢量硬边色块、国潮描金重彩、木刻刀痕与超写实摄影颗粒，务必呈现手绘水彩海报氛围，色调柔和、层次轻盈、有呼吸感。",
@@ -102,7 +97,7 @@ export const paintStyles: PaintStyle[] = [
   {
     key: "flat",
     name: "扁平矢量",
-    emoji: "🟪",
+    emoji: "",
     grad: "thumb-grad-1",
     prompt:
       "严格按扁平矢量插画风格出图：几何简化造型，大色块清晰分层，几乎无渐变、无体积阴影、无写实纹理与噪点，线条干净统一、线宽一致。构图现代简洁，信息层级明确，适合印刷与屏幕传播，图标化元素可适度出现。禁止水彩渗透水痕、木刻刀痕、摄影景深虚化、复杂肌理与厚涂光影，色块边缘锐利整齐，整体呈现当代品牌视觉与信息图海报感，克制、清晰、好识别、便于延展。",
@@ -110,7 +105,7 @@ export const paintStyles: PaintStyle[] = [
   {
     key: "cartoon",
     name: "卡通动漫",
-    emoji: "🧑‍🎨",
+    emoji: "",
     grad: "thumb-grad-5",
     prompt:
       "严格按卡通动漫插画风格出图：轮廓线圆润清晰，造型略夸张可爱，五官与肢体比例活泼，色彩饱和明亮，阴影可用简单色块或赛璐璐分面，高光点缀增加生动感。情绪外放、画面有活力与亲和力，适合亲子、文旅体验与传播向物料。禁止写实皮肤毛孔纹理、冷硬纪实摄影、工笔细线淡彩与木刻黑白版画质感，也避免过度暗黑赛博风，整体呈现明亮二次元或商业卡通海报气质，轻松、好记、吸睛。",
@@ -118,7 +113,7 @@ export const paintStyles: PaintStyle[] = [
   {
     key: "lineart",
     name: "线描",
-    emoji: "✏️",
+    emoji: "",
     grad: "thumb-grad-6",
     prompt:
       "严格按工笔线描与素描线稿风格出图：以细腻均匀的黑色或深色线条勾勒造型，结构清晰、疏密有致，可少量淡彩或纯黑白，大面积留白体现章法。强调线的节奏、穿插与装饰性，弱化厚涂、体积光影与材质高光。禁止浓重水彩湿画法、国潮红金满铺填色、写实摄影颗粒噪点与厚重色块插画，整体呈现干净雅致的线稿海报感，克制、清晰、有书卷气与手绘温度。",
@@ -126,7 +121,7 @@ export const paintStyles: PaintStyle[] = [
   {
     key: "engraving",
     name: "版画",
-    emoji: "🗿",
+    emoji: "",
     grad: "thumb-grad-3",
     prompt:
       "严格按木刻版画风格出图：刀刻肌理明显，黑白或高对比双色（如黑红）为主，块面粗粝有力，边缘呈刻刀切削与木纹残留感，点线面节奏强烈。画面质朴、有手工印刷与套色痕迹，装饰性与叙事性并存，适合乡土、非遗与节庆主题。禁止柔和水彩湿边、光滑矢量渐变、赛璐璐动漫上色与商业摄影光泽皮肤，整体呈现复古版画海报气质，有力量感、历史感与乡土审美。",
@@ -134,7 +129,7 @@ export const paintStyles: PaintStyle[] = [
   {
     key: "photo",
     name: "写实摄影",
-    emoji: "📷",
+    emoji: "",
     grad: "thumb-grad-4",
     prompt:
       "严格按写实商业摄影风格出图：真实光影、自然色彩还原，材质与细节清晰可辨，景深、曝光与焦段符合相机成像逻辑，棚拍柔光或外景自然光可信。构图专业，主体锐利，背景虚化或环境光合理，适合电商与品牌主视觉。禁止插画描边、国潮纹样贴图、水彩纸纹水痕、卡通夸张比例与版画黑白刀痕，整体呈现高端电商或品牌海报摄影质感，干净、真实、有质感与商品说服力。",
@@ -142,7 +137,7 @@ export const paintStyles: PaintStyle[] = [
   {
     key: "pattern",
     name: "纹样",
-    emoji: "🔴",
+    emoji: "",
     grad: "thumb-grad-2",
     prompt:
       "严格按传统纹样装饰风格出图：以对称或连续的民族纹饰、吉祥图案为主体语言，二方连续或四方连续铺陈，装饰密度高、秩序感强，色彩可浓郁亦可雅致，但图案结构必须清晰可读、可作织物或包装延展。画面偏平面装饰，弱化透视、景深与写实体积。禁止摄影景深、人物写实皮肤毛发、水彩随意晕染与欧美卡通造型，整体呈现织物、礼盒或节庆纹样海报感，华丽、规整、文化符号鲜明。",
@@ -270,21 +265,17 @@ export const productStyles: PaintStyle[] = [
 ];
 
 /* ---------- 图生图：编辑模型（下拉只展示友好名） ---------- */
-export const editModels: ModelOption[] = [
-  { name: "MoFun区域文化大模型", desc: "基础编辑 · 可挂本地 Lora" },
-  { name: "高清重绘", desc: "细节增强" },
-  { name: "局部重绘", desc: "精准修改指定区域" },
-];
+export const editModels: ModelOption[] = EVENT_I2I_MODELS;
 
 /* ---------- logo 设计：风格 + 参考灵感案例 ---------- */
 export const logoStyles: LogoStyle[] = [
-  { key: "auto", name: "智能匹配", emoji: "🎨", grad: "thumb-grad-4" },
-  { key: "illust", name: "图文插画", emoji: "⛰️", grad: "thumb-grad-1", img: "/logos/1.png" },
-  { key: "simple", name: "图文简约", emoji: "📖", grad: "thumb-grad-5", img: "/logos/20251114_1.png" },
-  { key: "word", name: "文字logo", emoji: "🍶", grad: "thumb-grad-6", img: "/logos/20251114_13.png" },
-  { key: "letter", name: "字母logo", emoji: "🔠", grad: "thumb-grad-3", img: "/logos/57.png" },
-  { key: "badge", name: "经典徽章", emoji: "🏅", grad: "thumb-grad-2", img: "/logos/55.png" },
-  { key: "newcn", name: "新中式", emoji: "🪭", grad: "thumb-grad-1", img: "/logos/2025112606.png" },
+  { key: "auto", name: "智能匹配", emoji: "", grad: "thumb-grad-4" },
+  { key: "illust", name: "图文插画", emoji: "", grad: "thumb-grad-1", img: "/logos/14.png" },
+  { key: "simple", name: "图文简约", emoji: "", grad: "thumb-grad-5", img: "/logos/28.jpeg" },
+  { key: "word", name: "文字logo", emoji: "", grad: "thumb-grad-6", img: "/logos/41.png" },
+  { key: "letter", name: "字母logo", emoji: "", grad: "thumb-grad-3", img: "/logos/57.png" },
+  { key: "badge", name: "经典徽章", emoji: "", grad: "thumb-grad-2", img: "/logos/48.png" },
+  { key: "newcn", name: "新中式", emoji: "", grad: "thumb-grad-1", img: "/logos/2025112607.png" },
 ];
 
 export const logoCats: string[] = ["全部", "图文插画", "图文简约", "文字logo", "字母logo", "经典徽章", "新中式"];
@@ -317,7 +308,7 @@ function logoDesc(name: string, cat: string): string {
 }
 
 const lc = (img: string, name: string, cat: string, i: number): LogoCase => ({
-  emoji: "🎨",
+  emoji: "",
   name,
   cat,
   grad: G[i % G.length],
@@ -457,10 +448,10 @@ export const logoHistory: LogoHistoryGroup[] = [
         regionEnhance: true,
         regionId: "anji",
         results: [
-          { emoji: "🏅", grad: "thumb-grad-2", fav: true, img: "/logos/55.png" },
-          { emoji: "🍪", grad: "thumb-grad-1", fav: false, img: "/logos/56.png" },
-          { emoji: "🥨", grad: "thumb-grad-5", fav: false, img: "/logos/57.png" },
-          { emoji: "🍩", grad: "thumb-grad-3", fav: false, img: "/logos/58.png" },
+          { emoji: "", grad: "thumb-grad-2", fav: true, img: "/logos/55.png" },
+          { emoji: "", grad: "thumb-grad-1", fav: false, img: "/logos/56.png" },
+          { emoji: "", grad: "thumb-grad-5", fav: false, img: "/logos/57.png" },
+          { emoji: "", grad: "thumb-grad-3", fav: false, img: "/logos/58.png" },
         ],
       },
       {
@@ -470,10 +461,10 @@ export const logoHistory: LogoHistoryGroup[] = [
         regionEnhance: true,
         regionId: "anji",
         results: [
-          { emoji: "🍲", grad: "thumb-grad-6", fav: false, img: "/logos/2025112606.png" },
-          { emoji: "🥘", grad: "thumb-grad-4", fav: false, img: "/logos/2025112607.png" },
-          { emoji: "🍜", grad: "thumb-grad-2", fav: false, img: "/logos/2025112608.png" },
-          { emoji: "🫕", grad: "thumb-grad-1", fav: false, img: "/logos/2025112609.png" },
+          { emoji: "", grad: "thumb-grad-6", fav: false, img: "/logos/2025112606.png" },
+          { emoji: "", grad: "thumb-grad-4", fav: false, img: "/logos/2025112607.png" },
+          { emoji: "", grad: "thumb-grad-2", fav: false, img: "/logos/2025112608.png" },
+          { emoji: "", grad: "thumb-grad-1", fav: false, img: "/logos/2025112609.png" },
         ],
       },
     ],
@@ -488,10 +479,10 @@ export const logoHistory: LogoHistoryGroup[] = [
         regionEnhance: true,
         regionId: "anji",
         results: [
-          { emoji: "🍵", grad: "thumb-grad-3", fav: false, img: "/logos/20251114_13.png" },
-          { emoji: "🌿", grad: "thumb-grad-5", fav: false, img: "/logos/20251114_14.png" },
-          { emoji: "⛰️", grad: "thumb-grad-2", fav: false, img: "/logos/20251114_15.png" },
-          { emoji: "🏯", grad: "thumb-grad-1", fav: false, img: "/logos/20251114_16.png" },
+          { emoji: "", grad: "thumb-grad-3", fav: false, img: "/logos/20251114_13.png" },
+          { emoji: "", grad: "thumb-grad-5", fav: false, img: "/logos/20251114_14.png" },
+          { emoji: "", grad: "thumb-grad-2", fav: false, img: "/logos/20251114_15.png" },
+          { emoji: "", grad: "thumb-grad-1", fav: false, img: "/logos/20251114_16.png" },
         ],
       },
     ],
@@ -753,10 +744,10 @@ export const imageTools: ImageTool[] = [
 ];
 
 export const imageResults: ImageResult[] = [
-  { emoji: "🍃", tag: "方案 A · 清新", grad: "thumb-grad-1" },
-  { emoji: "🌿", tag: "方案 B · 国风", grad: "thumb-grad-5" },
-  { emoji: "🏔️", tag: "方案 C · 大气", grad: "thumb-grad-3" },
-  { emoji: "✨", tag: "方案 D · 促销", grad: "thumb-grad-2" },
+  { emoji: "", tag: "方案 A · 清新", grad: "thumb-grad-1" },
+  { emoji: "", tag: "方案 B · 国风", grad: "thumb-grad-5" },
+  { emoji: "", tag: "方案 C · 大气", grad: "thumb-grad-3" },
+  { emoji: "", tag: "方案 D · 促销", grad: "thumb-grad-2" },
 ];
 
 /* ---------- 活动 · 右侧案例画廊（未生成时展示；按左侧子类筛选） ----------
@@ -859,7 +850,7 @@ export const ipCases: IpCase[] = [
   {
     name: "稻小金",
     cat: "农业吉祥物",
-    emoji: "🌾",
+    emoji: "",
     grad: "thumb-grad-1",
     colors: ["#E8B84B", "#F5EFE0"],
     ratioName: "正方形 1:1",
@@ -869,7 +860,7 @@ export const ipCases: IpCase[] = [
   {
     name: "茶灵儿",
     cat: "文旅吉祥物",
-    emoji: "🍵",
+    emoji: "",
     grad: "thumb-grad-3",
     colors: ["#7FB069", "#F5EFE0"],
     ratioName: "正方形 1:1",
@@ -879,7 +870,7 @@ export const ipCases: IpCase[] = [
   {
     name: "竹宝宝",
     cat: "竹乡吉祥物",
-    emoji: "🎋",
+    emoji: "",
     grad: "thumb-grad-2",
     colors: ["#6FA84B", "#F2F0E6"],
     ratioName: "正方形 1:1",

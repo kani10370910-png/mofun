@@ -56,7 +56,7 @@ export function templatesFromInspiration(): Template[] {
   for (const it of activeGalleryItems) {
     const sub = EVENT_SUBS.has(it.sub) ? it.sub : "海报";
     out.push({
-      emoji: it.emoji || "🖼️",
+      emoji: it.emoji || "",
       name: it.name,
       scene: inferScene(`${it.name} ${it.prompt || ""}`),
       type: "image",
@@ -76,7 +76,7 @@ export function templatesFromInspiration(): Template[] {
   // —— 商拍 ——
   for (const it of productGalleryItems) {
     out.push({
-      emoji: it.emoji || "📷",
+      emoji: it.emoji || "",
       name: it.name,
       scene: "电商推广",
       type: "image",
@@ -93,7 +93,7 @@ export function templatesFromInspiration(): Template[] {
   // —— logo ——
   for (const c of logoCases) {
     out.push({
-      emoji: c.emoji || "🎨",
+      emoji: c.emoji || "",
       name: c.name,
       scene: inferScene(c.name),
       type: "image",
@@ -114,7 +114,7 @@ export function templatesFromInspiration(): Template[] {
   // —— IP ——
   for (const c of ipCases) {
     out.push({
-      emoji: c.emoji || "🧸",
+      emoji: c.emoji || "",
       name: `${c.name} IP 形象`,
       scene: inferScene(`${c.name} ${c.cat}`),
       type: "image",
@@ -135,7 +135,7 @@ export function templatesFromInspiration(): Template[] {
   // —— AI 字体 · 参考灵感 ——
   for (const c of fontCases) {
     out.push({
-      emoji: "🔤",
+      emoji: "",
       name: `${c.text} · ${c.tag}`,
       scene: "节庆活动",
       type: "image",
@@ -157,7 +157,7 @@ export function templatesFromInspiration(): Template[] {
   // —— AI 字体 · 字体故事 ——
   for (const s of fontStories) {
     out.push({
-      emoji: "📖",
+      emoji: "",
       name: `${s.name}字体故事`,
       scene: "节庆活动",
       type: "image",
@@ -181,7 +181,7 @@ export function templatesFromInspiration(): Template[] {
     const nameM = it.prompt?.match(/店铺名「([^」]+)」/);
     const sloganM = it.prompt?.match(/副文案「([^」]+)」/);
     out.push({
-      emoji: it.emoji || "🏪",
+      emoji: it.emoji || "",
       name: it.name,
       scene: inferScene(`${it.name} ${it.prompt || ""}`),
       type: "image",
@@ -202,7 +202,7 @@ export function templatesFromInspiration(): Template[] {
   // —— 文案策划 · 社媒参考灵感 ——
   for (const row of planHistory) {
     out.push({
-      emoji: "💬",
+      emoji: "",
       name: `${row.name}社媒推文`,
       scene: inferScene(row.name),
       type: "content",
@@ -222,7 +222,7 @@ export function templatesFromInspiration(): Template[] {
   // —— 一句话成片 ——
   for (const it of onelineInspires) {
     out.push({
-      emoji: it.emoji || "🎬",
+      emoji: it.emoji || "",
       name: `${it.scene}一句话成片`,
       scene: inferScene(`${it.cat} ${it.scene} ${it.prompt}`),
       type: "video",
@@ -239,7 +239,7 @@ export function templatesFromInspiration(): Template[] {
   // —— 数字人 ——
   for (const it of avatarInspires) {
     out.push({
-      emoji: "📱",
+      emoji: "",
       name: it.title,
       scene: "旅游景点",
       type: "video",

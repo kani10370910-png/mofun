@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { asset } from "@/lib/asset";
 import { useAuth } from "@/lib/AuthContext";
+import { identityScopeKey } from "@/lib/identity";
 import {
   HOME_CHAT_EVENT,
   HOME_CHAT_EXIT_EVENT,
@@ -16,13 +17,17 @@ import {
   writeHomeSeason,
 } from "@/lib/homeSeason";
 import { accountRegionDisplay } from "@/lib/regionEnhance";
-import { resolveDisplayName, resolvePlanLabel } from "@/lib/auth";
+import { hasEnterpriseInfo, isEnterpriseOwner, isJoinedOrgMember, resolveLoginAccount } from "@/lib/auth";
+import { actorAccountUserName, loadOrgStore } from "@/lib/org";
 import { accountHref, accountReturnPath } from "@/lib/accountNav";
+import { loadEconomyCatalog, subscribeEconomy } from "@/lib/economyCatalog";
+import { earliestPoolExpiresAt, formatPoints, isPaidMember, loadPointsWallet, memberTypeLabel } from "@/lib/points";
 
 const LOGO = "/brand-logo.png";
 
 const NAV: { view: string; href: string; label: string }[] = [
   { view: "home", href: "/", label: "首页" },
+  { view: "agent", href: "/agent", label: "智能体" },
   { view: "template", href: "/template", label: "灵感" },
   { view: "content", href: "/content", label: "文案策划" },
   { view: "image", href: "/image", label: "品牌设计" },
@@ -31,7 +36,6 @@ const NAV: { view: string; href: string; label: string }[] = [
   { view: "storage", href: "/storage", label: "仓库" },
 ];
 const NAV_DEV_DISABLED = new Set(["content", "research"]);
-const MEMBER_DEV_TIP = "该功能正在开发中";
 
 export function TopBar() {
   const pathname = usePathname();
@@ -42,10 +46,16 @@ export function TopBar() {
   const [seasonOpen, setSeasonOpen] = useState(false);
   const [season, setSeason] = useState<HomeSeason>("summer");
   const [homeChat, setHomeChat] = useState(false);
+  const [authUiReady, setAuthUiReady] = useState(false);
+  const [member, setMember] = useState(false);
+  const [memberType, setMemberType] = useState("非会员");
+  const [power, setPower] = useState({ gift: 0, benefit: 0, recharge: 0, expireAt: "" });
   const menuRef = useRef<HTMLDivElement>(null);
   const seasonRef = useRef<HTMLDivElement>(null);
   const isHomePath = pathname === "/";
+  const isAgentPath = pathname === "/agent" || pathname.startsWith("/agent/");
   const isHome = isHomePath && !homeChat;
+  const isChatWorkspace = isAgentPath || (isHomePath && homeChat);
 
   const currentPath =
     pathname + (searchParams?.toString() ? `?${searchParams.toString()}` : "");
@@ -66,9 +76,37 @@ export function TopBar() {
   };
 
   const isActive = (href: string) => {
-    if (href === "/") return pathname === "/" && !homeChat;
+    if (href === "/") return isHomePath && !homeChat;
+    if (href === "/agent") return isChatWorkspace;
     return pathname.startsWith(href);
   };
+
+  useEffect(() => {
+    setAuthUiReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setMember(false);
+      setMemberType("非会员");
+      setPower({ gift: 0, benefit: 0, recharge: 0, expireAt: "" });
+      return;
+    }
+    const apply = () => {
+      const wallet = loadPointsWallet(identityScopeKey(user), { enterprise: isEnterpriseOwner(user) });
+      setMember(isPaidMember(wallet));
+      setMemberType(isJoinedOrgMember(user) ? "成员" : memberTypeLabel(wallet));
+      setPower({
+        gift: Number(wallet.giftPoints || 0),
+        benefit: Number(wallet.benefitPoints || 0),
+        recharge: Number(wallet.rechargePoints || 0),
+        expireAt: earliestPoolExpiresAt(wallet),
+      });
+    };
+    apply();
+    void loadEconomyCatalog().then(apply);
+    return subscribeEconomy(apply);
+  }, [user]);
 
   useEffect(() => {
     setSeason(readHomeSeason());
@@ -107,7 +145,9 @@ export function TopBar() {
     };
   }, [menuOpen, seasonOpen]);
 
-  const displayName = user ? resolveDisplayName(user) : "";
+  const displayName = user
+    ? actorAccountUserName(loadOrgStore(user), user) || resolveLoginAccount(user)
+    : "";
   const avatarText = displayName
     ? /^1\d{10}$/.test(displayName)
       ? displayName.slice(-1)
@@ -117,7 +157,7 @@ export function TopBar() {
 
   const topbarClass = isHome
     ? "topbar topbar-home"
-    : isHomePath && homeChat
+    : isChatWorkspace
       ? "topbar topbar-chat"
       : "topbar";
 
@@ -145,9 +185,15 @@ export function TopBar() {
                     e.preventDefault();
                     return;
                   }
-                  if (n.href !== "/" || !homeChat) return;
-                  e.preventDefault();
-                  window.dispatchEvent(new CustomEvent(HOME_CHAT_EXIT_EVENT));
+                  if (n.href === "/" && homeChat && isHomePath) {
+                    e.preventDefault();
+                    window.dispatchEvent(new CustomEvent(HOME_CHAT_EXIT_EVENT));
+                    return;
+                  }
+                  if (isAgentPath && n.href !== "/agent") {
+                    e.preventDefault();
+                    router.push(n.href);
+                  }
                 }}
               >
                 <span>{n.label}</span>
@@ -194,7 +240,9 @@ export function TopBar() {
           </div>
 
           <div className="user-card" ref={menuRef}>
-            {!ready ? null : user ? (
+            {!authUiReady || !ready ? (
+              <span className="topbar-user-slot" aria-hidden="true" />
+            ) : user ? (
               <>
                 <button
                   type="button"
@@ -207,7 +255,11 @@ export function TopBar() {
                   aria-label="账户菜单"
                 >
                   <span className="acct-chip-power" title="算力余额">
-                    <span>{user.computeBenefit || "∞"}</span>
+                    <span>
+                      {Number(user.computeGift || 0) +
+                        Number(user.computeBenefit || 0) +
+                        Number(user.computeRecharge || 0)}
+                    </span>
                   </span>
                   <span className="acct-chip-sep" />
                   <span className="avatar">
@@ -234,11 +286,10 @@ export function TopBar() {
                       <div className="acct-pop-meta">
                         <div className="acct-pop-name-row">
                           <span className="acct-pop-name">{displayName}</span>
-                          <span className="acct-plan-badge">
-                            <Icon name="sparkle" size={12} /> {resolvePlanLabel(user)}
+                          <span className={`acct-plan-badge${member ? "" : " is-guest"}`}>
+                            {memberType}
                           </span>
                         </div>
-                        <div className="acct-pop-sub">{resolvePlanLabel(user)}权益</div>
                       </div>
                     </div>
 
@@ -247,21 +298,27 @@ export function TopBar() {
                         <div className="acct-bal-label">算力余额</div>
                         <div className="acct-bal-cols">
                           <div>
-                            <span>权益算力</span>
-                            <b>{user.computeBenefit}</b>
+                            <span>赠送算力</span>
+                            <b>{formatPoints(power.gift)}</b>
                           </div>
                           <div>
-                            <span>赠送算力</span>
-                            <b>{user.computeGift}</b>
+                            <span>会员算力</span>
+                            <b>{formatPoints(power.benefit)}</b>
+                          </div>
+                          <div>
+                            <span>充值算力</span>
+                            <b>{formatPoints(power.recharge)}</b>
                           </div>
                         </div>
+                        {power.expireAt ? (
+                          <div className="acct-bal-expire">最早过期 {power.expireAt}</div>
+                        ) : null}
                         <button
                           type="button"
-                          className="acct-bal-link is-disabled"
-                          title={MEMBER_DEV_TIP}
-                          aria-disabled="true"
-                          onClick={(e) => {
-                            e.preventDefault();
+                          className="acct-bal-link"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            router.push(accountHref("member", currentPath, "pointsLedger"));
                           }}
                         >
                           会员中心 / 算力明细
@@ -274,20 +331,14 @@ export function TopBar() {
                         <Icon name="building" size={18} />
                         <span>管理账户</span>
                       </button>
-                      <button type="button" onClick={() => goAccount("creations")}>
-                        <Icon name="image" size={18} />
-                        <span>品牌资产</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="is-disabled"
-                        title={MEMBER_DEV_TIP}
-                        aria-disabled="true"
-                        onClick={(e) => {
-                          e.preventDefault();
-                        }}
-                      >
-                        <Icon name="sparkle" size={18} />
+                      {hasEnterpriseInfo(user) ? (
+                        <button type="button" onClick={() => goAccount("creations")}>
+                          <Icon name="image" size={18} />
+                          <span>品牌资产</span>
+                        </button>
+                      ) : null}
+                      <button type="button" onClick={() => goAccount("member")}>
+                        <Icon name="coin" size={18} />
                         <span>会员中心</span>
                       </button>
                       <button type="button" className="danger" onClick={onLogout}>
@@ -302,13 +353,13 @@ export function TopBar() {
               <button
                 type="button"
                 className="btn btn-primary topbar-login-btn"
-                onClick={() => openLogin("phone")}
+                onClick={() => openLogin()}
               >
                 登录
               </button>
             )}
 
-            {isHome && !homeChat && (
+            {authUiReady && ready && isHome && !homeChat && (
               <div className="loc-weather">
                 <span className="lw-loc">
                   <Icon name="pin" size={13} /> {accountRegionDisplay(user)}

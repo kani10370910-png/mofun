@@ -192,6 +192,10 @@ export type AskGroupItem = {
   ask: string;
   filled?: string;
   options?: AgentAction[];
+  required?: boolean;
+  /** 可多选（如调性词） */
+  multi?: boolean;
+  maxSelect?: number;
 };
 
 export type AgentRuntimeState = {
@@ -208,11 +212,27 @@ export type AgentRuntimeState = {
   planConfirmed?: boolean;
   /** 当前挂载的 Skill（如 VI 延展 / IP 故事）；空则按专家默认 Skill 解析 */
   skillId?: SkillId;
+  /** 运营端 Skill 正文；有值时首页先走访谈，不直接出图 */
+  harnessSkillBody?: string;
+  harnessSkillCode?: string;
+  harnessSkillName?: string;
+  /** discover：已按 Skill 第一阶段提问；ready：访谈结束可出图 */
+  harnessSkillStage?: "discover" | "ready";
   lastImageCount?: number;
   /** 本轮/会话中用户上传的参考图（data URL 或可访问 URL） */
   refImages?: string[];
   /** 参考图经视觉模型识别后的文字摘要，供对话与槽位使用 */
   refVisionNotes?: string;
+  /** 闭环制作计划（analyze → 审查后的 JSON 字符串） */
+  cyclePlanJson?: string;
+  /** RAG 检索摘要，供计划与 Prompt 优化 */
+  cycleRag?: string;
+  /** 联网查询摘要；无命中则为空，不假装已检索 */
+  cycleWeb?: string;
+  /** 用户确认后、出图前的优化提示词；有值时 Skill 不再各自扩写 */
+  optimizedPrompt?: string;
+  /** 最近一次真正拿去生成的原文案；重试时必须沿用，禁止改口成品牌 */
+  lastGenerateText?: string;
 };
 
 /** 会话 phase（Harness 主循环可见状态） */

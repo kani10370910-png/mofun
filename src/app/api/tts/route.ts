@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/* 真实语音合成（TTS）：火山「语音合成大模型」（豆包 BigTTS）。
+/* 真实语音合成（TTS）：火山「语音合成大模型」seed-tts-2.0（豆包 BigTTS）。
    读 VOLC_TTS_APPID / VOLC_TTS_TOKEN（服务端，不进前端），走 openspeech /api/v1/tts，cluster volcano_tts。
    入参 { text, voice(=voice_type 音色id), speed?, volume?, pitch?, emotion? }；返回二进制 mp3。 */
 export async function POST(req: NextRequest) {

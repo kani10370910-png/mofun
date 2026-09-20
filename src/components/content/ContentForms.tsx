@@ -15,7 +15,7 @@ export interface DefaultFormState {
 
 const TONES = ["亲切口语", "专业权威", "活泼种草", "政务正式"];
 const LENS = ["精简", "标准", "详尽", "自定义"];
-const BRAND_OPTS = ["安吉白茶 · 产业品牌（已定稿）", "合作社自有品牌", "不套用"];
+const BRAND_OPTS = ["萧山杨梅 · 产业品牌（已定稿）", "合作社自有品牌", "不套用"];
 
 export function ContentDefaultPanel({
   scene,
@@ -44,7 +44,7 @@ export function ContentDefaultPanel({
           value={state.input}
           onChange={(e) => set("input", e.target.value)}
           onClear={() => set("input", "")}
-          placeholder="例如：安吉明前白茶上市，高山云雾、氨基酸高、限量预订、产地直发…"
+          placeholder="例如：萧山杨梅上市，紫红饱满、核小肉厚、当日采摘、产地直发…"
         />
       </div>
       <div className="field">

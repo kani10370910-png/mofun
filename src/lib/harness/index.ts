@@ -9,6 +9,17 @@
  */
 export { createSessionLog } from "./session";
 export type { SessionEvent, SessionEventType, SessionLog } from "./session";
-export { resolveSkillPlugin, looksLikeGenerateBrief } from "./plugins";
+export { resolveSkillPlugin, looksLikeGenerateBrief, isDetailedBrief, isCasualChat, isVagueBrandCategory, extractBrandHint } from "./plugins";
+export { reduceSandboxTrace, freezeSandboxTrace, sealSandboxTrace, sealGenerateTrace, sealReplyTrace, sandboxLabel } from "./sandboxTrace";
+export type { SandboxTraceItem, SandboxTraceKind, SealReplyKind } from "./sandboxTrace";
 export { runHarnessGenerate, runHarnessTurn } from "./loop";
 export type { HarnessTurnResult } from "./loop";
+export { runCycleStart, optimizeUserPrompt, retrieveRag, retrieveWeb } from "./agentCycle";
+export { harnessToolEnabled, writeSkillOpening, harnessSoulText } from "./prompt";
+export { loadPublicHarness, getHarnessCache, getAgentLoop, loopUsesXiaomoCycle, loopStepOn, skillBodyFor, matchedSkill, matchedSkillBody, skillSwitchTarget } from "./opsConfig";
+export type { AgentLoopConfig, AgentLoopDriver, AgentLoopSteps } from "./agentLoopConfig";
+export type { PublicHarness, HarnessIntent, HarnessSkillItem, SkillAskStep } from "./opsConfig";
+export { openingAskFromSkill, skillExploreAskGroups, skillAskGroups, skillOpening, formatSkillAskAnswers, buildSkillBrief, skillGenParams, formatSkillGeneratePrompt, applyQuizExamples, QUIZ_EXAMPLE_KEYS, sanitizeUserSpeech, extractUserFacingSpeech, sanitizeAskGroup, askIntentValue } from "./skillPlaybook";
+export { applySkillPicksToSlots, extractOptimizedPrompt } from "./userCopy";
+export { expandSkillCreativeDesc } from "./expandCreative";
+export type { SkillBrief, SkillGenParams } from "./skillPlaybook";

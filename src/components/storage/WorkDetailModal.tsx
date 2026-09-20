@@ -133,7 +133,7 @@ export function WorkDetailModal({
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={displaySrc(b.img)} alt={b.label} />
                       ) : (
-                        <span className="periph-cell-ph">{item.kind === "视频" ? "▶" : "🖼️"}</span>
+                        <span className="periph-cell-ph">{item.kind === "视频" ? "" : ""}</span>
                       )}
                       <span className="periph-cell-tag">{b.label}</span>
                     </div>

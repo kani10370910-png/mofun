@@ -11,20 +11,22 @@ import {
   isRegionAllowedForCity,
   formatRegionGeoLabel,
   resolveRegionIdFromText,
+  REGION_GEO,
 } from "@/data/regionAssets";
 import type { AuthUser } from "@/lib/auth";
 import { hasEnterpriseInfo } from "@/lib/auth";
 import {
-  COUNTY_EDIT_MODEL,
-  COUNTY_T2I_MODEL,
   modelSupportsCountyLora,
   resolveImageModelId,
 } from "@/lib/imageModelCatalog";
+import { matchLorasForUpstream } from "@/lib/loraMatch";
 import { resolveUserOrgCityRegionId, resolveUserOrgRegionId } from "@/lib/org";
+import { getLoraAssetById } from "@/data/loraCatalog";
 
 export {
   COUNTY_EDIT_MODEL,
   COUNTY_T2I_MODEL,
+  isMofunRegionModel,
   modelSupportsCountyLora,
   resolveImageModelId,
   toUiImageModelName,
@@ -119,7 +121,7 @@ export function accountRegionDisplay(user?: AuthUser | null): string {
 export function resolveEnterpriseRegionId(user?: AuthUser | null): string | null {
   if (!user || !hasEnterpriseInfo(user)) return null;
   const explicit = user.regionId?.trim();
-  if (explicit && getRegionPack(explicit).regionId === explicit) return explicit;
+  if (explicit && (REGION_GEO[explicit] || getRegionPack(explicit).regionId === explicit)) return explicit;
   const fromText = resolveRegionIdFromText(
     [user.address, user.company, user.orgName].filter(Boolean).join(" ")
   );
@@ -137,11 +139,12 @@ export function formatAccountRegionGeoLabel(user?: AuthUser | null): string {
 }
 
 export function regionMeta(regionId?: string) {
-  const pack = getRegionPack(regionId);
+  const rid = regionId && REGION_GEO[regionId] ? regionId : getRegionPack(regionId).regionId;
+  const geo = REGION_GEO[rid];
   return {
-    regionId: pack.regionId,
-    county: pack.regionName,
-    kbContext: pack.knowledge.map((k) => `- ${k.title}：${k.summary}`).join("\n"),
+    regionId: rid,
+    county: geo?.county || getRegionPack(rid).regionName,
+    kbContext: "",
   };
 }
 
@@ -205,9 +208,10 @@ export function applyRegionToImagePrompt(opts: {
   if (!visual) return opts.prompt;
   return (
     `${opts.prompt}\n` +
-    `【在地视觉参考】融合${pack.regionName}气质与下列氛围（只影响构图、配色、光影与物产意象；` +
+    `【在地视觉参考】融合${pack.regionName}气质与下列氛围（只影响构图、配色、光影；` +
+    `严禁把知识库产品名或口号画成画面文字；` +
     `严禁把「本地知识库」「区县知识库」「县域知识库」「Lora」及本段任何说明性文字绘制到画面上；` +
-    `画面文字仅限用户活动/品牌所需文案）：${visual}`
+    `画面文字仅限用户给出的品牌/活动文案）：${visual}`
   );
 }
 
@@ -224,20 +228,32 @@ export function imageRequestBody(opts: {
   loraIds?: string[];
   loraStrengths?: Record<string, number>;
   regionId?: string;
+  /** 画面风格 key（paintStyles）；auto → 弱匹配 */
+  artStyleKey?: string;
+  /** 功能场景，供 Lora scenes 过滤 */
+  scene?: string;
+  /** 运营智能体编码：用户端生成时执行对应工作流 */
+  agentCode?: string;
 }) {
   const flags = resolveFlags(opts);
   /** 原始 prompt 交给 /api/image，由服务端检索知识库后再注入，避免双写 */
   const prompt = opts.prompt;
-  /** 开启 Lora 但当前模型不支持时，自动改用区域文化大模型，保证 lora 能挂上 */
-  let modelName = opts.model;
-  if (flags.useLora && !modelSupportsCountyLora(modelName)) {
-    modelName = opts.image ? COUNTY_EDIT_MODEL : COUNTY_T2I_MODEL;
-  }
+  const modelName = opts.model;
+  /** LoRA 只在用户选了魔方模型或 Z 模型时挂上，不为此改换其他模型 */
   const useLora = flags.useLora && modelSupportsCountyLora(modelName);
   const baseRegion = opts.regionId || DEFAULT_REGION_ID;
-  const cityId = getCityRegionId(baseRegion);
-  let ids = opts.loraIds?.length ? opts.loraIds : defaultLoraIdsForRegion(baseRegion);
-  ids = filterLoraIdsForCity(ids, cityId);
+  const matched = useLora
+    ? matchLorasForUpstream({
+        useLora: true,
+        model: modelName,
+        regionId: baseRegion,
+        artStyleKey: opts.artStyleKey,
+        prompt,
+        scene: opts.scene,
+        manualLoraIds: opts.loraIds,
+        strengths: opts.loraStrengths,
+      })
+    : [];
   const model = modelName ? resolveImageModelId(modelName) : undefined;
   return {
     prompt,
@@ -248,14 +264,18 @@ export function imageRequestBody(opts: {
     ...(opts.n ? { n: opts.n } : {}),
     ...(opts.image ? { image: opts.image } : {}),
     ...(model ? { model } : {}),
-    ...(useLora
+    ...(opts.scene ? { scene: opts.scene } : {}),
+    ...(opts.agentCode ? { agentCode: opts.agentCode } : {}),
+    ...(useLora && matched.length
       ? {
-          lora: ids.map((id) => {
-            const l = getLoraById(id);
+          lora: matched.map((m) => {
+            const asset = getLoraAssetById(m.id);
+            const regionMeta = getLoraById(m.id);
+            const name = asset?.upstream || regionMeta.upstream || asset?.name || regionMeta.name;
             return {
-              id: l.id,
-              name: l.upstream || l.name,
-              strength: opts.loraStrengths?.[id] ?? defaultStrengthMap([id])[id] ?? l.strength,
+              id: m.id,
+              name,
+              strength: m.strength,
             };
           }),
         }

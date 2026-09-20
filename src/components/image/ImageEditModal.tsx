@@ -6,11 +6,15 @@ import type { IconName } from "@/data/icons";
 import { useToast } from "@/components/ui/Toast";
 import { useLibrary } from "@/lib/store";
 import { nowStamp } from "@/lib/datetime";
+import { DEFAULT_ENHANCE_MODEL } from "@/lib/featureModels";
+import { IMAGE_TOOL_AGENT } from "@/lib/agentCodes";
 import { imgToDataUrl, displaySrc, seedreamOutputSize } from "@/lib/image";
 import { imageTools } from "@/data/image";
 import { DeepEditModal } from "./DeepEditModal";
 import { PointsCost } from "@/components/ui/PointsCost";
 import { POINT_COST } from "@/lib/pointCosts";
+import { useAuth } from "@/lib/AuthContext";
+import { useTakeCharge } from "@/lib/chargeGenerate";
 
 /* 活动图「编辑/下载」工作台（全屏，参考稿定/美图的图片编辑器）：
    - 顶栏：返回 / 重新上传 / 重置原图 / 对比原图 / 下载
@@ -29,6 +33,9 @@ const TOOL_PROMPT: Record<string, string> = {
   enhance: "在不改变画面内容的前提下，将这张图高清化：提升清晰度与细节锐度，去除噪点与模糊，保持原有构图与配色。",
   expand: "在不裁切主体的前提下，自然向外扩展这张图的画面边界，补全延展区域，保持风格、光影、配色一致。",
   repair: "修复画面中的瑕疵、模糊与破损区域，补全细节，使整体更精致自然，保持原有内容不变。",
+  erase: "消除画面中多余、无关或需要去掉的元素，平滑填补被消除区域，保持主体完整、风格与光影一致。",
+  vectorBasic: "将这张图转为干净的基础矢量插画：大色块、边缘清晰、少渐变、适合印刷。",
+  vectorPro: "将这张图转为高精度矢量插画：边缘锐利、色块分层精细、适合品牌延展。",
 };
 
 interface OpRecord {
@@ -57,6 +64,9 @@ export function ImageEditModal({
 }) {
   const toast = useToast();
   const { addWork, addMaterial } = useLibrary();
+  const { economyRev } = useAuth();
+  void economyRev;
+  const takeCharge = useTakeCharge();
   const origImg = img; // 原图（重置用）
   const [curImg, setCurImg] = useState<string | undefined>(img); // 画布当前图
   const [active, setActive] = useState("enhance"); // 当前选中工具
@@ -76,7 +86,7 @@ export function ImageEditModal({
 
   function saveToWorks(url: string, label: string) {
     addWork({
-      emoji: "🎨",
+      emoji: "",
       grad: "thumb-grad-1",
       kind: "图片",
       name: `${name.slice(0, 12) || "活动图"} · ${label}`,
@@ -126,7 +136,13 @@ export function ImageEditModal({
     const r = await fetch("/api/image", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, size, image: ref }),
+      body: JSON.stringify({
+        prompt,
+        size,
+        image: ref,
+        model: DEFAULT_ENHANCE_MODEL,
+        agentCode: IMAGE_TOOL_AGENT[toolKey] || IMAGE_TOOL_AGENT.enhance,
+      }),
     });
     const j = await r.json();
     const url = (j?.images?.[0] as string) || "";
@@ -136,22 +152,30 @@ export function ImageEditModal({
     saveToWorks(url, label);
   }
 
+  function currentToolCost() {
+    if (active === "matting") return POINT_COST.imageMatte;
+    if (active === "vector") return vecPro ? POINT_COST.imageVectorPro : POINT_COST.imageVectorBasic;
+    if (active === "erase") return POINT_COST.imageErase;
+    if (active === "expand") return POINT_COST.imageExpand;
+    if (active === "enhance") return POINT_COST.imageEnhance;
+    return POINT_COST.imageRepair;
+  }
+
   // 执行当前工具的「开始」操作
   async function runCurrent() {
     if (busy || !curImg) return;
     const tool = imageTools.find((t) => t.key === active);
-    const label = tool?.name || "处理";
-    if (active === "vector") {
-      toast("转矢量功能即将上线（演示）");
-      return;
-    }
-    if (active === "erase") {
-      toast("请在图上涂抹要消除的区域后再开始（涂抹功能即将上线，演示）");
+    const label =
+      active === "vector" ? (vecPro ? "增强转矢量" : "基础转矢量") : tool?.name || "处理";
+    const charged = takeCharge(currentToolCost(), label);
+    if (!charged.ok) {
+      toast(charged.message, "warn");
       return;
     }
     setBusy(true);
     try {
       if (active === "matting") await runMatting(label);
+      else if (active === "vector") await runImg2Img(vecPro ? "vectorPro" : "vectorBasic", label);
       else await runImg2Img(active, label);
       toast(`${label}完成，已存入「仓库 · 我的作品」`);
     } catch (e) {
@@ -192,7 +216,7 @@ export function ImageEditModal({
   // 另存某条记录图为「我的素材」
   function saveMaterial(url: string, label: string) {
     addMaterial({
-      emoji: "🎨",
+      emoji: "",
       grad: "thumb-grad-1",
       kind: "素材",
       name: `${name.slice(0, 12) || "活动图"} · ${label}`,
@@ -292,12 +316,12 @@ export function ImageEditModal({
                   <img className="imedit-img" src={displaySrc(curImg)} alt={name} />
                 )
               ) : (
-                <span className="imedit-ph">🖼️</span>
-              )}
-            </div>
+                <span className="imedit-ph"></span>
+ )}
+ </div>
 
-            {/* 底部操作区：随工具变化 */}
-            <div className="imedit-actbar">
+ {/* 底部操作区：随工具变化 */}
+ <div className="imedit-actbar">
               {active === "enhance" && (
                 <>
                   <span className="imedit-act-label">放大倍数</span>
@@ -373,11 +397,11 @@ export function ImageEditModal({
             {!sideFold && (
               records.length === 0 ? (
                 <div className="imedit-side-empty">
-                  <div className="imedit-side-empty-ico">📦</div>
-                  暂无历史记录
-                </div>
-              ) : (
-                <div className="imedit-side-list">
+                  <div className="imedit-side-empty-ico"></div>
+ 暂无历史记录
+ </div>
+ ) : (
+ <div className="imedit-side-list">
                   {records.map((r) => (
                     <div key={r.id} className="imedit-rec">
                       <div
@@ -388,12 +412,12 @@ export function ImageEditModal({
                         {r.loading ? (
                           <span className="matting-spinner matting-spinner-sm" />
                         ) : r.error ? (
-                          <span className="imedit-result-err">⚠️</span>
-                        ) : (
-                          <>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={displaySrc(r.url)} alt={r.label} />
-                            <span className="imedit-rec-fmt">{r.fmt}</span>
+                          <span className="imedit-result-err"></span>
+ ) : (
+ <>
+ {/* eslint-disable-next-line @next/next/no-img-element */}
+ <img src={displaySrc(r.url)} alt={r.label} />
+ <span className="imedit-rec-fmt">{r.fmt}</span>
                           </>
                         )}
                       </div>

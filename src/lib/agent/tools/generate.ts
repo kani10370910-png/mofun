@@ -18,5 +18,6 @@ export async function toolGenerate(
   return executeGenerate(state, {
     refImage: opts?.refImage,
     skill: opts?.skill,
+    confirming: opts?.confirming,
   });
 }

@@ -9,6 +9,7 @@ import { nowStamp } from "@/lib/datetime";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 import { PointsCost } from "@/components/ui/PointsCost";
 import { videoSecondsPoints } from "@/lib/pointCosts";
+import { useTakeCharge } from "@/lib/chargeGenerate";
 import { PlayerAudio, buildExportAudio, type ExportAudio } from "@/lib/playerAudio";
 import { asset as assetUrl } from "@/lib/asset";
 import {
@@ -34,6 +35,7 @@ import type { VideoRunRow, Grad, AssetCard } from "@/lib/types";
 import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
 import { VideoStyleModal } from "./VideoStyleModal";
 import { LibraryPickerModal } from "@/components/image/LibraryPickerModal";
+import { GeneratingSlot } from "@/components/ui/GeneratingSlot";
 import { ClampText } from "@/components/ui/ClampText";
 import { onelineInspires } from "@/data/videoInspires";
 import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
@@ -72,7 +74,49 @@ function mapVideoError(msg: string): string {
 
 
 // 预置「已完成」生成历史（演示）：保证每次进入都有现成记录，可直接点下载/重生成/存库/提交审核
+// 前两条模拟「生成数量=2」一次出两片：同一提示词/参数/时间，各自独立有下载与再次生成
+const SEED_BATCH2_PROMPT =
+  "晨雾未散的【县名】高山茶园，层层梯田与竹海交叠，茶农身着素色围裙于茶垅间指尖采摘明前嫩芽，竹篓轻晃，露珠在叶尖微微颤动。镜头先以无人机缓缓航拍茶山全貌，再下降跟拍采茶手部特写与笑脸近景，随后切至摊青、杀青的温润工坊室内，热气升腾，绿芽翻炒发出清脆声响。色调清新偏青绿与暖米白，浅景深虚化远山云带，光线为柔和晨光侧逆光，突出茶叶鲜嫩与产地直发气质，节奏舒缓、电影感细腻，传递高山好茶与在地农旅温度。";
+const SEED_BATCH2_TIME = "2026-08-25 14:28";
+const SEED_BATCH2_ID = "seed-batch2";
+
 const SEED_RUNS: VideoRunRow[] = [
+  {
+    id: "seed-batch2-a",
+    batchId: SEED_BATCH2_ID,
+    mode: "t2v",
+    prompt: SEED_BATCH2_PROMPT,
+    scene: "农产品推广",
+    ratio: "智能",
+    dur: "5秒",
+    style: "智能匹配",
+    time: SEED_BATCH2_TIME,
+    status: "done",
+    pct: 100,
+    videoUrl: "/demo-videos/hist-baicha.mp4",
+    grad: "thumb-grad-2",
+    withAudio: true,
+    regionEnhance: true,
+    regionId: "anji",
+  },
+  {
+    id: "seed-batch2-b",
+    batchId: SEED_BATCH2_ID,
+    mode: "t2v",
+    prompt: SEED_BATCH2_PROMPT,
+    scene: "农产品推广",
+    ratio: "智能",
+    dur: "5秒",
+    style: "智能匹配",
+    time: SEED_BATCH2_TIME,
+    status: "done",
+    pct: 100,
+    videoUrl: "/demo-videos/hist-minsu-5s.mp4",
+    grad: "thumb-grad-4",
+    withAudio: true,
+    regionEnhance: true,
+    regionId: "anji",
+  },
   {
     id: "seed-1",
     mode: "t2v",
@@ -185,7 +229,7 @@ async function genVideoFrames(prompt: string, ratio: string, regionEnhance = tru
     fetch("/api/image", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(imageRequestBody({ prompt: p, size, useLora: regionEnhance, useKB: regionEnhance, regionId })),
+      body: JSON.stringify(imageRequestBody({ prompt: p, size, useLora: false, useKB: regionEnhance, regionId })),
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((j: { images?: string[] }) => j.images?.[0] ?? null);
@@ -243,6 +287,7 @@ async function genRealVideo(
       dur,
       model: videoModel,
       generateAudio,
+      agentCode: tailImageUrl ? "FlashVideo-GenerateVideoFLF" : imageUrl ? "FlashVideo-GenerateVideoI2V" : "FlashVideo-GenerateVideo",
       ...(quality ? { quality } : {}),
       ...(imageUrl ? { imageUrl } : {}),
       ...(tailImageUrl ? { tailImageUrl } : {}),
@@ -489,9 +534,10 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
   const toast = useToast();
   const { addWork, isFavorite, toggleFavorite } = useLibrary();
   const { user } = useAuth();
+  const takeCharge = useTakeCharge();
   const regionId = accountRegionId(user);
   const [regionEnhance, setRegionEnhance] = useState(true);
-  const [useLora, setUseLora] = useState(true);
+  const [useLora, setUseLora] = useState(false);
   const [useKB, setUseKB] = useState(true);
 
   // 二次编辑：读取暂存的视频作品，重建为最新历史记录并高亮定位
@@ -665,7 +711,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       toast("请先输入或选择一个场景引导词", "warn");
       return;
     }
-    notifyRegionEnhance(toast, { useLora, useKB });
+    notifyRegionEnhance(toast, { useLora: false, useKB });
     setExpanding(true);
     optimizeVideoPrompt(base, style === "智能匹配" ? undefined : style, kbFields(useKB, regionId)).then((optimized) => {
       if (optimized) {
@@ -722,7 +768,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       return;
     }
 
-    notifyRegionEnhance(toast, { useLora, useKB: isI2v ? false : useKB });
+    notifyRegionEnhance(toast, { useLora: false, useKB: isI2v ? false : useKB });
 
     // F10-07 安全预检（演示：命中敏感词阻断）
     setSafe("checking");
@@ -766,7 +812,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
           if (matched) {
             appliedStyle = matched.name;
             finalText = matched.stylePrompt ? `${text}，${matched.stylePrompt}` : text;
-            toast(`🎨 智能匹配：根据描述匹配「${matched.name}」风格`);
+            toast(` 智能匹配：根据描述匹配「${matched.name}」风格`);
           }
         } else if (styleObj?.stylePrompt) {
           finalText = `${text}，${styleObj.stylePrompt}`;
@@ -789,7 +835,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
         if (matched) {
           appliedStyle = matched.name;
           finalText = matched.stylePrompt ? `${text}，${matched.stylePrompt}` : text;
-          toast(`🎨 智能匹配：根据描述匹配「${matched.name}」风格`);
+          toast(` 智能匹配：根据描述匹配「${matched.name}」风格`);
         }
       } else if (styleObj?.stylePrompt) {
         finalText = `${text}，${styleObj.stylePrompt}`;
@@ -808,10 +854,13 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       withAudio: genAudio && canNativeAudio,
       videoModel: videoModelIdOf(model),
       quality,
+      // 文生视频按「生成数量」出多条；每条独立历史卡，各自有下载/再次生成
+      copies: isI2v ? 1 : Math.max(1, Math.min(2, count)),
     });
   }
 
   // 入队 + 音画管线进度状态机（文生 / 图生 / 重新生成 三处共用）
+  // copies>1 时并行生成多条独立记录，每条下方各自有「下载视频」「再次生成」
   function enqueue(p: {
     mode: "t2v" | "i2v";
     text: string;
@@ -824,100 +873,145 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
     withAudio?: boolean;
     videoModel?: string; // 当前选中的视频模型（用于真实视频生成）
     quality?: string;
+    copies?: number;
   }) {
     setBusy(true);
-    const id = "v-" + ++seq.current;
-    const grad = GRADS[seq.current % GRADS.length];
-    const row: VideoRunRow = {
-      id,
-      mode: p.mode,
-      prompt: p.text,
-      scene: p.scene,
-      ratio: p.ratio,
-      dur: p.dur,
-      style: p.style,
-      time: nowStamp(),
-      status: "pending",
-      pct: 0,
-      poster: p.poster,
-      tailPoster: p.tailPoster,
-      grad,
-      withAudio: p.withAudio !== false, // 默认 true，显式传 false 时关闭
-      model: p.videoModel,
-      quality: p.quality,
-      regionEnhance: p.mode === "i2v" ? false : regionEnhance,
-      regionId,
-    };
-    setRuns((prev) => [row, ...prev]);
+    const copies = Math.max(1, Math.min(2, p.copies ?? 1));
+    const stamp = nowStamp();
+    const batchId = copies > 1 ? `batch-${++seq.current}` : undefined;
+    const vm = p.videoModel ?? videoModels.find((m) => m.name === model)?.modelId ?? videoModels[0]?.modelId ?? model;
+    const withAudio = p.withAudio !== false;
 
-    // 排队 → 无声视频 → 镜头分析 → 声音设计 → 多轨音频 → 对齐 → 混音封装（音画管线节奏）
-    const upd = (patch: Partial<VideoRunRow>) =>
-      setRuns((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    const rows: VideoRunRow[] = Array.from({ length: copies }, () => {
+      const id = "v-" + ++seq.current;
+      const grad = GRADS[seq.current % GRADS.length];
+      return {
+        id,
+        batchId,
+        mode: p.mode,
+        prompt: p.text,
+        scene: p.scene,
+        ratio: p.ratio,
+        dur: p.dur,
+        style: p.style,
+        time: stamp,
+        status: "pending" as const,
+        pct: 0,
+        poster: p.poster,
+        tailPoster: p.tailPoster,
+        grad,
+        withAudio,
+        model: p.videoModel,
+        quality: p.quality,
+        regionEnhance: p.mode === "i2v" ? false : useKB,
+        regionId,
+      };
+    });
+    setRuns((prev) => [...rows, ...prev]);
 
-    // 进度动画：前段（4→40%）快速推进显示模型接收，后段（40→85%）缓慢等待出片，完成后跳 100%
-    timers.current.push(window.setTimeout(() => upd({ status: "running", pct: 4 }), 800));
-    let pct = 4;
-    const iv = window.setInterval(() => {
-      const step = pct < 40 ? 3 : 0.8; // 前段 3%/tick，后段 0.8%/tick
-      pct = Math.min(85, pct + step);
-      upd({ pct: Math.round(pct) });
-    }, 400);
-    timers.current.push(iv as unknown as number);
+    const toSendable = async (u?: string) =>
+      !u ? undefined : u.startsWith("blob:") ? (await blobUrlToDataUrl(u) ?? undefined) : u;
 
-    // 调真实视频模型；i2v 携带首帧图（blob→base64 data URL），首尾帧模式再带尾帧
     void (async () => {
-      const vm = p.videoModel ?? videoModels.find((m) => m.name === model)?.modelId ?? videoModels[0]?.modelId ?? model;
-      // blob: URL 需转 base64 data URL 才能送到后端网关；其余（data:/https:）原样传
-      const toSendable = async (u?: string) =>
-        !u ? undefined : u.startsWith("blob:") ? (await blobUrlToDataUrl(u) ?? undefined) : u;
+      const sec = Math.max(1, parseInt(String(p.dur), 10) || durSec);
+      const cost = videoSecondsPoints(sec, {
+        model: vm,
+        quality: p.quality ?? quality,
+        withAudio,
+        count: copies,
+      });
+      const charged = takeCharge(cost, "一句话成片");
+      if (!charged.ok) {
+        setRuns((prev) =>
+          prev.map((r) =>
+            rows.some((x) => x.id === r.id) ? { ...r, status: "failed", pct: 0, failReason: charged.message } : r,
+          ),
+        );
+        setBusy(false);
+        toast(charged.message, "warn");
+        return;
+      }
+
       let imgUrl: string | undefined;
       let tailImgUrl: string | undefined;
       if (p.mode === "i2v") {
         imgUrl = await toSendable(p.poster);
         tailImgUrl = await toSendable(p.tailPoster);
       }
-      let videoUrl: string | null = null;
-      let rawReason = "生成失败，请重试";
-      try {
-        videoUrl = await genRealVideo(
-          p.text,
-          p.ratio,
-          p.dur,
-          vm,
-          p.withAudio !== false && modelNativeAudio(vm),
-          imgUrl,
-          tailImgUrl,
-          p.quality ?? quality,
+
+      let okCount = 0;
+      let hitQuota = false;
+
+      await Promise.all(
+        rows.map(async (row) => {
+          const upd = (patch: Partial<VideoRunRow>) =>
+            setRuns((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...patch } : r)));
+
+          timers.current.push(window.setTimeout(() => upd({ status: "running", pct: 4 }), 800));
+          let pct = 4;
+          const iv = window.setInterval(() => {
+            const step = pct < 40 ? 3 : 0.8;
+            pct = Math.min(85, pct + step);
+            upd({ pct: Math.round(pct) });
+          }, 400);
+          timers.current.push(iv as unknown as number);
+
+          let videoUrl: string | null = null;
+          let rawReason = "生成失败，请重试";
+          try {
+            videoUrl = await genRealVideo(
+              p.text,
+              p.ratio,
+              p.dur,
+              vm,
+              withAudio && modelNativeAudio(vm),
+              imgUrl,
+              tailImgUrl,
+              p.quality ?? quality,
+            );
+          } catch (e) {
+            rawReason = e instanceof Error ? e.message : "生成失败，请重试";
+          }
+          window.clearInterval(iv);
+
+          if (videoUrl) {
+            okCount += 1;
+            const poster = await captureFirstFrame(videoUrl).catch(() => null);
+            upd({ status: "done", pct: 100, videoUrl, ...(poster ? { poster } : {}) });
+            safeAddWork({
+              emoji: "",
+              grad: row.grad,
+              kind: "视频",
+              name: `${p.text.slice(0, 12) || "一句话视频"} · ${p.dur}`,
+              sub: withAudio ? "视频生成 · 一句话成片 · 有声" : "视频生成 · 一句话成片",
+              module: "video",
+              img: poster ?? p.poster,
+              videoUrl,
+              mediaRef: videoUrl && !videoUrl.startsWith("blob:") ? videoUrl : undefined,
+              time: nowStamp(),
+              edit: { sub: "oneline", input: p.text, model, ratio: p.ratio, dur: p.dur, style: p.style },
+            });
+          } else if (isQuotaError(rawReason)) {
+            hitQuota = true;
+            upd({ status: "failed", pct: 0, failReason: "今日免费生成次数已用完" });
+          } else {
+            const failReason = mapVideoError(rawReason);
+            upd({ status: "failed", pct: 0, failReason });
+            if (copies === 1) toast(failReason, "warn");
+          }
+        }),
+      );
+
+      if (okCount > 0) {
+        toast(
+          copies > 1
+            ? ` 已生成 ${okCount}/${copies} 条视频，已存入「我的作品」`
+            : " 视频已生成，已存入「我的作品」",
         );
-      } catch (e) {
-        rawReason = e instanceof Error ? e.message : "生成失败，请重试";
-      }
-      window.clearInterval(iv);
-      if (videoUrl) {
-        const poster = await captureFirstFrame(videoUrl).catch(() => null);
-        upd({ status: "done", pct: 100, videoUrl, ...(poster ? { poster } : {}) });
-        safeAddWork({
-          emoji: "🎬",
-          grad,
-          kind: "视频",
-          name: `${p.text.slice(0, 12) || "一句话视频"} · ${p.dur}`,
-          sub: p.withAudio !== false ? "视频生成 · 一句话成片 · 有声" : "视频生成 · 一句话成片",
-          module: "video",
-          img: poster ?? p.poster, // 优先用捕获的首帧（t2v 无传入 poster 时也有封面）
-          videoUrl, // 存真实视频地址，供作品封面显示首帧 & 二次编辑重建可播放记录
-          mediaRef: videoUrl && !videoUrl.startsWith("blob:") ? videoUrl : undefined,
-          time: nowStamp(),
-          edit: { sub: "oneline", input: p.text, model, ratio: p.ratio, dur: p.dur, style: p.style },
-        });
-        toast("🎬 视频已生成，已存入「我的作品」");
-      } else if (isQuotaError(rawReason)) {
-        // 每日次数耗尽：失败态标注额度已退还 + 弹配额提示层
-        upd({ status: "failed", pct: 0, failReason: "今日免费生成次数已用完" });
+      } else if (hitQuota) {
         setQuotaOpen(true);
-      } else {
-        const failReason = mapVideoError(rawReason);
-        upd({ status: "failed", pct: 0, failReason });
-        toast(failReason, "warn");
+      } else if (copies > 1) {
+        toast("视频生成失败，请稍后重试", "warn");
       }
       setBusy(false);
     })();
@@ -972,7 +1066,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
   function videoAsset(row: VideoRunRow): AssetCard {
     const url = row.videoUrl;
     return {
-      emoji: "🎬",
+      emoji: "",
       grad: row.grad,
       kind: "视频",
       name: `${row.prompt.slice(0, 12) || "一句话视频"} · ${row.dur}`,
@@ -1181,12 +1275,17 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
   }
 
   function deleteRun(id: string) {
-    setRuns((prev) => prev.filter((r) => r.id !== id));
+    setRuns((prev) => {
+      const hit = prev.find((r) => r.id === id);
+      if (hit?.batchId) return prev.filter((r) => r.batchId !== hit.batchId);
+      return prev.filter((r) => r.id !== id);
+    });
   }
 
   const scenes = videoSceneTpls; // 扁平单列表：不再按分类筛选，展示全部场景模板
   const motionGroup = motionWords.find((m) => m.cat === motionCat) ?? motionWords[0];
   const shownRuns = onlyFav ? runs.filter((r) => isFavorite(videoAsset(r))) : runs;
+  const shownGroups = groupVideoRuns(shownRuns);
 
   return (
     <>
@@ -1542,7 +1641,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
                   </>
                 )}
               </button>
-              {safe === "blocked" && <p className="ov-block-note">⚠ 内容安全预检未通过，请修改提示词</p>}
+              {safe === "blocked" && <p className="ov-block-note"> 内容安全预检未通过，请修改提示词</p>}
             </div>
           </div>
 
@@ -1574,31 +1673,34 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
           </div>
 
           {resultTab === "history" ? (
-            shownRuns.length === 0 ? (
+            shownGroups.length === 0 ? (
               <div className="preview-empty">
                 <div>
                   <div className="pe-ico">
                     <Icon name={onlyFav ? "heart" : "video"} size={42} />
                   </div>
-                  {onlyFav ? "还没有收藏，把鼠标移到卡片上点右上角♡收藏" : "还没有生成记录，填好左侧点「立即生成」试试"}
+                  {onlyFav ? "还没有收藏，把鼠标移到卡片上点右上角收藏" : "还没有生成记录，填好左侧点「立即生成」试试"}
                 </div>
               </div>
             ) : (
               <div className="ov-runs">
-                {shownRuns.map((r) => (
-                  <VideoRunCard
-                    key={r.id}
-                    row={r}
-                    highlight={r.id === highlightId}
-                    onDelete={() => deleteRun(r.id)}
-                    onPlay={() => setPlayingId(r.id)}
-                    onRegenerate={() => regenerate(r)}
-                    onCopy={() => copyToForm(r)}
-                    onDownload={() => downloadVideo(r)}
-                    fav={isFavorite(videoAsset(r))}
-                    onFav={() => toggleFav(r)}
-                  />
-                ))}
+                {shownGroups.map((group) => {
+                  const head = group[0];
+                  return (
+                    <VideoRunCard
+                      key={head.batchId || head.id}
+                      rows={group}
+                      highlight={group.some((r) => r.id === highlightId)}
+                      onDelete={() => deleteRun(head.id)}
+                      onPlay={(r) => setPlayingId(r.id)}
+                      onRegenerate={(r) => regenerate(r)}
+                      onCopy={() => copyToForm(head)}
+                      onDownload={(r) => downloadVideo(r)}
+                      isFav={(r) => isFavorite(videoAsset(r))}
+                      onFav={(r) => toggleFav(r)}
+                    />
+                  );
+                })}
               </div>
             )
           ) : (
@@ -1630,7 +1732,7 @@ export function OnelineVideo({ reeditNonce, initialPrompt }: { reeditNonce?: str
       {quotaOpen && (
         <div className="img-zoom-mask" onClick={() => setQuotaOpen(false)}>
           <div className="quota-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="quota-modal-ico">⚡</div>
+            <div className="quota-modal-ico"></div>
             <div className="quota-modal-title">今日免费生成次数已用完</div>
             <div className="quota-modal-desc">每日生成次数已达上限，明日零点自动刷新</div>
             <div className="quota-modal-btns">
@@ -1781,48 +1883,57 @@ function InspireCard({
     </div>
   );
 }
-const STATUS_TEXT: Record<VideoRunRow["status"], string> = {
-  pending: "排队中，预计等待 1 分钟",
-  running: "AI 正在生成视频，请稍候…",
-  done: "已完成",
-  failed: "生成遇到问题，额度已退还",
-};
+
+/** 同 batchId 合并为一组，生成数量>1 时共用一份提示词头 */
+function groupVideoRuns(list: VideoRunRow[]): VideoRunRow[][] {
+  const out: VideoRunRow[][] = [];
+  const seen = new Set<string>();
+  for (const r of list) {
+    if (r.batchId) {
+      if (seen.has(r.batchId)) continue;
+      seen.add(r.batchId);
+      out.push(list.filter((x) => x.batchId === r.batchId));
+    } else {
+      out.push([r]);
+    }
+  }
+  return out;
+}
 
 function VideoRunCard({
-  row,
+  rows,
   highlight,
   onDelete,
   onPlay,
   onRegenerate,
   onCopy,
   onDownload,
-  fav,
+  isFav,
   onFav,
 }: {
-  row: VideoRunRow;
+  rows: VideoRunRow[];
   highlight?: boolean;
   onDelete: () => void;
-  onPlay: () => void;
-  onRegenerate: () => void;
+  onPlay: (row: VideoRunRow) => void;
+  onRegenerate: (row: VideoRunRow) => void;
   onCopy: () => void;
-  onDownload: () => void;
-  fav: boolean;
-  onFav: () => void;
+  onDownload: (row: VideoRunRow) => void;
+  isFav: (row: VideoRunRow) => boolean;
+  onFav: (row: VideoRunRow) => void;
 }) {
-  const loading = row.status === "pending" || row.status === "running";
-  const done = row.status === "done";
-  const durLabel = (row.dur.match(/\d+/)?.[0] ?? "5").padStart(2, "0");
+  const head = rows[0];
+  const anyLoading = rows.some((r) => r.status === "pending" || r.status === "running");
 
   return (
-    <div className={`ov-run${highlight ? " reedit-hl" : ""}`} id={`ov-run-${row.id}`}>
+    <div className={`ov-run${highlight ? " reedit-hl" : ""}`} id={`ov-run-${head.id}`}>
       <div className="ov-run-head">
-        {/* 提示词整宽置顶：默认 2 行省略，溢出时点击展开/收起（复用生图 ClampText 交互） */}
-        <ClampText text={row.prompt} lines={2} className="ov-run-prompt" />
+        <ClampText text={head.prompt} lines={2} className="ov-run-prompt" />
         <div className="ov-run-meta">
-          <span className="ov-run-mode">{row.mode === "i2v" ? "图生视频" : "文生视频"}</span>
-          <span className="lg-cat">{row.style} · {row.ratio} · {row.dur}</span>
-          {row.regionEnhance && <RegionEnhanceBadge regionId={row.regionId} />}
-          {!loading && (
+          <span className="ov-run-mode">{head.mode === "i2v" ? "图生视频" : "文生视频"}</span>
+          <span className="lg-cat">{head.style} · {head.ratio} · {head.dur}</span>
+          {rows.length > 1 && <span className="lg-cat">{rows.length} 条</span>}
+          {head.regionEnhance && <RegionEnhanceBadge regionId={head.regionId} useLora={false} useKB />}
+          {!anyLoading && (
             <>
               <button className="lh-ico lh-tip" data-tip="复制" aria-label="复制" onClick={onCopy}>
                 <Icon name="copy" size={14} />
@@ -1832,37 +1943,64 @@ function VideoRunCard({
               </button>
             </>
           )}
-          <span className="ov-run-time">{row.time}</span>
+          <span className="ov-run-time">{head.time}</span>
         </div>
       </div>
 
+      <div className={rows.length > 1 ? "ov-run-clips" : undefined}>
+        {rows.map((row) => (
+          <VideoRunClip
+            key={row.id}
+            row={row}
+            onPlay={() => onPlay(row)}
+            onRegenerate={() => onRegenerate(row)}
+            onDownload={() => onDownload(row)}
+            fav={isFav(row)}
+            onFav={() => onFav(row)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function VideoRunClip({
+  row,
+  onPlay,
+  onRegenerate,
+  onDownload,
+  fav,
+  onFav,
+}: {
+  row: VideoRunRow;
+  onPlay: () => void;
+  onRegenerate: () => void;
+  onDownload: () => void;
+  fav: boolean;
+  onFav: () => void;
+}) {
+  const loading = row.status === "pending" || row.status === "running";
+  const done = row.status === "done";
+  const durLabel = (row.dur.match(/\d+/)?.[0] ?? "5").padStart(2, "0");
+
+  return (
+    <div className="ov-run-clip">
       <div
-        className={`ov-video ${row.grad} ${done ? "clickable" : ""}`}
+        className={`ov-video ${done ? "clickable" : ""} ${loading ? "is-generating" : row.grad}`}
         style={{ aspectRatio: ratioToAspect(row.ratio) }}
         onClick={done ? onPlay : undefined}
         role={done ? "button" : undefined}
         title={done ? "点击播放预览" : undefined}
       >
-        {row.videoUrl && !row.poster ? (
-          // CORS 阻止 canvas 提取时，用 video 元素天然显示首帧
+        {!loading && row.videoUrl && !row.poster ? (
           // eslint-disable-next-line jsx-a11y/media-has-caption
           <video className="ov-video-poster" src={row.videoUrl} muted preload="metadata" />
-        ) : (row.poster || done) ? (
+        ) : !loading && (row.poster || done) ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img className="ov-video-poster" src={row.poster || posterFor(row)} alt="视频封面" />
         ) : null}
         {loading ? (
-          row.status === "pending" ? (
-            <div className="ov-video-loading">
-              <Icon name="refresh" size={26} className="ico-spin" />
-              <div className="ov-video-status">{STATUS_TEXT.pending}</div>
-            </div>
-          ) : (
-            <div className="ov-video-loading">
-              <div className="ov-video-bar"><span style={{ width: `${row.pct}%` }} /></div>
-              <div className="ov-video-pct">{row.pct}% · 视频生成中</div>
-            </div>
-          )
+          <GeneratingSlot fill />
         ) : row.status === "failed" ? (
           <div className="ov-video-loading">
             <Icon name="close" size={26} />
@@ -1882,7 +2020,7 @@ function VideoRunCard({
             >
               <Icon name="heart" size={15} />
             </button>
-            <div className="ov-play">▶</div>
+            <div className="ov-play"></div>
             <span className="ov-video-dur">00:{durLabel}</span>
             {row.withAudio !== false && <span className="ov-video-audio">有声</span>}
             <span className="lh-mark">

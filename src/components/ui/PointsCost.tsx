@@ -1,4 +1,4 @@
-/** 操作按钮上的算力消耗角标；amount≤0 不展示（文本生成等免费能力） */
+/** 操作按钮上的积分消耗角标；amount≤0 不展示（文本生成等免费能力） */
 export function PointsCost({
   amount,
   perTime,

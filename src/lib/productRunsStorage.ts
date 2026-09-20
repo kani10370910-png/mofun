@@ -1,7 +1,12 @@
 import type { EventRunRow } from "@/components/image/ActiveGallery";
 import { SEED_PRODUCT_RUNS } from "@/data/productSeeds";
 
+import { identityScopedStorageKey } from "@/lib/identity";
+
 const KEY = "mofun.productRuns";
+function storageKey() {
+  return identityScopedStorageKey(KEY);
+}
 
 /** 去掉 data URL 等大字段，避免撑爆 localStorage */
 function slimRuns(rows: EventRunRow[]): EventRunRow[] {
@@ -13,11 +18,12 @@ function slimRuns(rows: EventRunRow[]): EventRunRow[] {
 
 export function loadProductRuns(): EventRunRow[] {
   if (typeof window === "undefined") return SEED_PRODUCT_RUNS;
+  const key = storageKey();
   try {
-    const raw = window.localStorage.getItem(KEY);
-    if (!raw) return SEED_PRODUCT_RUNS;
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return key === KEY ? SEED_PRODUCT_RUNS : [];
     const parsed = JSON.parse(raw) as EventRunRow[];
-    if (!parsed.length) return SEED_PRODUCT_RUNS;
+    if (!parsed.length) return key === KEY ? SEED_PRODUCT_RUNS : [];
     const seedMap = new Map(SEED_PRODUCT_RUNS.map((s) => [s.id, s]));
     return parsed.map((r) => {
       const s = seedMap.get(r.id);
@@ -29,7 +35,7 @@ export function loadProductRuns(): EventRunRow[] {
       };
     });
   } catch {
-    return SEED_PRODUCT_RUNS;
+    return key === KEY ? SEED_PRODUCT_RUNS : [];
   }
 }
 
@@ -38,7 +44,7 @@ export function saveProductRuns(rows: EventRunRow[]) {
   // 生成进度中不写盘，避免每 500ms 触发一次保存失败
   if (rows.some((r) => r.pct < 100 && !r.error)) return;
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(slimRuns(rows)));
+    window.localStorage.setItem(storageKey(), JSON.stringify(slimRuns(rows)));
   } catch (e) {
     if (e instanceof DOMException && (e.name === "QuotaExceededError" || e.code === 22)) {
       window.dispatchEvent(new CustomEvent("mofun:storage-quota"));

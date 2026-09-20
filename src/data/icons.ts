@@ -105,11 +105,10 @@ export const ICON_PATHS = {
   szRollup: '<path d="M8 3h8"/><rect x="8.5" y="3" width="7" height="15" rx=".8"/><path d="M12 18v3"/><path d="M9.5 21h5"/>',
   szXstand: '<path d="M7 21 12 4l5 17"/><path d="M9 15h6"/>',
   pencil: '<path d="M4 20h4L18.5 9.5a2 2 0 0 0-2.8-2.8L5 17.5V20Z"/><path d="m14 8 2.8 2.8"/>',
-  sparkle:
-    '<path d="M12 3.5c.6 3.4 1.6 4.4 5 5-3.4.6-4.4 1.6-5 5-.6-3.4-1.6-4.4-5-5 3.4-.6 4.4-1.6 5-5Z"/><path d="M18.5 14.5c.3 1.4.7 1.8 2 2-1.3.3-1.7.7-2 2-.3-1.3-.7-1.7-2-2 1.3-.2 1.7-.6 2-2Z"/>',
   /** 算力金币：双环圆币 + 中心刻线 */
   coin:
     '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="6"/><path d="M12 8v8"/><path d="M9.5 10.5h5"/><path d="M9.5 13.5h5"/>',
+  bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/>',
   plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
   // 吸管/取色：色相条左侧的取色器入口图标
   eyedropper:
@@ -141,6 +140,8 @@ export const ICON_PATHS = {
   // 左侧面板展开/收起（竖线靠左）
   panelLeft:
     '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/>',
+  panelRight:
+    '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M15 4v16"/>',
   // 历史记录：时钟回环
   history:
     '<path d="M4.5 8.5A8 8 0 1 1 4 12"/><path d="M4.5 4.5v4h4"/><path d="M12 8v4.5l3 1.8"/>',
@@ -153,8 +154,8 @@ export const ICON_PATHS = {
   download:
     '<path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 20h14"/>',
   pin: '<path d="M12 21s6-5.3 6-10a6 6 0 1 0-12 0c0 4.7 6 10 6 10Z"/><circle cx="12" cy="11" r="2.2"/>',
-  // 置顶：经典图钉（📌 thumbtack）—— 顶部帽 + 钉身 + 下方针尖，用于字体卡片「置顶到列表最前」
-  pinTop: '<path d="M9 4h6"/><path d="M10 4l-.5 7-3 2v1.5h11V13l-3-2-.5-7"/><path d="M12 14.5V21"/>',
+ // 置顶：经典图钉（ thumbtack）—— 顶部帽 + 钉身 + 下方针尖，用于字体卡片「置顶到列表最前」
+ pinTop: '<path d="M9 4h6"/><path d="M10 4l-.5 7-3 2v1.5h11V13l-3-2-.5-7"/><path d="M12 14.5V21"/>',
   thermo: '<path d="M14 14.76V4a2 2 0 0 0-4 0v10.76a4 4 0 1 0 4 0Z"/><path d="M12 9v6"/>',
   // 齿轮（设置）：标准 cog 轮廓 + 中心圆，用于「生成设置」等入口
   gear:
@@ -188,6 +189,16 @@ export const ICON_PATHS = {
   headset:
     '<path d="M4.5 13.5v-2a7.5 7.5 0 0 1 15 0v2"/><path d="M4.5 13.5a2 2 0 0 0-2 2v1a2 2 0 0 0 2 2H6v-5H4.5Z"/><path d="M19.5 13.5a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2H18v-5h1.5Z"/><path d="M12 19.5a2.5 2.5 0 0 0 2.5-2.5H16a4 4 0 0 1-8 0h1.5A2.5 2.5 0 0 0 12 19.5Z"/>',
   bell: '<path d="M7 9a5 5 0 0 1 10 0c0 5 2 6.5 2 6.5H5S7 14 7 9Z"/><path d="M10.5 18.5a1.5 1.5 0 0 0 3 0"/>',
+  trophy:
+    '<path d="M8 5h8v3.5a4 4 0 0 1-8 0V5Z"/><path d="M8 7H5.5A2.5 2.5 0 0 0 8 10"/><path d="M16 7h2.5A2.5 2.5 0 0 1 16 10"/><path d="M12 12.5V16"/><path d="M9 19h6"/><path d="M10 16h4v3h-4z"/>',
+  medal:
+    '<circle cx="12" cy="9" r="4.5"/><path d="m9.5 13-2 8 4.5-2 4.5 2-2-8"/><path d="M10.5 8.5 12 7l1.5 1.5L15 8l-.5 2 .5 1.5-1.8.2L12 13l-1.2-1.3-1.8-.2.5-1.5L9 8l1.5.5Z"/>',
+  calendar:
+    '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3.5v4M16 3.5v4M4 10h16"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3.5 2"/>',
+  gift:
+    '<rect x="3.5" y="10" width="17" height="10.5" rx="1.5"/><path d="M3.5 10h17"/><path d="M12 10v10.5"/><path d="M12 10c-2.2-3.6-5.2-3.4-5.2-1.5S9.4 11.2 12 10"/><path d="M12 10c2.2-3.6 5.2-3.4 5.2-1.5S14.6 11.2 12 10"/>',
+  info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5"/><path d="M12 7.8h.01"/>',
 } as const;
 
 export type IconName = keyof typeof ICON_PATHS;
@@ -195,6 +206,6 @@ export type IconName = keyof typeof ICON_PATHS;
 /* data key → 图标名 映射（编辑器左侧栏用） */
 export const IMG_ICON: Record<string, IconName> = { event: "imgPoster", product: "imgScene", logo: "imgLogo", ip: "imgIp", font: "imgFont", signage: "imgSignage" };
 export const VID_ICON: Record<string, IconName> = { oneline: "vidShortad", avatar: "vidShowcase", studio: "vidBrand" };
-export const CONTENT_ICON: Record<string, IconName> = { social: "wechat", official: "official", brand: "sparkle" };
-export const RESEARCH_ICON: Record<string, IconName> = { brand: "search", industry: "storage", hotsale: "sparkle" };
+export const CONTENT_ICON: Record<string, IconName> = { social: "wechat", official: "official", brand: "content" };
+export const RESEARCH_ICON: Record<string, IconName> = { brand: "search", industry: "storage", hotsale: "shop" };
 

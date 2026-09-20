@@ -113,7 +113,7 @@ export function IpStoryModal({
               // eslint-disable-next-line @next/next/no-img-element
               <img src={img} alt={name} />
             ) : (
-              <span className="ipstory-pic-ph">🧸</span>
+              <span className="ipstory-pic-ph"></span>
             )}
           </div>
 

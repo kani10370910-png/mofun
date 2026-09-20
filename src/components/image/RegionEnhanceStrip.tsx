@@ -300,7 +300,8 @@ export function RegionEnhanceBadge({
   const parts: string[] = [];
   if (useLora) parts.push("Lora");
   if (useKB) parts.push("知识库");
-  const tag = parts.length ? parts.join("+") : "本地增强";
+  if (!parts.length) return null;
+  const tag = parts.join("+");
 
   function openDetail() {
     if (useLora) setDetailKind("lora");

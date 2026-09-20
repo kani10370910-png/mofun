@@ -1,7 +1,8 @@
 /**
- * 区县 Lora → 上游通道名。仅服务端出图时使用。
+ * 区县 / 风格 Lora → 上游通道名。仅服务端出图时使用。
  * 可用 LORA_UPSTREAM_MAP（JSON）覆盖内部 id。
  */
+import { getLoraAssetById } from "@/data/loraCatalog";
 import {
   DEFAULT_REGION_ID,
   defaultLoraIdsForRegion,
@@ -30,6 +31,11 @@ export function resolveUpstreamLoraName(idOrName?: string): string {
   if (!idOrName) return "";
   const map = upstreamMap();
   if (map[idOrName]) return map[idOrName];
+  const catalog = getLoraAssetById(idOrName);
+  if (catalog) {
+    if (map[catalog.id]) return map[catalog.id];
+    return catalog.upstream || catalog.id;
+  }
   const meta = getLoraById(idOrName);
   if (map[meta.id]) return map[meta.id];
   return meta.upstream || meta.id || idOrName;

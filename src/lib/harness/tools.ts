@@ -7,6 +7,7 @@ import type { GenerateGateOpts } from "@/lib/agent/gates";
 import type { ExecuteResult } from "@/lib/agent/execute";
 import type { AgentRuntimeState, ToolName } from "@/lib/agent/types";
 import type { SessionLog } from "./session";
+import { harnessToolEnabled } from "./prompt";
 
 export type ToolPlugin = {
   name: ToolName;
@@ -28,6 +29,7 @@ const TOOL_PLUGINS: Record<string, ToolPlugin> = {
 };
 
 export function getToolPlugin(name: ToolName): ToolPlugin | undefined {
+  if ((name === "generate" || name === "propose") && !harnessToolEnabled(name)) return undefined;
   return TOOL_PLUGINS[name];
 }
 
@@ -52,6 +54,12 @@ export async function runToolPlugin(
     error: result.error,
     imageCount: result.images?.length || 0,
     hasText: Boolean(result.text),
+    text: (result.text || "").slice(0, 280),
+    detail: result.ok
+      ? result.images?.length
+        ? `已产出 ${result.images.length} 张画面`
+        : (result.text || "").trim().slice(0, 280)
+      : result.error || "",
   });
   return result;
 }

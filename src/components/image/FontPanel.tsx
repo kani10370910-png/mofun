@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import { Icon } from "@/components/ui/Icon";
 import { fontCats, fontEffects } from "@/data/image";
 import type { FontCat, FontEffect } from "@/lib/types";
+import { FONT_GEN_MODELS } from "@/lib/featureModels";
+import { Dropdown } from "@/components/ui/Dropdown";
 import { asset } from "@/lib/asset";
 import { PointsCost } from "@/components/ui/PointsCost";
 import { multiImagePoints } from "@/lib/pointCosts";
@@ -18,6 +20,7 @@ export interface FontImageState {
   cat: FontCat; // 文字效果分类
   effect: string; // 选中的字体名
   count: number;
+  model: string;
 }
 
 /* AI 字体专属左侧表单：文字内容 / 文字方向 / 文字效果（分类 + 字体网格） */
@@ -141,6 +144,17 @@ export function FontPanel({
       </div>
 
       <div className="field">
+        <div className="ws-label">生图模型</div>
+        <Dropdown
+          title="模型选择"
+          triggerIcon="storage"
+          options={FONT_GEN_MODELS.map((m) => ({ name: m.name, desc: m.desc }))}
+          value={state.model}
+          onChange={(o) => set("model", o.name)}
+        />
+      </div>
+
+      <div className="field">
         <div className="ws-label">文字效果</div>
         <div className="font-eff-tabs">
           {fontCats.map((c) => (
@@ -196,7 +210,7 @@ export function FontPanel({
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={onGenerate}>
-          立即生成 <PointsCost amount={multiImagePoints(state.count, "Seedream 5.0")} />
+          立即生成 <PointsCost amount={multiImagePoints(state.count, state.model)} />
         </button>
       </div>
 

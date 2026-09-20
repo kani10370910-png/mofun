@@ -27,7 +27,13 @@ function VideoInner() {
 
 export default function VideoPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense
+      fallback={
+        <div className="page" style={{ minHeight: "40vh", display: "grid", placeItems: "center" }}>
+          <p style={{ color: "var(--c-muted)", fontSize: 14, margin: 0 }}>正在打开…</p>
+        </div>
+      }
+    >
       <VideoInner />
     </Suspense>
   );

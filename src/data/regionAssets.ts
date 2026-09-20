@@ -34,7 +34,7 @@ export const ALL_REGION_LORAS: RegionLora[] = [
     blurb: "强化云雾茶园、嫩芽、清新国风笔触，避免通用茶叶贴纸感。",
     strength: 0.7,
     direction: "白茶",
-    emoji: "🍃",
+    emoji: "",
     regionName: "安吉",
   },
   {
@@ -43,7 +43,7 @@ export const ALL_REGION_LORAS: RegionLora[] = [
     blurb: "更偏淡雅留白与青绿晕染，适合轻量包装与清新主视觉。",
     strength: 0.65,
     direction: "白茶",
-    emoji: "🍃",
+    emoji: "",
     regionName: "安吉",
   },
   {
@@ -52,7 +52,7 @@ export const ALL_REGION_LORAS: RegionLora[] = [
     blurb: "竹海层峦、青翠留白与清透光影，适合文旅主视觉与清新包装。",
     strength: 0.65,
     direction: "竹海",
-    emoji: "🎋",
+    emoji: "",
     regionName: "安吉",
   },
   {
@@ -61,7 +61,7 @@ export const ALL_REGION_LORAS: RegionLora[] = [
     blurb: "绿水青山、乡村共富场景，暖阳民居与生态田园氛围。",
     strength: 0.6,
     direction: "共富",
-    emoji: "🏡",
+    emoji: "",
     regionName: "安吉",
   },
   {
@@ -70,7 +70,7 @@ export const ALL_REGION_LORAS: RegionLora[] = [
     blurb: "金石书画笔意、水墨疏密与印章朱砂点缀，偏文化艺术气质。",
     strength: 0.55,
     direction: "书画",
-    emoji: "🖌️",
+    emoji: "",
     regionName: "安吉",
   },
   {
@@ -79,7 +79,7 @@ export const ALL_REGION_LORAS: RegionLora[] = [
     blurb: "乡土腌制食材气质，暖黄木色与烟火市集氛围，适合特产包装。",
     strength: 0.6,
     direction: "萝卜干",
-    emoji: "🥕",
+    emoji: "",
     regionName: "安吉",
   },
   {
@@ -88,7 +88,7 @@ export const ALL_REGION_LORAS: RegionLora[] = [
     blurb: "同方向强化醇香烟火感与陶罐纹理，偏餐饮门店主视觉。",
     strength: 0.62,
     direction: "萝卜干",
-    emoji: "🥕",
+    emoji: "",
     regionName: "安吉",
   },
   {
@@ -97,7 +97,7 @@ export const ALL_REGION_LORAS: RegionLora[] = [
     blurb: "竹林山居、避暑清凉与民国风洋房，适合度假文旅海报。",
     strength: 0.68,
     direction: "避暑",
-    emoji: "🏔️",
+    emoji: "",
     regionName: "德清",
   },
   {
@@ -106,7 +106,7 @@ export const ALL_REGION_LORAS: RegionLora[] = [
     blurb: "太湖水岸、溇港渔家与芦苇烟波，水色偏青灰蓝。",
     strength: 0.62,
     direction: "溇港",
-    emoji: "🌊",
+    emoji: "",
     regionName: "长兴",
   },
   {
@@ -115,7 +115,7 @@ export const ALL_REGION_LORAS: RegionLora[] = [
     blurb: "丝绸光泽、织纹肌理与江南雅致配色，适合轻工与礼品视觉。",
     strength: 0.58,
     direction: "丝绸",
-    emoji: "🧵",
+    emoji: "",
     regionName: "湖州",
   },
   {
@@ -124,7 +124,7 @@ export const ALL_REGION_LORAS: RegionLora[] = [
     blurb: "莲叶田田、水乡晨雾与柔粉青绿，清新夏日氛围。",
     strength: 0.6,
     direction: "莲香",
-    emoji: "🪷",
+    emoji: "",
     regionName: "吴兴",
   },
 ];
@@ -139,17 +139,17 @@ const PACKS: Record<string, RegionAssetPack> = {
       {
         id: "k1",
         title: "明前茶",
-        summary: "清明前后采摘，氨基酸含量高，鲜爽回甘，常作为品牌高端线叙事。",
+        summary: "晨雾、嫩绿与清透光影，适合清新国风氛围，不要当作画面标题或产品名。",
       },
       {
         id: "k2",
         title: "产地风貌",
-        summary: "海拔八百米高山茶园，晨雾与竹海交织，视觉符号偏青绿、留白与云雾。",
+        summary: "层叠山峦与竹海留白、青绿配色，只影响风景气质，不要把海拔数字写成海报标语。",
       },
       {
         id: "k3",
         title: "文化符号",
-        summary: "白叶绿茶、一叶知秋、共富茶香等本地意象，适合融入主视觉与辅助图形。",
+        summary: "竹、云纹、印章留白等装饰符号；禁止把示例口号画进画面，除非用户原文包含。",
       },
     ],
   },
@@ -210,6 +210,8 @@ export const REGION_TO_CITY: Record<string, string> = {
   deqing: "huzhou",
   changxing: "huzhou",
   wuxing: "huzhou",
+  hangzhou: "hangzhou",
+  xiaoshan: "hangzhou",
 };
 
 /** 地域包 → 省 / 市 / 区县展示名 */
@@ -219,6 +221,8 @@ export const REGION_GEO: Record<string, { province: string; city: string; county
   changxing: { province: "浙江省", city: "湖州市", county: "长兴县" },
   wuxing: { province: "浙江省", city: "湖州市", county: "吴兴区" },
   huzhou: { province: "浙江省", city: "湖州市", county: "湖州市" },
+  hangzhou: { province: "浙江省", city: "杭州市", county: "杭州市" },
+  xiaoshan: { province: "浙江省", city: "杭州市", county: "萧山区" },
 };
 
 export function formatRegionGeoLabel(regionId: string = DEFAULT_REGION_ID): string {
@@ -346,6 +350,8 @@ export function defaultStrengthMap(ids: string[]): Record<string, number> {
 export function resolveRegionIdFromText(text?: string): string {
   const t = (text || "").toLowerCase();
   if (!t) return DEFAULT_REGION_ID;
+  if (t.includes("萧山")) return "xiaoshan";
+  if (t.includes("杭州")) return "hangzhou";
   if (t.includes("安吉")) return "anji";
   if (t.includes("德清")) return "deqing";
   if (t.includes("长兴")) return "changxing";

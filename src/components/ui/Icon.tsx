@@ -11,7 +11,7 @@ export function Icon({
   size?: number;
   className?: string;
 }) {
-  const p = ICON_PATHS[name] ?? ICON_PATHS.sparkle;
+  const p = ICON_PATHS[name] ?? ICON_PATHS.image;
   return (
     <svg
       className={className ? `ico ${className}` : "ico"}

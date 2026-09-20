@@ -16,8 +16,8 @@ export const onelineInspires: {
   {
     cat: "农业宣传",
     scene: "农产品推广",
-    emoji: "🌾",
-    prompt: "安吉白茶明前头采，茶农指尖采摘嫩芽，云雾茶山实景，产地直发宣传短视频",
+    emoji: "",
+    prompt: "萧山杨梅初夏头茬，果农指尖采摘紫红果实，杨梅林实景，产地直发宣传短视频",
     poster: "/poster-gen/ins-baicha.jpg",
     videoUrl: "/demo-videos/hist-baicha.mp4",
     ratio: "16:9",
@@ -27,7 +27,7 @@ export const onelineInspires: {
   {
     cat: "文化旅游",
     scene: "景区宣传",
-    emoji: "⛰️",
+    emoji: "",
     prompt: "安吉余村绿水青山，竹海骑行与古村漫步，适合亲子游的生态文旅目的地",
     poster: "/poster-gen/ins-yucun.jpg",
     videoUrl: "/demo-videos/hist-yucun.mp4",

@@ -1,15 +1,20 @@
 import { NextRequest } from "next/server";
 import {
   modelSupportsCountyLora,
+  isMofunRegionModel,
   resolveImageModelId,
   QWEN_I2I_LOCAL,
   QWEN_T2I_LOCAL,
 } from "@/lib/imageModelCatalog";
 import { applyKbToImagePrompt, retrieveKnowledge } from "@/lib/kbServer";
 import { resolveUpstreamLoras } from "@/lib/loraResolve";
+import { agentCanRun, firstNodeModel, resolveAgentForImage, workflowHasKind, workflowOrigin } from "@/lib/opsAgents";
+import { fetchOpsModelCreds, openaiCompatBase, opsApiKey } from "@/lib/opsModels";
+import { executeAgentWorkflow } from "@/lib/workflow/execute";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 /* 文生图：OpenAI 兼容的 /images/generations（AnyFast / ComfyUI 网关等）。
    读 IMAGE_API_KEY / IMAGE_BASE_URL / IMAGE_MODEL，密钥不进前端。
@@ -21,6 +26,8 @@ export async function POST(req: NextRequest) {
     size?: string;
     n?: number;
     model?: string;
+    agentCode?: string;
+    scene?: string;
     image?: string | string[];
     useKB?: boolean;
     useLora?: boolean;
@@ -28,6 +35,7 @@ export async function POST(req: NextRequest) {
     county?: string;
     kbContext?: string;
     lora?: { id?: string; name?: string; strength?: number }[];
+    skipWorkflow?: boolean;
   };
   try {
     body = await req.json();
@@ -37,6 +45,47 @@ export async function POST(req: NextRequest) {
 
   let prompt = (body.prompt || "").trim();
   if (!prompt) return Response.json({ error: "缺少 prompt" }, { status: 400 });
+
+  const hasImage = Boolean(Array.isArray(body.image) ? body.image.length : body.image);
+  const skipWorkflow = body.skipWorkflow === true;
+  const agent = skipWorkflow
+    ? null
+    : await resolveAgentForImage({
+        scene: body.scene,
+        agentCode: body.agentCode,
+        hasImage,
+      });
+  if (agentCanRun(agent, ["t2i", "i2i"])) {
+    const result = await executeAgentWorkflow({
+      agent,
+      origin: workflowOrigin(req),
+      input: {
+        text: prompt,
+        image: body.image,
+        regionId: body.regionId,
+        county: body.county,
+        useKB: body.useKB,
+        size: body.size,
+        n: body.n,
+        modelOverride: body.model,
+        useLora: body.useLora,
+        lora: body.lora,
+      },
+    });
+    const images = result.images.length ? result.images : result.image ? [result.image] : [];
+    if (images.length) return Response.json({ images });
+    if (!result.ok) return Response.json({ error: result.error || "工作流出图失败" }, { status: 502 });
+  }
+  if (agent && workflowHasKind(agent.workflow, "kb") && body.useKB !== false) {
+    body.useKB = true;
+  }
+  if (agent && !body.model) {
+    body.model =
+      firstNodeModel(agent.workflow, hasImage ? "i2i" : "t2i") ||
+      firstNodeModel(agent.workflow, "t2i") ||
+      firstNodeModel(agent.workflow, "i2i") ||
+      undefined;
+  }
 
   if (body.useKB) {
     const kb = await retrieveKnowledge({
@@ -49,21 +98,13 @@ export async function POST(req: NextRequest) {
     prompt = applyKbToImagePrompt(prompt, kb);
   }
 
-  const apiKey = process.env.IMAGE_API_KEY || "";
-  if (!apiKey) {
-    return Response.json(
-      { error: "尚未配置文生图 API Key：请在 .env.local 填写 IMAGE_API_KEY 后重启服务。" },
-      { status: 503 },
-    );
-  }
-  const baseURL = (process.env.IMAGE_BASE_URL || "https://www.anyfast.ai/v1").replace(/\/$/, "");
   const timeoutMs = Number(process.env.IMAGE_TIMEOUT_MS || 120000);
   const envModel = process.env.IMAGE_MODEL || "dall-e-3"; // 平台默认模型（一定有通道）
 
   function resolveUpstream(requested?: string): string {
     if (!requested) return envModel;
     const id = resolveImageModelId(requested) || requested;
-    if (modelSupportsCountyLora(requested)) {
+    if (isMofunRegionModel(requested) || isMofunRegionModel(id)) {
       // 文生 / 图生 UI 同名「MoFun区域文化大模型」：有参考图或旧图生别名 → 图生通道
       const isI2i =
         Boolean(body.image) ||
@@ -81,6 +122,15 @@ export async function POST(req: NextRequest) {
     return id;
   }
   const reqModel = resolveUpstream(body.model);
+  const opsModel = (await fetchOpsModelCreds(reqModel)) || (await fetchOpsModelCreds(body.model));
+  const apiKey = opsApiKey(opsModel, process.env.IMAGE_API_KEY || "");
+  const baseURL = openaiCompatBase(opsModel?.base_url || process.env.IMAGE_BASE_URL || "https://www.anyfast.com.cn/v1");
+  if (!apiKey) {
+    return Response.json(
+      { error: "运营端未配置该模型的 API 密钥：请在供应商列表或模型里填写后重试。" },
+      { status: 503 },
+    );
+  }
   const upstreamLoras = resolveUpstreamLoras(body.lora, {
     model: body.model || reqModel,
     regionId: body.regionId,

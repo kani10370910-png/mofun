@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/Toast";
 import { collectGenerate } from "@/lib/useGenerateStream";
 import { imageRatios, ipExtendTabs, ipExtendPresets, ipPresetPrompts, type IpExtendTab } from "@/data/image";
 import { eventGeneralRatioOpts } from "./ImagePanels";
+import { IP_CREATE_MODELS, IP_EXTEND_MODELS, DEFAULT_IP_CREATE_MODEL, DEFAULT_IP_EXTEND_MODEL } from "@/lib/featureModels";
 import { LibraryPickerModal } from "./LibraryPickerModal";
 import { ClearableTextarea } from "@/components/ui/ClearableTextarea";
 import { imgToDataUrl, extractIpTitle } from "@/lib/image";
@@ -110,6 +111,7 @@ export interface IpGenPayload {
   useLora?: boolean;
   useKB?: boolean;
   regionId?: string;
+  model?: string;
   // —— 扩展设计的结构化展示信息（生成历史卡片头用，替代裸 prompt 文字）——
   ext?: {
     ipImg: string; // 用户上传的 IP 原图（缩略图展示，可用 ipImgUrl）
@@ -175,12 +177,12 @@ export function ImageIpPanel({
 
   const wrapGenerate = (payload?: IpGenPayload) => {
     if (!payload) return onGenerate(payload);
-    // 立即生成 / 扩展设计均不走知识库；知识库仅「帮我提案」使用
+    // 创新设计：立即生成调用 LoRA 与知识库；扩展设计仅调用 LoRA，不走知识库
     onGenerate({
       ...payload,
-      regionEnhance: useLora,
+      regionEnhance: useLora || (tab === "create" && useKB),
       useLora,
-      useKB: false,
+      useKB: tab === "create" ? useKB : false,
       regionId,
     });
   };
@@ -252,7 +254,7 @@ function IpCreate({
 }: {
   onGenerate: (payload?: IpGenPayload) => void;
   loading: boolean;
-  onPropose?: (open: boolean, initialDesc?: string) => void;
+  onPropose?: (open: boolean, initialDesc?: string, useKB?: boolean) => void;
   proposeFill?: string;
   copyFill?: IpCopyPayload | null;
   fillSeq?: number;
@@ -267,6 +269,7 @@ function IpCreate({
   const [colors, setColors] = useState<string[]>([]);
   const [ratio, setRatio] = useState(imageRatios[0].name);
   const [count, setCount] = useState(1);
+  const [model, setModel] = useState(DEFAULT_IP_CREATE_MODEL);
   // 自定义画面尺寸：像素宽高（与活动文生图一致）
   const [cw, setCw] = useState("1080");
   const [ch, setCh] = useState("1920");
@@ -390,6 +393,7 @@ function IpCreate({
       rawDesc: raw,
       colors,
       refImage: refImg || undefined,
+      model,
       create: {
         refImg: refImg || undefined,
         desc: raw,
@@ -521,6 +525,17 @@ function IpCreate({
       </div>
 
       <div className="field">
+        <div className="ws-label">生图模型</div>
+        <Dropdown
+          title="模型选择"
+          triggerIcon="storage"
+          options={IP_CREATE_MODELS.map((m) => ({ name: m.name, desc: m.desc }))}
+          value={model}
+          onChange={(o) => setModel(o.name)}
+        />
+      </div>
+
+      <div className="field">
         <div className="ws-label">参考</div>
         <input
           ref={refInputRef}
@@ -604,7 +619,7 @@ function IpCreate({
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={handleGenerate}>
-          立即生成 <PointsCost amount={multiImagePoints(count, "Seedream 5.0")} />
+          立即生成 <PointsCost amount={multiImagePoints(count, model)} />
         </button>
       </div>
       {brandWarnOpen && (
@@ -940,6 +955,7 @@ function IpExtend({
   const [picks, setPicks] = useState<Record<string, string>>({});
   const [extDesc, setExtDesc] = useState("");
   const [count, setCount] = useState(1);
+  const [model, setModel] = useState(DEFAULT_IP_EXTEND_MODEL);
   const [zoomSrc, setZoomSrc] = useState<string | null>(null); // 点击 IP/参考图看大图
   // 各延展项已选预设对应的提示词段（按类别存，拼接成「图片描述词」；同类换选替换、不使用预设清除）
   const [segments, setSegments] = useState<Partial<Record<IpExtendTab, string>>>({});
@@ -1160,6 +1176,7 @@ function IpExtend({
       count,
       rawDesc: description,
       refImage,
+      model,
       ext: { ipImg: refImage || ipImgUrl, tab: tabsLabel, desc: extDesc.trim() || undefined, refImg: refImage },
     });
   }
@@ -1370,6 +1387,17 @@ function IpExtend({
         </div>
       </div>
 
+      <div className="field">
+        <div className="ws-label">生图模型</div>
+        <Dropdown
+          title="模型选择"
+          triggerIcon="storage"
+          options={IP_EXTEND_MODELS.map((m) => ({ name: m.name, desc: m.desc }))}
+          value={model}
+          onChange={(o) => setModel(o.name)}
+        />
+      </div>
+
       <ModelLoraSwitch
         visible={false}
         enabled={!!useLora}
@@ -1378,7 +1406,7 @@ function IpExtend({
       </div>
       <div className="ws-foot">
         <button className="btn btn-primary btn-block gen-btn" disabled={loading} onClick={handleExtGenerate}>
-          立即生成 <PointsCost amount={multiImagePoints(count, "Seedream 5.0")} />
+          立即生成 <PointsCost amount={multiImagePoints(count, model)} />
         </button>
       </div>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Icon } from "@/components/ui/Icon";
 import { EditorRail, type RailItem } from "@/components/ui/EditorRail";
 import { posterFor } from "@/lib/videoFx";
@@ -22,13 +23,19 @@ const DEFAULT_NEW_SETTINGS: Record<string, string> = {
 // 新建时把用户选择的视频设定暂存于此，Studio 初始化新项目时读取并清除
 export const NEW_SETTINGS_KEY = "mofun.studio.newSettings";
 
+function studioEditorHref(pid: string, name?: string) {
+  const q = new URLSearchParams({ sub: "studio", from: "home", pid });
+  if (name) q.set("name", name);
+  return `/video?${q.toString()}`;
+}
+
 /* 制作大片首页：我制作的大片 + 视频模板。
    「我制作的大片」展示用户真实生成并自动存下的项目文件（多分镜合集）；
    点「新建大片 / 某个项目 / 模板」→ 进入制作大片编辑器（studio:script）。 */
 
 // 示例项目：仅当用户还没有任何真实项目时展示
 const DEMO_FILMS = [
-  { id: "安吉白茶推广片", name: "安吉白茶推广片", updated: "2026-07-01 10:00", count: 4, seed: "sh-folder-tea" },
+  { id: "萧山杨梅推广片", name: "萧山杨梅推广片", updated: "2026-07-01 10:00", count: 4, seed: "sh-folder-tea" },
   { id: "余村文旅宣传片", name: "余村文旅宣传片", updated: "2026-06-28 15:20", count: 5, seed: "sh-folder-yucun" },
   { id: "民宿种草短片", name: "民宿种草短片", updated: "2026-06-25 09:10", count: 3, seed: "sh-folder-minsu" },
 ];
@@ -127,14 +134,11 @@ export function StudioHome({
   // 单个项目文件卡片（首页预览网格与「全部大片」页共用，保证样式与操作一致）
   const renderFolder = (p: StudioProjectMeta) => (
     <div className={`sh-folder sh-folder-file ${menuFor === p.id ? "menu-open" : ""}`} key={p.id}>
-      <button className="sh-folder-main" onClick={() => onOpen(p.id)}>
+      <Link className="sh-folder-main" href={studioEditorHref(p.id)}>
         <div className="sh-folder-cover">
           {p.cover ? (
-            <>
-              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-              <video className="sh-folder-vid" src={`${p.cover}#t=0.1`} muted playsInline preload="metadata" />
-              <span className="sh-folder-play">▶</span>
-            </>
+            // eslint-disable-next-line jsx-a11y/media-has-caption
+            <video className="sh-folder-vid" src={`${p.cover}#t=0.1`} muted playsInline preload="metadata" />
           ) : (
             <span className="sh-folder-empty">
               <Icon name="film" size={30} />
@@ -146,7 +150,7 @@ export function StudioHome({
           <span className="sh-folder-name">{p.name || "未命名"}</span>
           <span className="sh-folder-time">{p.updated}</span>
         </div>
-      </button>
+      </Link>
       <button
         className={p.fav ? "sh-folder-fav on" : "sh-folder-fav"}
         aria-label={p.fav ? "取消收藏" : "收藏"}
@@ -170,8 +174,8 @@ export function StudioHome({
       </button>
       {menuFor === p.id && (
         <>
-          <div className="sh-menu-mask" onClick={() => setMenuFor(null)} />
-          <div className="sh-folder-menu">
+          <div className="sh-menu-mask" onClick={(e) => { e.stopPropagation(); setMenuFor(null); }} />
+          <div className="sh-folder-menu" onClick={(e) => e.stopPropagation()}>
             <button onClick={() => renProject(p)}>重命名</button>
             <button className="sh-menu-del" onClick={() => delProject(p.id)}>删除</button>
           </div>
@@ -211,19 +215,17 @@ export function StudioHome({
               {projects.length > 0
                 ? shownProjects.map(renderFolder)
                 : DEMO_FILMS.map((f) => (
-                    <button className="sh-folder" key={f.id} onClick={() => onOpen(f.id, f.name)}>
-                      <div className="sh-folder-cover" style={{ backgroundImage: `url(${posterFor(f.seed)})` }}>
-                        <span className="sh-folder-play">▶</span>
-                      </div>
+                    <Link className="sh-folder" key={f.id} href={studioEditorHref(f.id, f.name)}>
+                      <div className="sh-folder-cover" style={{ backgroundImage: `url(${posterFor(f.seed)})` }} />
                       <div className="sh-folder-meta">
                         <span className="sh-folder-name">{f.name}</span>
                         <span className="sh-folder-time">{f.updated}</span>
                       </div>
-                    </button>
+                    </Link>
                   ))}
             </div>
             {projects.length > 0 && onlyFav && favProjects.length === 0 && (
-              <div className="sh-tpl-empty">还没有收藏的大片，把鼠标移到卡片上点右上角 ♡ 收藏</div>
+              <div className="sh-tpl-empty">还没有收藏的大片，把鼠标移到卡片上点右上角收藏</div>
             )}
           </section>
           ) : (
@@ -256,7 +258,7 @@ export function StudioHome({
                 {TEMPLATES.map((t) => (
                   <button className="sh-tpl" key={t.id} onClick={() => onOpen(t.name)}>
                     <div className="sh-tpl-cover" style={{ backgroundImage: `url(${posterFor(t.seed)})` }}>
-                      <span className="sh-tpl-play">▶</span>
+                      <span className="sh-tpl-play"></span>
                     </div>
                     <div className="sh-tpl-meta">
                       <span className="sh-tpl-name">{t.name}</span>
@@ -283,7 +285,7 @@ export function StudioHome({
               value={draftName}
               autoFocus
               maxLength={40}
-              placeholder="例如：安吉白茶推广片"
+              placeholder="例如：萧山杨梅推广片"
               onChange={(e) => setDraftName(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") confirmNew();

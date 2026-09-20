@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState, type ChangeEvent, type PointerEvent as RPointerEvent, type ReactNode, type RefObject } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as RPointerEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { initStudioSession, useSessionField, getStudioSnapshot } from "@/lib/studioSession";
 import { segmentSensitive, findSensitiveWords } from "@/lib/sensitiveWords";
@@ -12,6 +12,7 @@ import { parseScriptFile } from "@/lib/docParse";
 import { appConfirm } from "@/components/ui/Confirm";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
+import { GeneratingSlot } from "@/components/ui/GeneratingSlot";
 import { EditorRail, type RailItem } from "@/components/ui/EditorRail";
 import { useToast } from "@/components/ui/Toast";
 import {
@@ -42,9 +43,12 @@ import { BGM_PRESETS, bgmUrl } from "@/data/bgm";
 import { nowStamp } from "@/lib/datetime";
 import type { IconName } from "@/data/icons";
 import type { AssetCard } from "@/lib/types";
-import { imageRequestBody, kbFields, settingsUseRegionEnhance, QWEN_I2I_LOCAL, modelSupportsCountyLora, toUiImageModelName } from "@/lib/regionEnhance";
+import { imageRequestBody, kbFields, settingsUseRegionEnhance, QWEN_I2I_LOCAL, isMofunRegionModel, modelSupportsCountyLora, toUiImageModelName, resolveImageModelId } from "@/lib/regionEnhance";
+import { STUDIO_ASSET_EDIT_MODELS, STUDIO_ASSET_GEN_MODELS, DEFAULT_STUDIO_EDIT_MODEL, DEFAULT_STUDIO_GEN_MODEL } from "@/lib/featureModels";
+import { AGENT } from "@/lib/agentCodes";
 import { PointsCost } from "@/components/ui/PointsCost";
 import { videoSecondsPoints, multiImagePoints, imageShotPoints } from "@/lib/pointCosts";
+import { useTakeCharge } from "@/lib/chargeGenerate";
 import {
   posterFor,
   ratioToCanvas,
@@ -81,7 +85,19 @@ interface Shot {
   degradeReason?: string; // 降级的具体原因（审核敏感 / 参考图地址读取失败等），显示在角标 tooltip
   firstFrame?: string; // 首尾帧模式：首帧图（base64/URL）
   lastFrame?: string; // 首尾帧模式：尾帧图
+  histMaterials?: ShotHistItem[]; // 本镜历史素材（上传 / 生成），作参考图
   transition?: TransType; // 进入本镜的转场（与上一镜之间），默认「无」不破坏无缝衔接。首镜忽略
+}
+
+type ShotHistItem = { id: string; url: string; kind: "image" | "video" };
+
+/** 本镜历史素材：已上传/已归档的条目 + 当前成片（旧项目可能只写了 videoUrl） */
+function histItemsForShot(shot: Shot): ShotHistItem[] {
+  const items = [...(shot.histMaterials || [])];
+  if (shot.videoUrl && !items.some((h) => h.url === shot.videoUrl)) {
+    items.push({ id: `hm-live-${shot.id}`, url: shot.videoUrl, kind: "video" });
+  }
+  return items;
 }
 
 // 镜头间转场类型（默认无 = 保持尾帧无缝衔接）。black=黑场淡入淡出，white=白闪
@@ -177,52 +193,178 @@ const ASSET_KINDS: Asset["kind"][] = ["角色", "场景", "道具"];
 const CAMERAS = [...studioCameras];
 const SHOT_SIZES = [...studioShotSizes];
 
-// 本地兜底扩写：真实模型不可用时，给用户描述补上专业镜头/光影/质感细节（约 300 字）
-function localExpand(base: string, style?: string, prevContext?: string): string {
-  const clean = base.replace(/[。.！!？?\s]+$/, "");
-  const styleHint = style && style !== "智能匹配" ? `以${style}的视觉基调，` : "";
-  const trans = prevContext ? `自然承接上一镜画面、延续整段叙事，` : "";
-  // 把原句「嵌入」到一段完整的场景改写里（作为画面核心动作），而非在原句后拼接固定话术。
+function isShotScriptFormat(text: string): boolean {
+  const t = (text || "").trim();
+  return /全局风格\s*[:：]/.test(t) && /\d+\s*[-~—]\s*\d+\s*秒/.test(t);
+}
+
+function studioGlobalStyleLine(styleName?: string): string {
+  const n = (styleName || "").trim();
+  if (n === "写实") {
+    return "超写实真人风格；电影级8K画质，真实皮肤质感；采用高对比度伦勃朗光/侧光，阴影深邃层次分明；画面带有电影颗粒感，情绪感电影调色；";
+  }
+  if (n === "纪录片") {
+    return "超写实纪实风格；8K电影级画质，真实皮肤与现场纹理；自然侧光，阴影层次分明；画面带轻微颗粒感，景深效果自然；";
+  }
+  if (n === "航拍大片") {
+    return "超写实电影航拍风格；8K电影级画质，保留真实地貌与场景纹理；高对比度天光侧光，阴影深邃层次分明；画面带电影颗粒感，景深效果明显；";
+  }
+  if (n === "温暖治愈") {
+    return "超写实真人电影风格；8K电影级画质，真实皮肤质感；黄金时刻暖色侧逆光，层次柔和分明；画面带轻微电影颗粒感，浅景深效果明显；";
+  }
+  if (n === "国风水墨") {
+    return "超写实真人电影风格融入东方意境；8K电影级画质，真实材质纹理；冷调侧光，阴影深邃层次分明；画面带电影颗粒感，留白与景深并重；";
+  }
+  return "超写实真人电影风格；8K电影级画质，保留真实皮肤与场景纹理；采用高对比度侧光，阴影深邃层次分明；画面带电影颗粒感，景深效果明显；";
+}
+
+function localShotScript(base: string, styleLine: string, dur: number, camera: string, shotSize: string): string {
+  const clean = (base || "").replace(/全局风格\s*[:：][^\n]*/g, "").replace(/生成视频时严禁[^\n]*/g, "").trim() || "画面缓缓展开";
+  const cam = camera || "固定镜头";
+  const size = shotSize || "中景";
   return (
-    `${trans}${styleHint}画面聚焦于${clean}——这一动作作为镜头核心主体徐徐展开，环境层次分明、细节真实自然。` +
-    `低机位缓缓推近开场，继而转入环绕跟拍与横移平移，运镜舒缓流畅、富有节奏。` +
-    `黄金时段暖色侧逆光穿透，光影柔和细腻、明暗过渡自然；浅景深虚化前后景，凸显主体质感与纹理，构图讲究、主次分明。` +
-    `慢速升格叠加通透饱满的色彩，兼具写实质感与电影氛围，整体情绪真挚温暖、张弛有度，传递出鲜活而富有感染力的现场气息。`
+    `全局风格：${styleLine}\n\n` +
+    `0-${Math.max(1, dur)}秒：（${size}，中心构图，${cam}，现场自然侧光，阴影层次分明）${clean}\n` +
+    `音效：环境现场声\n\n` +
+    `生成视频时严禁生成任何字幕，严禁生成背景音乐`
   );
 }
 
-// AI 扩写：把用户写的画面内容「整体改写」为更专业的完整描述（补镜头运动/光影氛围/画面质感，约 300 字），
-// 传入上一镜内容做叙事衔接。复用一句话成片的 /api/video-prompt 路由。
-// LLM 偶发超时/抖动会让扩写回退到本地模板（观感像“原句后追加”），故重试至多 3 次，尽量走真实改写。
-async function optimizeShotPrompt(input: string, style?: string, prevContext?: string): Promise<string | null> {
-  for (let attempt = 1; attempt <= 3; attempt++) {
+function parseShotScriptBlocks(raw: string): Map<string, string> {
+  const map = new Map<string, string>();
+  const text = (raw || "").replace(/```(?:[\w-]*)\s*/g, "").replace(/```/g, "").trim();
+  const parts = text.split(/---SHOT:([^\n]+?)---/);
+  for (let i = 1; i + 1 < parts.length; i += 2) {
+    const id = parts[i].trim();
+    const body = (parts[i + 1] || "").trim();
+    if (id && body && /全局风格\s*[:：]/.test(body)) map.set(id, body);
+  }
+  return map;
+}
+
+async function readGenerateSse(resp: Response): Promise<string> {
+  if (!resp.body) return "";
+  const reader = resp.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  let acc = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const events = buf.split("\n\n");
+    buf = events.pop() ?? "";
+    for (const evt of events) {
+      const line = evt.split("\n").find((l) => l.startsWith("data:"));
+      if (!line) continue;
+      try {
+        const j = JSON.parse(line.slice(5).trim()) as { text?: string };
+        if (j.text) acc += j.text;
+      } catch {
+        /* 跳过残缺事件 */
+      }
+    }
+  }
+  return acc.trim();
+}
+
+function buildShotScriptUserInput(opts: {
+  styleLine: string;
+  styleName?: string;
+  assets: { name: string; kind: string }[];
+  shots: { id: string; shotDesc: string; dur: number; camera: string; shotSize: string }[];
+  prevScript?: string;
+}): string {
+  const scenes = opts.assets.filter((a) => a.kind === "场景" && a.name).map((a) => a.name);
+  const chars = opts.assets.filter((a) => a.kind === "角色" && a.name).map((a) => a.name);
+  const props = opts.assets.filter((a) => a.kind === "道具" && a.name).map((a) => a.name);
+  const assetBlock = [
+    scenes.length ? `场景：${scenes.join("、")}` : "场景：（无）",
+    chars.length ? `角色：${chars.join("、")}` : "角色：（无）",
+    props.length ? `道具：${props.join("、")}` : "道具：（无）",
+  ].join("\n");
+  const shotBlocks = opts.shots.map((s) =>
+    `---SHOT:${s.id}---\n时长：${s.dur}秒\n运镜下拉：${s.camera}\n景别下拉：${s.shotSize}\n剧情原文：\n${s.shotDesc.trim()}`
+  ).join("\n\n");
+  return [
+    `【全片风格名称】${opts.styleName?.trim() && opts.styleName !== "智能匹配" ? opts.styleName : "电影感"}`,
+    `【全局风格行】${opts.styleLine}`,
+    `【出镜元素】只能使用下列名称写成 @[名称]`,
+    assetBlock,
+    opts.prevScript?.trim() ? `【上一镜脚本（衔接用）】\n${opts.prevScript.trim()}` : "",
+    `【各镜头】请为下面每一镜各写一份拍摄脚本，用完全相同的 ---SHOT:镜头ID--- 分隔`,
+    shotBlocks,
+  ].filter(Boolean).join("\n\n");
+}
+
+async function generateShotScripts(opts: {
+  shots: { id: string; shotDesc: string; dur: number; camera: string; shotSize: string }[];
+  styleName?: string;
+  assets: { name: string; kind: string }[];
+  prevScript?: string;
+}): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!opts.shots.length) return out;
+  const styleLine = studioGlobalStyleLine(opts.styleName);
+  const chunkSize = 3;
+  for (let i = 0; i < opts.shots.length; i += chunkSize) {
+    const chunk = opts.shots.slice(i, i + chunkSize);
+    const prev = i === 0
+      ? opts.prevScript
+      : out.get(opts.shots[i - 1]?.id) || opts.shots[i - 1]?.shotDesc;
+    const input = buildShotScriptUserInput({
+      styleLine,
+      styleName: opts.styleName,
+      assets: opts.assets,
+      shots: chunk,
+      prevScript: prev,
+    });
+    let raw = "";
     try {
-      const r = await fetch("/api/video-prompt", {
+      const resp = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input, style, targetChars: 300, prevContext }),
-        signal: AbortSignal.timeout(30_000),
+        body: JSON.stringify({
+          scene: "studio-shot-script",
+          input,
+          styleHint: styleLine,
+          skipWorkflow: true,
+          ...studioKbFields(),
+        }),
       });
-      if (r.ok) {
-        const { text } = (await r.json()) as { text?: string | null };
-        if (text && text.trim()) return text.trim();
-      }
+      if (resp.ok) raw = await readGenerateSse(resp);
     } catch {
-      /* 超时/网络抖动 → 重试 */
+      raw = "";
     }
-    if (attempt < 3) await new Promise((res) => setTimeout(res, 600 * attempt));
+    const parsed = parseShotScriptBlocks(raw);
+    for (const s of chunk) {
+      const script = parsed.get(s.id);
+      if (script) out.set(s.id, script);
+      else if (chunk.length === 1 && isShotScriptFormat(raw)) out.set(s.id, raw);
+      else out.set(s.id, localShotScript(s.shotDesc, styleLine, s.dur, s.camera, s.shotSize));
+    }
   }
-  return null;
+  return out;
 }
 
 // 从画面描述里提取「台词」——引号（中文 ""『』「」 / 英文 ""）内的说话内容，用于自动填入字幕。
 function extractDialogue(text: string): string {
   if (!text) return "";
-  const matches = text.match(/[“"「『][^”"」』]*[”"」』]/g) || [];
-  return matches
+  const quoted = (text.match(/[“"「『][^”"」』]*[”"」』]/g) || [])
     .map((m) => m.slice(1, -1).trim())
-    .filter(Boolean)
-    .join(" ");
+    .filter(Boolean);
+  const spoken = text
+    .split(/\n+/)
+    .map((line) => {
+      const m = line.match(/^[\s]*([^：:\n]{1,8})[：:]\s*(.+)$/);
+      if (!m) return "";
+      const name = m[1].trim();
+      const lineText = m[2].trim();
+      if (!lineText || /时长|画面|旁白|对白|镜头/.test(name)) return "";
+      return lineText;
+    })
+    .filter(Boolean);
+  return [...quoted, ...spoken].join(" ");
 }
 
 // 制作大片逐镜真实生成使用的视频模型；旧项目存了已下线名称时回退到列表首项
@@ -250,27 +392,35 @@ function modelSupportsFrameAndRef(name?: string): boolean {
 }
 
 // 生成参考图（生图 / 改图）可选的图片模型：name 展示，modelId 发给 /api/image。
-// 首项「自动匹配」modelId 为空 → 不传 model，沿用后端 IMAGE_MODEL 默认（保证与其它出图一致、不误传无效 id）。
-const STUDIO_IMAGE_MODELS: { name: string; modelId: string; desc: string }[] = [
-  { name: "MoFun区域文化大模型", modelId: "Qwen-Image-本地-文生图", desc: "可挂本地 Lora" },
-  { name: "Z-Image", modelId: "z-image", desc: "真实感增强（待接入）" },
-  { name: "Seedream 4.0", modelId: "doubao-seedream-4-0-250828", desc: "高细节" },
-  { name: "Seedream 4.5", modelId: "doubao-seedream-4-5-251128", desc: "细节增强" },
-  { name: "Seedream 5.0", modelId: "doubao-seedream-5-0-260128", desc: "最新 Seedream" },
-];
+const STUDIO_IMAGE_MODELS: { name: string; modelId: string; desc: string }[] = STUDIO_ASSET_GEN_MODELS.map((m) => ({
+  name: m.name,
+  modelId: resolveImageModelId(m.name) || m.name,
+  desc: m.desc,
+}));
+const STUDIO_EDIT_MODELS: { name: string; modelId: string; desc: string }[] = STUDIO_ASSET_EDIT_MODELS.map((m) => ({
+  name: m.name,
+  modelId: resolveImageModelId(m.name) || m.name,
+  desc: m.desc,
+}));
+
+function studioModelsForTab(tab: "gen" | "edit") {
+  return tab === "edit" ? STUDIO_EDIT_MODELS : STUDIO_IMAGE_MODELS;
+}
 
 /** 有参考图时，Qwen 本地通道改走图生图模型名 */
 function studioResolveImageModel(modelId: string, hasImage: boolean): string | undefined {
   if (!modelId) return undefined;
-  if (hasImage && modelSupportsCountyLora(modelId)) return QWEN_I2I_LOCAL;
+  if (hasImage && isMofunRegionModel(modelId)) return QWEN_I2I_LOCAL;
   return modelId;
 }
 
-function studioImageModelEntry(name?: string) {
+function studioImageModelEntry(name?: string, tab: "gen" | "edit" = "gen") {
   const ui = toUiImageModelName(name) || name || "";
+  const list = studioModelsForTab(tab);
   return (
+    list.find((m) => m.name === ui || m.name === name || m.modelId === name) ??
     STUDIO_IMAGE_MODELS.find((m) => m.name === ui || m.name === name || m.modelId === name) ??
-    STUDIO_IMAGE_MODELS[0]
+    (tab === "edit" ? STUDIO_EDIT_MODELS[0] : STUDIO_IMAGE_MODELS[0])
   );
 }
 
@@ -305,7 +455,7 @@ function mapVideoErr(error: unknown, status: number): string {
   if (status === 429 || raw.includes("quota") || raw.includes("rate")) return "生成频率过高或额度不足，请稍后重试";
   return "生成失败，请重试（额度已退还）";
 }
-const ASSET_EMOJIS = ["🏞️", "👩‍🌾", "🍵", "🌾", "🏮", "🎐", "🛶", "🍂"];
+const ASSET_EMOJIS = [];
 
 // 读取「新建大片」对话框暂存的视频设定（读后清除，仅新建项目时用；SSR / 隐私模式无 sessionStorage 时回退空）
 function studioKbFields() {
@@ -350,6 +500,33 @@ function splitShotBlocks(script: string): string[] {
       .filter(Boolean);
   }
   return t.split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean);
+}
+
+/** 把误生成的分镜表收成文章式故事剧本：去掉镜头编号、时长、画面/对白标签。 */
+function flattenStudioScript(raw: string): string {
+  const t = (raw || "").trim();
+  if (!t) return t;
+  if (!/(?:镜头\s*\d+|【\s*(?:时长|画面|旁白|对白)\s*】)/.test(t)) return t;
+  const grab = (block: string, label: string) => {
+    const m = block.match(new RegExp(`【\\s*${label}\\s*】\\s*([\\s\\S]*?)(?=【\\s*(?:时长|画面|旁白|对白)\\s*】|$)`));
+    return m ? m[1].trim() : "";
+  };
+  const empty = (s: string) => !s || /^（?\s*无\s*）?$/.test(s);
+  const blocks = splitShotBlocks(t);
+  const parts = (blocks.length ? blocks : [t]).map((block) => {
+    if (/【\s*(?:画面|对白|旁白|时长)\s*】/.test(block)) {
+      const scene = grab(block, "画面");
+      const nar = grab(block, "旁白");
+      const dia = grab(block, "对白");
+      return [scene, empty(nar) ? "" : nar, empty(dia) ? "" : dia].filter(Boolean).join("\n\n");
+    }
+    return block
+      .replace(/【\s*时长\s*】\s*约?\s*\d+(?:\.\d+)?\s*秒?/g, "")
+      .replace(/镜头\s*\d+\s*[:：]/g, "")
+      .replace(/【\s*镜头\s*\d+\s*】/g, "")
+      .trim();
+  });
+  return parts.filter(Boolean).join("\n\n");
 }
 
 // 删除剧本文本里第 idx 段镜头（与 splitShotBlocks 的分段口径一致），用于「删镜头时连带删剧本对应段落」。
@@ -467,9 +644,9 @@ function detectShotSize(text: string): string | undefined {
 function detectCamera(text: string): string | undefined {
   const rules: [RegExp, string][] = [
     [/环绕|围绕|旋转/, "环绕拍摄"],
-    [/推近|推进|拉近|向前推|缓缓推|推镜/, "缓缓推近"],
+    [/推近|推进|拉近|向前推|缓缓推|推镜|慢推/, "缓缓推近"],
     [/上移|上摇|升起|升降|上升|摇上/, "上移俯拍"],
-    [/跟拍|横移|平移|跟随|横摇|左右摇|移动跟/, "横移跟拍"],
+    [/跟拍|跟镜头|横移|平移|跟随|横摇|左右摇|移动跟|慢摇|摇镜头/, "横移跟拍"],
     [/航拍|俯瞰|俯拍|鸟瞰|俯视/, "航拍俯瞰"],
     [/特写|微距|近距特/, "特写镜头"],
   ];
@@ -477,10 +654,10 @@ function detectCamera(text: string): string | undefined {
   return undefined;
 }
 
-// 在画面描述里给「出镜元素名」前自动加 @（indexOf 扫描、长名优先、去子串短名、名字前已有 @ 则不重复加）
+// 在画面描述里给「出镜元素名」加上 @[名称]（长名优先、去子串短名；已是 @name / @[name] 则规范成 @[name]）
 function insertElementMentions(desc: string, mentionNames: string[]): string {
   let names = [...new Set(mentionNames.filter(Boolean))];
-  names = names.filter((n, i) => !names.some((m, j) => j !== i && m.length > n.length && m.includes(n))); // 去掉是更长名子串的短名
+  names = names.filter((n, i) => !names.some((m, j) => j !== i && m.length > n.length && m.includes(n)));
   names.sort((a, b) => b.length - a.length);
   if (!names.length || !desc) return desc;
   let out = desc;
@@ -489,21 +666,31 @@ function insertElementMentions(desc: string, mentionNames: string[]): string {
     for (;;) {
       const at = out.indexOf(name, idx);
       if (at < 0) { res += out.slice(idx); break; }
-      res += out.slice(idx, at) + (at > 0 && out[at - 1] === "@" ? "" : "@") + name; // 名字前没有 @ 才加 @
-      idx = at + name.length;
+      const alreadyBracket = at >= 2 && out.slice(at - 2, at) === "@[" && out[at + name.length] === "]";
+      const alreadyAt = at > 0 && out[at - 1] === "@";
+      if (alreadyBracket) {
+        res += out.slice(idx, at + name.length);
+        idx = at + name.length;
+      } else if (alreadyAt) {
+        res += out.slice(idx, at - 1) + `@[${name}]`;
+        idx = at + name.length;
+      } else {
+        res += out.slice(idx, at) + `@[${name}]`;
+        idx = at + name.length;
+      }
     }
     out = res;
   }
   return out;
 }
-// 生成图/视频前把画面描述里的 @ 去掉，喂给模型干净文本（@ 仅作 UI 标记，参考图已按出镜元素注入）
+// 生成图/视频前把画面描述里的 @ / @[名称] 去掉，喂给模型干净文本（标记仅作 UI，参考图已按出镜元素注入）
 function stripMentions(desc: string): string {
-  return (desc || "").replace(/@/g, "");
+  return (desc || "").replace(/@\[([^\]]+)\]/g, "$1").replace(/@/g, "");
 }
-// 取消绑定 / 删除某元素时：把画面描述里该元素名前的 @ 去掉、保留名字文字（如「@竹篾」→「竹篾」）
+// 取消绑定 / 删除某元素时：把画面描述里该元素的 @[名称] / @名称 还原成普通名字
 function unmarkElement(desc: string, name: string): string {
   if (!desc || !name) return desc;
-  return desc.split(`@${name}`).join(name);
+  return desc.split(`@[${name}]`).join(name).split(`@${name}`).join(name);
 }
 
 function makeShots(script: string, total: number, targetShots?: number): Shot[] {
@@ -757,12 +944,36 @@ async function blobToWav(blob: Blob): Promise<Blob | null> {
   }
 }
 
-// 视频比例字符串 → CSS aspect-ratio（"智能"/无匹配默认 16:9）
-function ratioToCss(ratio: string): string {
+// 视频比例字符串 → 宽高数字（"智能"/无匹配默认 16:9）
+function parseRatioWH(ratio: string): { w: number; h: number } {
   const m = ratio.match(/(\d+)\s*[:：]\s*(\d+)/);
-  const w = m ? Number(m[1]) : 16;
-  const h = m ? Number(m[2]) : 9;
+  return { w: m ? Number(m[1]) : 16, h: m ? Number(m[2]) : 9 };
+}
+
+// 视频比例 → CSS aspect-ratio（"智能"/无匹配默认 16:9）
+function ratioToCss(ratio: string): string {
+  const { w, h } = parseRatioWH(ratio);
   return `${w} / ${h}`;
+}
+
+/**
+ * 预览框样式：同时受 max-width / max-height 约束时仍保持真实画幅。
+ * 仅写 aspect-ratio + width:100% + max-height 时，高度触顶后宽度不收，会被拉成超宽。
+ */
+function filmStageBoxStyle(rw: number, rh: number, maxHeight = "48vh", maxWidthPct = "69.44%"): CSSProperties {
+  const w = rw > 0 ? rw : 16;
+  const h = rh > 0 ? rh : 9;
+  return {
+    aspectRatio: `${w} / ${h}`,
+    width: `min(${maxWidthPct}, 100%, calc(${maxHeight} * ${w} / ${h}))`,
+    maxHeight,
+    height: "auto",
+  };
+}
+
+function filmStageStyle(ratio: string, maxHeight = "48vh", maxWidthPct = "69.44%"): CSSProperties {
+  const { w, h } = parseRatioWH(ratio);
+  return filmStageBoxStyle(w, h, maxHeight, maxWidthPct);
 }
 
 // 播放源：优先用已缓存到本地（IndexedDB）的 blobURL——命中则播放最快且不依赖外链；
@@ -887,6 +1098,7 @@ export function Studio({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const takeCharge = useTakeCharge();
   const { addWork, addMaterial } = useLibrary();
   const timers = useRef<number[]>([]);
   const genInFlight = useRef<Set<string>>(new Set()); // 正在生成的镜头 id（防同一镜重复启动进度定时器）
@@ -929,7 +1141,14 @@ export function Studio({
   const [projectName, setProjectName] = useSessionField<string>("projectName");
   const [stepKeyRaw, setStepKey] = useSessionField<string>("stepKey");
   // ③分镜脚本 与 ④分镜视频 已合并为一步「分镜制作」(key=storyboard)；老项目/旧链接里的 "clips" 归一到 storyboard。
-  const stepKey = stepKeyRaw === "clips" ? "storyboard" : stepKeyRaw;
+  // 缺字段 / 未知步骤一律回到脚本编辑，避免掉进预览播放器后死循环白屏。
+  const stepKey =
+    stepKeyRaw === "clips"
+      ? "storyboard"
+      : studioSteps.some((s) => s.key === stepKeyRaw)
+        ? stepKeyRaw
+        : "script";
+  const onStoryboard = stepKey === "storyboard";
   const [script, setScript] = useSessionField<string>("script");
   const [aiBusyId, setAiBusyId] = useState<string | null>(null);
   const [safeRewriteId, setSafeRewriteId] = useState<string | null>(null); // 正在「AI 改写重试」的镜头 id
@@ -1100,23 +1319,23 @@ export function Studio({
     if (stepKey !== "preview") return;
     const sig = shots.map((s) => `${s.caption}@${s.dur}`).join("|"); // 台词+时长签名
     if (sig === (subCapSig ?? "") && (subtitlesRaw?.length ?? 0) > 0) return; // 脚本未变且已有字幕 → 保留手动编辑
-    const built = buildSubtitlesFromShots(shots);
-    setSubtitles(built);
-    setSubCapSig(sig);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepKey, shots]);
+ const built = buildSubtitlesFromShots(shots);
+ setSubtitles(built);
+ setSubCapSig(sig);
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [stepKey, shots]);
 
-  // 时间轴播放头 ↔ 视频预览联动：previewTime = 当前时间（秒）；拖动时间轴时通过 seekTarget 通知预览跳帧。
-  const [previewTime, setPreviewTime] = useState(0);
-  const seekN = useRef(0);
-  const [seekTarget, setSeekTarget] = useState<{ t: number; n: number }>({ t: 0, n: 0 });
-  function scrubTo(sec: number) {
-    setPreviewTime(sec);
-    seekN.current += 1;
-    setSeekTarget({ t: sec, n: seekN.current });
-  }
+ // 时间轴播放头 视频预览联动：previewTime = 当前时间（秒）；拖动时间轴时通过 seekTarget 通知预览跳帧。
+ const [previewTime, setPreviewTime] = useState(0);
+ const seekN = useRef(0);
+ const [seekTarget, setSeekTarget] = useState<{ t: number; n: number }>({ t: 0, n: 0 });
+ function scrubTo(sec: number) {
+ setPreviewTime(sec);
+ seekN.current += 1;
+ setSeekTarget({ t: sec, n: seekN.current });
+ }
 
-  const ratio = settings.视频比例; // "智能"/"16:9" 等，videoFx 会解析
+ const ratio = settings.视频比例; // "智能"/"16:9" 等，videoFx 会解析
   const totalDur = shots.reduce((a, s) => a + s.dur, 0);
   const doneShots = shots.filter((s) => s.status === "done");
 
@@ -1147,10 +1366,58 @@ export function Studio({
   // 头部「下一步」：各步的下一步统一放到顶部（编辑项目左边）。① 的下一步要后台生成完整镜头，
   // 逻辑在 ScriptStep 内 → 用 ref 桥接（ScriptStep 把 finish 写入此 ref，头部按钮调用它）。
   const scriptFinishRef = useRef<(() => void) | null>(null);
+  const [assetExtracting, setAssetExtracting] = useState(false);
+  const sbLoadDoneRef = useRef(false);
+  const sbBindStartedRef = useRef(false);
+  const sbRewriteStartedRef = useRef(false);
+  const sbHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [sbPhase, setSbPhase] = useState<"idle" | "rewrite" | "bind" | "done">("idle");
+  const [sbPct, setSbPct] = useState(1);
+  const [sbEta, setSbEta] = useState(45);
+  const sbLoading = sbPhase !== "idle";
   const nextStep = studioSteps[activeIdx + 1];
+  function finishSbLoad() {
+    if (sbLoadDoneRef.current) return;
+    sbLoadDoneRef.current = true;
+    setSbPct(100);
+    setSbEta(0);
+    setSbPhase("done");
+    if (sbHideTimer.current) clearTimeout(sbHideTimer.current);
+    sbHideTimer.current = setTimeout(() => setSbPhase("idle"), 700);
+  }
+  function startSbLoad() {
+    if (sbPhase !== "idle") return;
+    const liveScript = (getStudioSnapshot() as { script?: string }).script ?? script;
+    if (!liveScript.trim()) return;
+    const liveShots = (getStudioSnapshot() as { shots?: Shot[] }).shots ?? shots;
+    const liveAssets = (getStudioSnapshot() as { assets?: Asset[] }).assets ?? assets;
+    const allBlank = liveShots.every((s) => !s.shotDesc.trim() && !s.videoUrl && !s.locked);
+    const needRewrite = liveShots.some((s) => s.shotDesc.trim() && !s.locked && !s.videoUrl && !isShotScriptFormat(s.shotDesc));
+    const needBind = liveAssets.length > 0 && liveShots.some((s) => s.shotDesc.trim() && !s.assetRefs.length);
+    if (!allBlank && !needRewrite && !needBind) {
+      sbLoadDoneRef.current = true;
+      return;
+    }
+    if (sbLoadDoneRef.current && !needRewrite) return;
+    sbLoadDoneRef.current = false;
+    sbBindStartedRef.current = false;
+    sbRewriteStartedRef.current = false;
+    setSbPct(1);
+    setSbEta(allBlank || needRewrite ? 50 : 45);
+    setSbPhase(allBlank || needRewrite ? "rewrite" : "bind");
+  }
+  function goStudioStep(k: string) {
+    if (k === "storyboard") startSbLoad();
+    setStepKey(k);
+  }
+  useEffect(() => {
+    if (stepKey === "storyboard") startSbLoad();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepKey]);
   function goNextStep() {
-    if (stepKey === "script") { scriptFinishRef.current?.(); return; } // ScriptStep.finish：后台生成完整镜头→拆镜→进②
-    if (nextStep) setStepKey(nextStep.key);
+    if (assetExtracting || sbLoading) return;
+    if (stepKey === "script") { scriptFinishRef.current?.(); return; } // ScriptStep.finish：拆镜→进②提取
+    if (nextStep) goStudioStep(nextStep.key);
   }
 
   // 返回：回到真正的来源页（生成历史→一句话成片 / 其他入口→各自来源）；
@@ -1161,27 +1428,32 @@ export function Studio({
   }
 
   // —— 行为 ——
-  // AI 扩写（逐镜）：把该镜头画面描述调 /api/video-prompt 优化为更专业的描述（真实 AI，失败本地兜底）。
+  // AI 扩写（逐镜）：把该镜画面改写成带时间轴 / @[元素] / 音效的拍摄脚本。
   async function aiExpandShot(id: string) {
     const idx = shots.findIndex((s) => s.id === id);
-    const base = shots[idx]?.shotDesc.trim();
-    if (!base) {
+    const cur = shots[idx];
+    const base = cur?.shotDesc.trim();
+    if (!cur || !base) {
       toast("请先填写画面内容，再点 AI 扩写", "warn");
       return;
     }
-    // 前面所有镜头内容作为叙事衔接上下文（首镜无），保证与整段前文连贯
-    const prevContext = shots
-      .slice(0, idx)
-      .map((s, i) => ({ i, t: s.shotDesc.trim() }))
-      .filter((x) => x.t)
-      .map((x) => `镜头${x.i + 1}：${x.t}`)
-      .join("\n");
+    const prevScript = shots.slice(0, idx).map((s) => s.shotDesc.trim()).filter(Boolean).at(-1);
     setAiBusyId(id);
-    const style = settings.视频风格 === "智能匹配" ? undefined : settings.视频风格;
-    const text = (await optimizeShotPrompt(base, style, prevContext)) ?? localExpand(base, style, prevContext);
-    setShots((prev) => prev.map((s) => (s.id === id ? { ...s, shotDesc: text } : s)));
+    const map = await generateShotScripts({
+      shots: [{ id: cur.id, shotDesc: cur.shotDesc, dur: cur.dur, camera: cur.camera, shotSize: cur.shotSize }],
+      styleName: settings.视频风格,
+      assets: assets.map((a) => ({ name: a.name, kind: a.kind })),
+      prevScript,
+    });
+    const text = map.get(cur.id) || localShotScript(base, studioGlobalStyleLine(settings.视频风格), cur.dur, cur.camera, cur.shotSize);
+    setShots((prev) => prev.map((s) => (s.id === id ? {
+      ...s,
+      shotDesc: text,
+      camera: detectCamera(text) ?? s.camera,
+      shotSize: detectShotSize(text) ?? s.shotSize,
+    } : s)));
     setAiBusyId(null);
-    toast(prevContext ? "已 AI 扩写并衔接前面镜头" : "已 AI 扩写画面描述");
+    toast(prevScript ? "已改写成拍摄脚本并衔接上一镜" : "已改写成拍摄脚本");
   }
 
   // 智能匹配：当「视频风格 = 智能匹配」时，读脚本让 LLM 从 6 种具体风格里挑一种最贴合的，
@@ -1649,13 +1921,14 @@ export function Studio({
 
   // 生成后默认存为「项目文件」：只要有已生成分镜，就把当前会话（多分镜合集）持久化为一个项目，
   // 显示在制作大片首页「我制作的大片」，可重新打开。读取模块级快照，卸载后（后台生成完成时）仍可调用。
-  function persistProject() {
+  function persistProject(force = false) {
     const snap = getStudioSnapshot() as { shots?: Shot[]; projectName?: string };
     const list = snap.shots ?? [];
     const done = list.filter((s) => s.status === "done" && s.videoUrl);
     // 新建项目（唯一 pid，p- 前缀）一律存为文件（未生成时以占位文件夹展示）；
     // 示例入口（非 p- 前缀）仅在真正生成后才落库，避免仅浏览就产生垃圾项目。
-    if (!projId.startsWith("p-") && !done.length) return;
+    // 用户点「保存」时强制落库，便于只写了剧本、还没出片也能留住。
+    if (!force && !projId.startsWith("p-") && !done.length) return;
     upsertProject({
       id: projId,
       name: snap.projectName || projId,
@@ -1804,6 +2077,21 @@ export function Studio({
   //   3) 兜底经 /api/media 同源代理下载整段（带重试，规避 CDN 抖动）。
   // 任何失败均返回 undefined，由调用方标记失败让用户重试。
   async function extractLastFrame(videoUrl: string, position: "first" | "last" = "last"): Promise<{ frame?: string; reason?: string }> {
+    if (/^https?:\/\//i.test(videoUrl)) {
+      try {
+        const wr = await fetch("/api/workflow/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: AGENT.videoFrameExtract, input: { video: videoUrl } }),
+          signal: AbortSignal.timeout(60_000),
+        });
+        const wj = (await wr.json().catch(() => ({}))) as { ok?: boolean; frames?: { first?: string; last?: string } };
+        const frame = position === "first" ? wj.frames?.first : wj.frames?.last;
+        if (wr.ok && wj.ok && frame) return { frame };
+      } catch {
+        /* ffmpeg 不可用时回退到画布抽帧 */
+      }
+    }
     const isLocal = /^(blob:|data:)/.test(videoUrl);
     let objUrl = "";
     let revoke = false;
@@ -1936,6 +2224,9 @@ export function Studio({
   useEffect(() => {
     shots.forEach((s) => {
       if (s.status === "done" && s.videoUrl) ensureVideoCached(s.videoUrl);
+      (s.histMaterials || []).forEach((m) => {
+        if (m.kind === "video" && m.url) ensureVideoCached(m.url);
+      });
     });
   }, [shots, ensureVideoCached]);
 
@@ -1954,7 +2245,7 @@ export function Studio({
   // 描述里出现这些人物指代（但没点名具体角色）时，默认认为主角出镜 → 自动补上主角，避免人物不一致。
   const PERSON_HINT = /她|他|姑娘|小姑娘|女子|女孩|少女|妇人|背影|身影|主角|人物/;
   useEffect(() => {
-    if (!assets.length || !shots.length) return;
+    if (!onStoryboard || !assets.length || !shots.length) return;
     const mainChar = assets.find((a) => a.kind === "角色"); // 主角 = 第一个角色
     const assetSig = assets.map((a) => `${a.id}:${a.name}`).join(","); // ②元素清单签名（增删/改名才变，加参考图不变）
     let changed = false;
@@ -1962,7 +2253,7 @@ export function Studio({
       const sig = `${s.shotDesc || ""}##${assetSig}`; // 该镜「描述+元素清单」签名
       if (autoBoundRef.current.get(s.id) === sig) return s; // 当前描述+元素下已处理过，尊重用户后续手动增删
       autoBoundRef.current.set(s.id, sig);
-      if (s.assetRefs.length) return s; // 已有绑定（用户已选/已绑）→ 不动
+      if ((s.assetRefs?.length ?? 0) > 0) return s; // 已有绑定（用户已选/已绑）→ 不动
       const desc = s.shotDesc || "";
       const matched = assets.filter((a) => a.name && desc.includes(a.name)).map((a) => a.id);
       // 没点名任何角色，但描述暗示有人物出镜（她/姑娘…）→ 补上主角，锁人物一致
@@ -1977,7 +2268,7 @@ export function Studio({
     });
     if (changed) setShots(() => next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shots, assets]);
+  }, [shots, assets, onStoryboard]);
 
   // 出镜元素·AI 识别：字符串精确匹配对散文描述基本无效（元素「西湖湖面」≠ 描述「西湖的水面」），
   // 所以对启发式没绑上的镜头，让 AI 语义判断每镜出现了②里的哪些元素，自动绑定。
@@ -1991,7 +2282,7 @@ export function Studio({
     setElemMatchBusy(true);
     const els = assets.filter((a) => a.name);
     const catalog = els.length ? els.map((a) => `- ${a.name}（${a.kind}）`).join("\n") : "（暂无，请按画面新建）";
-    const shotsText = targetShots.map((s) => `【${s.id}】${(s.shotDesc || "").slice(0, 300)}`).join("\n\n");
+    const shotsText = targetShots.map((s) => `【${s.id}】${(s.shotDesc || "").slice(0, 1200)}`).join("\n\n");
     const input = `【已有元素清单】\n${catalog}\n\n【镜头】\n${shotsText}\n\n请为每个镜头输出出镜元素 JSON：{ "镜头ID": [{"name":"元素名","kind":"场景|角色|道具","new":true/false}] }`;
     try {
       const res = await fetch("/api/generate", {
@@ -2037,7 +2328,7 @@ export function Studio({
           let id = nameToId.get(nm) ?? createdByName.get(nm);
           if (!id) {
             id = `elem-${(stamp++).toString(36)}`;
-            created.push({ id, emoji: ASSET_KIND_EMOJI[kd] ?? "🎬", name: nm, kind: kd });
+            created.push({ id, emoji: ASSET_KIND_EMOJI[kd] ?? "", name: nm, kind: kd });
             createdByName.set(nm, id);
           }
           if (!ids.includes(id)) ids.push(id);
@@ -2063,17 +2354,83 @@ export function Studio({
     }
   }
   useEffect(() => {
-    if (!assets.length || !shots.length || elemMatchBusy) return;
+    if (!onStoryboard || !assets.length || !shots.length || elemMatchBusy) return;
     const assetSig = assets.map((a) => `${a.id}:${a.name}`).join(",");
     const sigOf = (s: Shot) => `${s.shotDesc || ""}##${assetSig}`;
     // 仍为空、且「描述+元素」签名与上次 AI 识别时不同的镜头 → 重新识别（描述改写/新增元素后能补绑）
-    const pending = shots.filter((s) => !s.assetRefs.length && (s.shotDesc || "").trim() && aiElemTriedRef.current.get(s.id) !== sigOf(s));
+    const pending = shots.filter((s) => !(s.assetRefs?.length) && (s.shotDesc || "").trim() && aiElemTriedRef.current.get(s.id) !== sigOf(s));
     if (!pending.length) return;
     pending.forEach((s) => aiElemTriedRef.current.set(s.id, sigOf(s)));
     toast(`正在识别 ${pending.length} 个镜头的出镜元素…`);
     void autoMatchElements(pending);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shots, assets, elemMatchBusy]);
+  }, [shots, assets, elemMatchBusy, onStoryboard]);
+
+  useEffect(() => {
+    if (sbPhase !== "rewrite") return;
+    const liveShots = (getStudioSnapshot() as { shots?: Shot[] }).shots ?? shots;
+    const hasDesc = liveShots.some((s) => (s.shotDesc || "").trim());
+    if (!hasDesc || sbRewriteStartedRef.current) return;
+    sbRewriteStartedRef.current = true;
+    const pending = liveShots.filter((s) => s.shotDesc.trim() && !s.locked && !s.videoUrl && !isShotScriptFormat(s.shotDesc));
+    if (!pending.length) {
+      setSbPhase("bind");
+      setSbPct((p) => Math.max(p, 70));
+      return;
+    }
+    const liveAssets = (getStudioSnapshot() as { assets?: Asset[] }).assets ?? assets;
+    const styleName = ((getStudioSnapshot() as { settings?: Record<string, string> }).settings?.视频风格) ?? settings.视频风格;
+    void generateShotScripts({
+      shots: pending.map((s) => ({ id: s.id, shotDesc: s.shotDesc, dur: s.dur, camera: s.camera, shotSize: s.shotSize })),
+      styleName,
+      assets: liveAssets.map((a) => ({ name: a.name, kind: a.kind })),
+    }).then((map) => {
+      autoBoundRef.current.clear();
+      aiElemTriedRef.current.clear();
+      setShots((prev) => prev.map((s) => {
+        const text = map.get(s.id);
+        if (!text) return s;
+        return {
+          ...s,
+          shotDesc: text,
+          assetRefs: [],
+          camera: detectCamera(text) ?? s.camera,
+          shotSize: detectShotSize(text) ?? s.shotSize,
+        };
+      }));
+    }).finally(() => {
+      setSbPhase("bind");
+      setSbPct((p) => Math.max(p, 70));
+    });
+  }, [sbPhase, shots, assets, settings.视频风格]); // 等拆镜写出画面后再改写成拍摄脚本
+
+  useEffect(() => {
+    if (sbPhase !== "bind") return;
+    if (elemMatchBusy) sbBindStartedRef.current = true;
+    const needBind = assets.length > 0 && shots.some((s) => (s.shotDesc || "").trim() && !s.assetRefs.length);
+    if (!assets.length || !needBind || (sbBindStartedRef.current && !elemMatchBusy)) {
+      finishSbLoad();
+    }
+  }, [sbPhase, shots, assets, elemMatchBusy]);
+
+  useEffect(() => {
+    if (sbPhase !== "rewrite" && sbPhase !== "bind") return;
+    const cap = sbPhase === "rewrite" ? 68 : 96;
+    const base = sbPhase === "bind" ? 70 : 1;
+    const estSec = sbPhase === "rewrite" ? 40 : 50;
+    const t0 = Date.now();
+    const id = setInterval(() => {
+      const elapsed = Date.now() - t0;
+      const ratio = 1 - Math.exp(-elapsed / (estSec * 1000 * 0.55));
+      setSbPct(Math.min(cap, Math.round(base + (cap - base) * ratio)));
+      setSbEta(Math.max(1, Math.round(estSec - elapsed / 1000)));
+    }, 200);
+    return () => clearInterval(id);
+  }, [sbPhase]);
+
+  useEffect(() => () => {
+    if (sbHideTimer.current) clearTimeout(sbHideTimer.current);
+  }, []);
 
   // 已取消「自动新建元素后自动补图」：参考图生成一律由用户在②手动点「一键生成全部图片」触发，不再进入②/新建元素时自动生成。
   useEffect(() => {
@@ -2130,18 +2487,20 @@ export function Studio({
     const elemText = bound.length
       ? `。画面中需出现：${bound.map((a) => `${a.kind}「${a.name}」`).join("、")}，与设定参考图保持一致`
       : "";
-    const stylePrefix = settings.视频风格 !== "智能匹配" ? settings.视频风格 : "";
+    const stylePrefix = /全局风格\s*[:：]/.test(cur.shotDesc)
+      ? ""
+      : (settings.视频风格 !== "智能匹配" ? settings.视频风格 : "");
     // 带入「分镜脚本」里为本镜填写的运镜、景别，让生成画面贴合脚本设定
     const shotMeta = [cur.shotSize && `景别${cur.shotSize}`, cur.camera && `镜头运动${cur.camera}`].filter(Boolean).join("，");
     // 锁定元素 = 本镜出镜元素，按「角色 > 场景 > 道具」排序（角色最优先，保证不被 4 张参考图上限挤掉）。
     const refOrder: Record<Asset["kind"], number> = { 角色: 0, 场景: 1, 道具: 2 };
-    const lockElems = [...bound].sort((a, b) => refOrder[a.kind] - refOrder[b.kind]);
-    // 全片一致性硬约束：每一镜都要求与参考图 / 前面各镜保持完全相同的画面风格（插画↔写实不许跳变），
-    // 并逐一点名要锁死外观的元素。即使是特写、空镜也不能换风格——这是「所有镜头都一致」的关键。
-    const hasRefs = lockElems.some((a) => a.refImg);
-    const lockNames = lockElems.map((a) => `${a.kind}「${a.name}」`);
-    // 有定妆参考图的角色：单独点名，把「脸/五官/是同一个人」说到最死——这是压住跨镜换脸的关键约束。
-    const charRefs = lockElems.filter((a) => a.kind === "角色" && a.refImg);
+ const lockElems = [...bound].sort((a, b) => refOrder[a.kind] - refOrder[b.kind]);
+ // 全片一致性硬约束：每一镜都要求与参考图 / 前面各镜保持完全相同的画面风格（插画写实不许跳变），
+ // 并逐一点名要锁死外观的元素。即使是特写、空镜也不能换风格——这是「所有镜头都一致」的关键。
+ const hasRefs = lockElems.some((a) => a.refImg);
+ const lockNames = lockElems.map((a) => `${a.kind}「${a.name}」`);
+ // 有定妆参考图的角色：单独点名，把「脸/五官/是同一个人」说到最死——这是压住跨镜换脸的关键约束。
+ const charRefs = lockElems.filter((a) => a.kind === "角色" && a.refImg);
     const faceLock = charRefs.length
       ? `画面里的人物${charRefs.map((a) => `「${a.name}」`).join("、")}与参考图中的人物保持一致：相貌、发型、发色、服饰颜色与款式一致，始终是同一个人，不要替换成其他相貌或年龄的人；`
       : "";
@@ -2204,6 +2563,20 @@ export function Studio({
       : "";
     const prompt = [stylePrefix, continuityNote, subjectLead, `${stripMentions(cur.shotDesc)}${elemText}${editNote}`, speakNote, shotMeta, consistencyNote].filter(Boolean).join("，") + tailRule;
     const generateAudio = settings.配音 !== "不配音" && modelNativeAudio(settings.模型);
+    const shotCost = videoSecondsPoints(clampModelDuration(cur.dur, settings.模型), {
+      model: settings.模型,
+      quality: settings.视频质量,
+      withAudio: generateAudio,
+      count: 1,
+    });
+    const charged = takeCharge(shotCost, "制作大片 · 单镜");
+    if (!charged.ok) {
+      window.clearInterval(iv);
+      genInFlight.current.delete(id);
+      setShots((prev) => prev.map((s) => (s.id === id ? { ...s, status: "failed", pct: 0, failReason: charged.message } : s)));
+      toast(charged.message, "warn");
+      return undefined;
+    }
 
     // ── 喂图策略按生成模式 ──
     // · 文本 / 智能多帧：不传 first_frame，按 reference_image 生成。
@@ -2216,10 +2589,11 @@ export function Studio({
     const charRefUrls = lockElems.filter((a) => a.kind === "角色" && a.refImg).map((a) => a.refImg as string);
     const otherRefUrls = lockElems.filter((a) => a.kind !== "角色" && a.refImg).map((a) => a.refImg as string);
     const smartShotRef = genMode === "smart" && cur.firstFrame ? [cur.firstFrame] : [];
-    const refImgUrls = Array.from(new Set([...charRefUrls, ...otherRefUrls]));
-    // 角色优先 → 本镜镜头图 → 场景/道具；最多 9 张（模型/网关可接受范围）
+    const histRefUrls = (cur.histMaterials || []).filter((m) => m.kind === "image").map((m) => m.url);
+    const refImgUrls = Array.from(new Set([...charRefUrls, ...otherRefUrls, ...histRefUrls]));
+    // 角色优先 → 本镜镜头图 → 分镜历史素材 → 场景/道具；最多 9 张（模型/网关可接受范围）
     const referenceImageUrls = useRefGen
-      ? Array.from(new Set([...charRefUrls, ...smartShotRef, ...otherRefUrls])).slice(0, 9)
+      ? Array.from(new Set([...charRefUrls, ...smartShotRef, ...histRefUrls, ...otherRefUrls])).slice(0, 9)
       : (imageUrl && modelSupportsFrameAndRef(settings.模型) ? refImgUrls : []);
     const tailImageUrl = opts?.tailOverride ?? (genMode === "keyframe" && !isEditVideo ? cur.lastFrame : undefined);
 
@@ -2277,6 +2651,7 @@ export function Studio({
         ratio: settings.视频比例,
         dur: `${clampModelDuration(cur.dur, settings.模型)}秒`,
         model: modelIdOf(settings.模型),
+        agentCode: "Video-GenerateVideo",
         resolution: qualityToRes(settings.视频质量, settings.模型),
         generateAudio,
         quality: settings.视频质量,
@@ -2298,7 +2673,26 @@ export function Studio({
           return undefined;
         }
         // 字幕/声音「脚本有就做，没有不做」：不再自动杜撰字幕，仅用脚本填写的字幕字段
-        setShots((prev) => prev.map((s) => (s.id === id ? { ...s, status: "done", pct: 100, videoUrl: j.videoUrl, genElemSig: elemSig(cur.assetRefs, liveAssets), failReason: undefined, degraded: Boolean(j.degraded), degradeReason: j.degraded ? j.degradeReason : undefined } : s)));
+        setShots((prev) => prev.map((s) => {
+          if (s.id !== id) return s;
+          const item: ShotHistItem = { id: `hm-${Date.now()}`, url: j.videoUrl!, kind: "video" };
+          const hist = [...(s.histMaterials || [])];
+          if (s.videoUrl && s.videoUrl !== item.url && !hist.some((h) => h.url === s.videoUrl)) {
+            hist.push({ id: `hm-${Date.now()}-prev`, url: s.videoUrl, kind: "video" });
+          }
+          if (!hist.some((h) => h.url === item.url)) hist.push(item);
+          return {
+            ...s,
+            status: "done",
+            pct: 100,
+            videoUrl: j.videoUrl,
+            genElemSig: elemSig(cur.assetRefs, liveAssets),
+            failReason: undefined,
+            degraded: Boolean(j.degraded),
+            degradeReason: j.degraded ? j.degradeReason : undefined,
+            histMaterials: hist.slice(-12),
+          };
+        }));
         // 降级（参考图被网关拒收）不再向用户提示；仅内部保留 degraded 状态，控制台仍有日志便于排查。
         if (j.degraded) console.warn("[studio] 本镜降级生成：", j.degradeReason || "参考图被网关拒绝");
         persistProject(); // 生成完成 → 默认存为项目文件（后台完成时也生效）
@@ -2498,7 +2892,7 @@ export function Studio({
     const usedIds = new Set(liveShots.flatMap((s) => s.assetRefs));
     const filterUsed = (list: Asset[]) => (usedIds.size ? list.filter((a) => usedIds.has(a.id)) : list);
     const targets = filterUsed(redoAll ? liveAssets : liveAssets.filter((a) => !a.refImg));
-    if (!targets.length) return toast(redoAll ? "还没有分镜用到的元素" : "分镜里用到的元素都已有参考图（未用到的元素不生成；如需重做，点「一键全部重做」）", "warn");
+    if (!targets.length) return toast(redoAll ? "还没有分镜用到的元素" : "分镜里用到的元素都已有参考图（未用到的元素不生成；如需重做，点「重新生成全部图片」）", "warn");
     // skipConfirm：走「一键生成」设置弹窗确认后 / 后台自动补图时，不再二次弹确认
     if (!skipConfirm) {
       const ask = redoAll
@@ -2520,7 +2914,7 @@ export function Studio({
     // 风格打头（比结尾更有权重），压住「西湖=水墨」这类地标固有偏向；写实/默认再补实拍关键词。
     const styleLead = `${styleName === "写实" || !styleRaw.trim() ? "真实摄影照片，实拍质感，" : ""}${stylePrompt}。`;
     const styleSuffix = `，整体画面风格：${stylePrompt}`;
-    const genModelName = assetGenSettings[ASSET_GEN_MODEL_KEY]?.model ?? STUDIO_IMAGE_MODELS[0].name;
+    const genModelName = assetGenSettings[ASSET_GEN_MODEL_KEY]?.model ?? DEFAULT_STUDIO_GEN_MODEL;
     const genModelId = studioImageModelEntry(genModelName).modelId;
     let ok = 0;
     let done = 0;
@@ -2569,7 +2963,9 @@ export function Studio({
             n: 1,
             size,
             model: studioResolveImageModel(genModelId, false),
-            regionEnhance: settingsUseRegionEnhance((getStudioSnapshot() as { settings?: Record<string, string> } | null)?.settings),
+            useLora: false,
+            useKB: settingsUseRegionEnhance((getStudioSnapshot() as { settings?: Record<string, string> } | null)?.settings),
+            scene: "studio-asset",
           })),
           signal: ctrl.signal,
         });
@@ -2635,7 +3031,7 @@ export function Studio({
     const stylePrompt = styleRaw.trim() || STYLE_UNIFY_FALLBACK; // 画风统一
     const styleLead = `${styleName === "写实" || !styleRaw.trim() ? "真实摄影照片，实拍质感，" : ""}${stylePrompt}。`;
     const styleSuffix = `，整体画面风格：${stylePrompt}`;
-    const genModelName = assetGenSettings[ASSET_GEN_MODEL_KEY]?.model ?? STUDIO_IMAGE_MODELS[0].name;
+    const genModelName = assetGenSettings[ASSET_GEN_MODEL_KEY]?.model ?? DEFAULT_STUDIO_GEN_MODEL;
     const genModelId = studioImageModelEntry(genModelName).modelId;
     let ok = 0, done = 0;
     const genOne = async (s: Shot) => {
@@ -2661,7 +3057,9 @@ export function Studio({
             n: 1,
             size: "2560x1440",
             model: studioResolveImageModel(genModelId, refs.length > 0),
-            regionEnhance: settingsUseRegionEnhance((getStudioSnapshot() as { settings?: Record<string, string> } | null)?.settings),
+            useLora: false,
+            useKB: settingsUseRegionEnhance((getStudioSnapshot() as { settings?: Record<string, string> } | null)?.settings),
+            scene: "studio-shot",
             ...(refs.length ? { image: refs } : {}),
           })),
           signal: ctrl.signal,
@@ -3020,7 +3418,7 @@ export function Studio({
     deliveredSigRef.current = sig;
     const firstUrl = film[0].videoUrl;
     const card: AssetCard = {
-      emoji: "🎬",
+      emoji: "",
       grad: "thumb-grad-1",
       kind: "视频",
       name: `${projectName} · ${film.length}镜 / ${film.reduce((a, s) => a + s.dur, 0)}s`,
@@ -3073,7 +3471,7 @@ export function Studio({
                 // 只区分「选中 / 未选中」两态，不做「已完成」的渐进变化
                 const state = i === activeIdx ? "on" : "";
                 return (
-                  <button key={s.key} className={`st-tab ${state}`} onClick={() => setStepKey(s.key)}>
+                  <button key={s.key} className={`st-tab ${state}`} onClick={() => goStudioStep(s.key)}>
                     <span className="st-tab-no">{s.no}</span>
                     <span className="st-tab-name">{s.name}</span>
                   </button>
@@ -3082,8 +3480,13 @@ export function Studio({
             </nav>
             <div className="st-right">
               {nextStep && (
-                <button className="btn btn-primary btn-sm st-next-btn" onClick={goNextStep} title={`下一步：${nextStep.name}`}>
-                  下一步 · {nextStep.name} →
+                <button
+                  className="btn btn-primary btn-sm st-next-btn"
+                  onClick={goNextStep}
+                  disabled={assetExtracting || sbLoading}
+                  title={stepKey === "script" ? "提取角色场景道具" : `下一步：${nextStep.name}`}
+                >
+                  {stepKey === "script" ? "提取角色场景道具 →" : `下一步 · ${nextStep.name} →`}
                 </button>
               )}
               <button className="st-edit-btn" onClick={() => setEditProjOpen(true)} title="编辑项目视频预设">
@@ -3095,9 +3498,20 @@ export function Studio({
           <div className="studio-body">
             <main className="studio-stage">
               <div className="stage-canvas">
+                {stepKey === "storyboard" && sbPhase !== "idle" && (
+                  <StudioWorkOverlay
+                    title="正在准备分镜"
+                    sub="正在把每镜画面改写成拍摄脚本，并标出角色、场景和道具"
+                    pct={sbPct}
+                    etaText={formatStudioLoadEta(sbPhase === "done", sbPct, sbEta, "分镜已就绪")}
+                    phase={sbPhase === "rewrite" ? "a" : sbPhase === "bind" ? "b" : "done"}
+                    step1={{ run: "正在改写画面描述", ok: "拍摄脚本已写好", desc: "把故事改成带时间轴、景别、运镜、光影和音效的镜头脚本" }}
+                    step2={{ wait: "接着标出每镜出镜元素", run: "正在标出每镜出镜元素", ok: "每镜出镜元素已标好", desc: "给每镜对上角色、场景和道具" }}
+                  />
+                )}
                 <StudioStepView
                   stepKey={stepKey}
-                  goStep={setStepKey}
+                  goStep={goStudioStep}
                   scriptFinishRef={scriptFinishRef}
                   toast={toast}
                   script={script}
@@ -3175,6 +3589,8 @@ export function Studio({
                   setStudioSummary={setStudioSummary}
                   scriptType={scriptType}
                   setScriptType={setScriptType}
+                  onSaveScript={() => persistProject(true)}
+                  onAssetExtractingChange={setAssetExtracting}
                 />
               </div>
 
@@ -3225,7 +3641,7 @@ export function Studio({
       {/* ⑤ 时间轴「生成配音」：为该镜主角色弹「声音设置」，确定后合成这一镜的配音 */}
       {dubConfigShot && (() => {
         const ch = assets.find((a) => dubConfigShot.assetRefs.includes(a.id) && a.kind === "角色") ?? assets.find((a) => a.kind === "角色");
-        if (!ch) { toast("这一镜没有出场角色，请先在②角色场景道具添加角色并选音色", "warn"); setDubConfigShot(null); return null; }
+        if (!ch) { toast("这一镜没有出场角色，请先在「角色场景道具」添加角色并选音色", "warn"); setDubConfigShot(null); return null; }
         const shotId = dubConfigShot.id;
         return (
           <VoiceSettingsModal
@@ -3467,12 +3883,110 @@ function stripStudioMd(s: string): string {
     .replace(/`+/g, ""); // 去反引号
 }
 
+const STUDIO_THINK_HEAD = /^(我们需要回答用户|把需求扩写成故事剧本|用户需求[：:]|用户要求[：:]|拟稿[：:]|成稿[：:]|终稿[：:]|正文[：:]|草稿[：:])/;
+const STUDIO_THINK_MARK =
+  /我们需要回答用户|系统提示说|系统说下面|禁止用莫干山等示例|必须故事剧本|全篇可以无标题|不要在正文里写秒数|不要标题[，,]?\s*不要加标题|要像小说|不是脚本/;
+
+function looksLikeStudioThinking(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  if (STUDIO_THINK_HEAD.test(t)) return true;
+  const hits = (t.match(STUDIO_THINK_MARK) || []).length;
+  return hits >= 2 || (hits >= 1 && t.length > 180 && !/^[^\n]{0,12}[：:]\s+\S/m.test(t));
+}
+
+function isStudioProcessLine(line: string): boolean {
+  const s = line.trim();
+  if (!s) return true;
+  if (STUDIO_THINK_HEAD.test(s) || STUDIO_THINK_MARK.test(s)) return true;
+  if (/^(拟稿|成稿|终稿|正文|草稿|要点|备忘|约束)\s*[:：]?\s*$/.test(s)) return true;
+  if (/^[·•\-]\s*\S/.test(s)) return true;
+  if (/^(工序|当年学|现在青学|要点|备忘|约束|民宿农家乐|舞龙)[：:]/.test(s)) return true;
+  if (/要像小说|不是脚本|可以分段|换时空行|无标题/.test(s) && s.length < 80) return true;
+  return false;
+}
+
+/** 丢掉模型思考 / 要点 / 拟稿标题，只留成稿正文。过程还没写完时返回空。 */
+function stripStudioThinking(raw: string): string {
+  let t = (raw || "")
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, "")
+    .replace(/^[\s\S]*?<\/think>\s*/i, "")
+    .replace(/^[\s\S]*?<\/reasoning>\s*/i, "")
+    .trim();
+  if (/<think>|<reasoning>/i.test(t) && !/<\/(?:think|reasoning)>/i.test(t)) return "";
+  if (!t) return "";
+
+  const draftParts = t.split(/(?:^|\n)\s*(?:拟稿|成稿|终稿|正文|草稿)\s*[:：]\s*/);
+  if (draftParts.length > 1) t = draftParts[draftParts.length - 1].trim();
+
+  const afterCue = t.split(/直接开始[。.]?\s*/);
+  if (afterCue.length > 1) {
+    const rest = afterCue.slice(1).join("").trim();
+    if (rest) t = rest;
+  }
+
+  const lines = t.split("\n");
+  while (lines.length && isStudioProcessLine(lines[0] || "")) lines.shift();
+  t = lines.join("\n").trim();
+  if (!t) return "";
+
+  if (looksLikeStudioThinking(t) || t.split("\n").every((l) => !l.trim() || isStudioProcessLine(l))) {
+    let cut = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line || isStudioProcessLine(line)) continue;
+      if (/^[\u4e00-\u9fffA-Za-z]{1,12}[：:]\s+\S/.test(line) && !/^(用户|系统|需求|要求|注意|禁止)/.test(line)) {
+        cut = i;
+        break;
+      }
+    }
+    if (cut < 0) {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || isStudioProcessLine(line)) continue;
+        if (line.length >= 8) {
+          cut = i;
+          break;
+        }
+      }
+    }
+    if (cut < 0) return "";
+    t = lines.slice(cut).join("\n").trim();
+  }
+  return t;
+}
+
+function polishStudioScript(raw: string): string {
+  return flattenStudioScript(stripStudioMd(stripStudioThinking(raw)));
+}
+
+function scriptLooksTruncated(text: string): boolean {
+  const s = (text || "").trim();
+  if (s.length < 40) return false;
+  if (/[。！？…」』”]\s*$/.test(s)) return false;
+  return true;
+}
+
+function mergeScriptParts(head: string, extra: string): string {
+  const a = (head || "").trim();
+  const b = (extra || "").trim();
+  if (!b) return a;
+  if (!a) return b;
+  if (b.startsWith(a.slice(0, Math.min(48, a.length)))) return b.length >= a.length ? b : a;
+  const tail = a.slice(-28);
+  const i = tail ? b.indexOf(tail) : -1;
+  if (i >= 0) return `${a}${b.slice(i + tail.length)}`.replace(/\n{3,}/g, "\n\n").trim();
+  const glue = /[。！？…」』”]\s*$/.test(a) ? "\n\n" : "";
+  return `${a}${glue}${b}`.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 // ① 剧本编辑·模板：一句话示例，点卡片填入输入框（并切换片子类型），再发送直接生成完整镜头脚本
 const SCRIPT_TEMPLATES: { key: string; emoji: string; title: string; tag: string; example: string }[] = [
-  { key: "文旅宣传", emoji: "🌄", title: "做文旅宣传", tag: "文旅宣传", example: "做一条2-3分钟的安吉文旅宣传片，展现高山云雾茶园与乡村美景，面向暑期学生群体" },
-  { key: "民宿农家乐", emoji: "🏡", title: "做民宿农家乐", tag: "民宿农家乐", example: "为莫干山一家精品民宿拍一条温馨短片，突出田园慢生活、农家美食与亲子体验" },
-  { key: "农产品推广", emoji: "🍊", title: "农产品推广", tag: "农产品推广", example: "写一条安吉白茶产地直采推广片，主打高山云雾、氨基酸高、限量预订、产地直发" },
-  { key: "非遗展示", emoji: "🧧", title: "非遗展示", tag: "非遗展示", example: "做一条竹编非遗技艺展示片，展现匠人手艺细节与代代传承的故事" },
+  { key: "文旅宣传", emoji: "", title: "做文旅宣传", tag: "文旅宣传", example: "做一条2-3分钟的萧山杨梅产区宣传片，展现杨梅林与乡村美景，面向暑期学生群体" },
+  { key: "民宿农家乐", emoji: "", title: "做民宿农家乐", tag: "民宿农家乐", example: "为莫干山一家精品民宿拍一条温馨短片，突出田园慢生活、农家美食与亲子体验" },
+  { key: "农产品推广", emoji: "", title: "农产品推广", tag: "农产品推广", example: "写一条萧山杨梅产地直采推广片，主打紫红饱满、核小肉厚、当日采摘、产地直发" },
+  { key: "非遗展示", emoji: "", title: "非遗展示", tag: "非遗展示", example: "做一条竹编非遗技艺展示片，展现匠人手艺细节与代代传承的故事" },
 ];
 
 // 从用户一句话需求里解析「目标总时长」区间（秒）：支持 2-3分钟 / 2分钟 / 90秒 / 60-90秒 等
@@ -3508,6 +4022,7 @@ function ScriptStep({
   finishRef,
   toast,
   goStep,
+  onSave,
 }: {
   script: string;
   setScript: (s: string) => void;
@@ -3526,12 +4041,13 @@ function ScriptStep({
   finishRef?: { current: (() => void) | null }; // 把 finish 暴露给头部「下一步」按钮
   toast: (s: string, k?: "warn") => void;
   goStep: (k: string) => void;
+  onSave: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const vType = scriptType || "自定义场景";
   const setVType = setScriptType;
   // 底层：调 /api/generate 流式生成，返回清理后的完整文本；onChunk 可选（实时回填编辑框）。不管理 busy。
-  async function runGen(scene: string, inputText: string, onChunk?: (s: string) => void): Promise<string> {
+  async function runGen(scene: string, inputText: string, onChunk?: (s: string) => void, depth = 0): Promise<string> {
     const resp = await fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -3539,7 +4055,7 @@ function ScriptStep({
     });
     if (!resp.ok || !resp.body) {
       const j = (await resp.json().catch(() => ({}))) as { error?: string };
-      toast(j.error || "生成失败，请重试", "warn");
+      if (depth === 0) toast(j.error || "生成失败，请重试", "warn");
       return "";
     }
     const reader = resp.body.getReader();
@@ -3557,14 +4073,27 @@ function ScriptStep({
         if (!line) continue;
         try {
           const j = JSON.parse(line.slice(5).trim()) as { text?: string; error?: string };
-          if (j.text) { acc += j.text; onChunk?.(acc); }
-          if (j.error) toast(j.error, "warn");
+          if (j.text) acc += j.text;
+          if (j.error && depth === 0 && !acc.trim()) toast(j.error, "warn");
         } catch {
           /* 跳过 */
         }
       }
     }
-    const cleaned = stripStudioMd(acc); // 清一遍 markdown 符号（文本框不渲染 markdown）
+    let cleaned = polishStudioScript(acc);
+    const canContinue =
+      depth < 2 &&
+      (scene === "studio-script-pro" || scene === "studio-script" || scene === "studio-shots") &&
+      scriptLooksTruncated(cleaned);
+    if (canContinue) {
+      const more = await runGen(
+        scene,
+        `下面是一篇未写完的中文故事剧本。请从最后一个字接着写到收束，不要重复已有正文，不要写思考、要点或拟稿标题。\n\n${cleaned}`,
+        undefined,
+        depth + 1,
+      );
+      if (more.trim()) cleaned = polishStudioScript(mergeScriptParts(cleaned, more));
+    }
     onChunk?.(cleaned);
     return cleaned;
   }
@@ -3599,17 +4128,20 @@ function ScriptStep({
     if (!q) return toast("先用一句话说说：类型 + 故事", "warn");
     const dur = parseTargetDuration(q);
     const durNote = dur
-      ? `\n【目标总时长】约 ${dur.min}-${dur.max} 秒。务必让所有镜头的【时长】之和落在 ${dur.min}-${dur.max} 秒区间内——据此合理安排镜头数量与每镜时长（单镜不低于 4 秒，一般 4-8 秒），镜头数 ≈ 目标秒数 ÷ 5；绝不能因每镜过短导致总时长严重不足。`
+      ? `\n【篇幅】故事读起来大约对应 ${dur.min}-${dur.max} 秒成片，写够来回，不要在正文里写秒数或镜头表。`
       : "";
     const typed = vType && vType !== "自定义场景" && vType !== "默认"
-      ? `【片子类型】${vType}\n【需求】${q}${durNote}`
-      : `${q}${durNote}`;
+      ? `【片子类型】${vType}\n【语言】简体中文\n【需求】${q}${durNote}`
+      : `【语言】简体中文\n${q}${durNote}`;
     setBusy(true);
     setScript("");
     try {
-      toast("正在生成完整镜头脚本…");
-      const full = await runGen("studio-script-pro", typed, setScript);
-      if (full.trim()) toast("完整镜头脚本已生成，可直接编辑，或点右上「下一步」进入分镜");
+      toast("正在生成剧本故事…");
+      const full = await runGen("studio-script-pro", typed);
+      if (full.trim()) {
+        setScript(full);
+        toast("故事剧本已生成，可直接编辑，或点右上「提取角色场景道具」");
+      }
       else toast("生成失败，请重试", "warn");
     } catch {
       toast("生成中断，请重试", "warn");
@@ -3666,6 +4198,11 @@ function ScriptStep({
     if (f) importScriptFile(f);
   }
 
+  const saveOut = () => {
+    if (!script.trim()) return toast("还没有可保存的剧本", "warn");
+    onSave();
+    toast("已保存到项目");
+  };
   const copyOut = () => { navigator.clipboard?.writeText(script); toast("已复制"); };
   const clearOut = async () => { if (script && !(await appConfirm("清空当前镜头脚本？"))) return; setScript(""); };
 
@@ -3675,17 +4212,17 @@ function ScriptStep({
         {/* 左：一句话 + 模板 对话区 */}
         <div className="script2-chat">
           <div className="script2-chat-hd">
-            <div className="script2-avatar"><Icon name="sparkle" size={18} /></div>
+            <div className="script2-avatar"><Icon name="comment" size={18} /></div>
             <div className="script2-chat-hd-txt">
               <b>AI 帮写</b>
-              <span>说说你要做什么类型的片子，我帮你生成完整镜头脚本</span>
+              <span>说说你要做什么类型的片子，我帮你写成能读懂的对话剧本</span>
             </div>
           </div>
           <div className="script2-chat-body">
             <div className="script2-intro">
-              <div className="script2-intro-ico"><Icon name="sparkle" size={22} /></div>
-              <h3>从一句话到完整镜头脚本</h3>
-              <p>你只需告诉我：类型 + 故事<br />AI 帮你生成完整的分镜级镜头脚本</p>
+              <div className="script2-intro-ico"><Icon name="comment" size={22} /></div>
+              <h3>从一句话到剧本故事</h3>
+              <p>你只需告诉我：类型 + 故事<br />AI 写成多段对白，普通人也能读懂</p>
             </div>
             <div className="script2-tpls">
               {SCRIPT_TEMPLATES.map((t) => (
@@ -3715,7 +4252,7 @@ function ScriptStep({
                 type="button"
                 disabled={busy || !!script.trim()}
                 onClick={() => genFromInput()}
-                title={script.trim() ? "右侧已有脚本，清空后再生成" : "生成完整镜头脚本"}
+                title={script.trim() ? "右侧已有剧本，清空后再生成" : "生成剧本故事"}
               >
                 {busy ? (
                   <>
@@ -3736,8 +4273,9 @@ function ScriptStep({
           onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer?.files?.[0]; if (f) importScriptFile(f); }}
         >
           <div className="script2-out-hd">
-            <span className="script2-out-title">镜头脚本</span>
+            <span className="script2-out-title">剧本故事</span>
             <div className="script2-out-tools">
+              <button className="btn btn-ghost btn-sm" title="保存到项目" disabled={!script.trim()} onClick={saveOut}>保存</button>
               <button className="btn btn-ghost btn-sm" title="复制" onClick={copyOut}>复制</button>
               <button className="btn btn-ghost btn-sm" title="清空" onClick={clearOut}>清空</button>
               <button className="btn btn-ghost btn-sm" title="上传脚本（.txt / .docx；PDF 请先转 TXT/DOCX）" disabled={parsing} onClick={() => fileRef.current?.click()}>
@@ -3747,11 +4285,11 @@ function ScriptStep({
             </div>
           </div>
           <div className="script2-out-body">
-            {busy && !script.trim() && <div className="script2-out-busy"><Icon name="refresh" size={14} className="ico-spin" /> 正在生成完整镜头脚本…</div>}
+            {busy && !script.trim() && <div className="script2-out-busy"><Icon name="refresh" size={14} className="ico-spin" /> 正在生成剧本故事…</div>}
             <textarea
               className="script2-body"
               value={script}
-              placeholder={"已有脚本？粘贴到这里，或拖拽文件到这里上传\n支持 .txt / .docx 格式（PDF 请先转成 TXT/DOCX）\n\n或在左侧用一句话生成完整镜头脚本"}
+              placeholder={"已有剧本？粘贴到这里，或拖拽文件到这里上传\n支持 .txt / .docx 格式（PDF 请先转成 TXT/DOCX）\n\n或在左侧用一句话生成对话剧本"}
               onChange={(e) => setScript(e.target.value)}
             />
           </div>
@@ -3821,6 +4359,154 @@ function ShotAssets({ shot, assets, editShot }: { shot: Shot; assets: Asset[]; e
         <button type="button" className="sb-assets-toggle" onClick={() => (expanded ? collapse() : setExpanded(true))}>
           {expanded ? "收起" : "查看全部元素"}
         </button>
+      )}
+    </div>
+  );
+}
+
+function ShotHistMaterials({
+  shot,
+  generating,
+  locked,
+  cache,
+  toast,
+  editShot,
+  openLibraryPicker,
+}: {
+  shot: Shot;
+  generating: boolean;
+  locked?: boolean;
+  cache?: Record<string, string>;
+  toast: (s: string, k?: "warn") => void;
+  editShot: (id: string, patch: Partial<Shot>) => void;
+  openLibraryPicker: (filter: "image" | "video", onPick: (item: AssetCard) => void) => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [zoom, setZoom] = useState<{ src: string; kind: ShotHistItem["kind"] } | null>(null);
+  const stored = shot.histMaterials || [];
+  const items = histItemsForShot(shot);
+  const liveUrl = shot.videoUrl || "";
+
+  function addUrls(next: { url: string; kind: ShotHistItem["kind"] }[]) {
+    const list = [...stored];
+    for (const n of next) {
+      if (!n.url || list.some((x) => x.url === n.url)) continue;
+      list.push({ id: `hm-${Date.now()}-${list.length}`, url: n.url, kind: n.kind });
+    }
+    if (list.length === stored.length) return;
+    editShot(shot.id, { histMaterials: list.slice(-12) });
+  }
+
+  function applyHistVideo(url: string) {
+    if (!url || url === liveUrl) return;
+    const hist = [...stored];
+    if (liveUrl && !hist.some((h) => h.url === liveUrl)) {
+      hist.push({ id: `hm-${Date.now()}-prev`, url: liveUrl, kind: "video" });
+    }
+    if (!hist.some((h) => h.url === url)) hist.push({ id: `hm-${Date.now()}`, url, kind: "video" });
+    editShot(shot.id, {
+      videoUrl: url,
+      status: "done",
+      pct: 100,
+      failReason: undefined,
+      histMaterials: hist.slice(-12),
+    });
+  }
+
+  function onFile(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!files.length || locked) return;
+    const ok: File[] = [];
+    for (const f of files) {
+      const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
+      if (!["jpg", "jpeg", "png", "webp"].includes(ext)) {
+        toast("仅支持 JPG、PNG、WEBP 格式图片", "warn");
+        continue;
+      }
+      if (f.size > 10 * 1024 * 1024) {
+        toast("图片大小不能超过 10 MB，请压缩后重试", "warn");
+        continue;
+      }
+      ok.push(f);
+    }
+    ok.forEach((f) => {
+      const reader = new FileReader();
+      reader.onload = () => addUrls([{ url: String(reader.result || ""), kind: "image" }]);
+      reader.readAsDataURL(f);
+    });
+  }
+
+  return (
+    <div className={`sb-hist${locked ? " is-locked" : ""}`}>
+      <div className="sb-hist-hd">
+        <span className="sb-assets-lbl">分镜历史素材</span>
+        <button
+          type="button"
+          className="sb-hist-lib"
+          disabled={locked}
+          onClick={() => openLibraryPicker("image", (it) => it.img && addUrls([{ url: it.img, kind: "image" }]))}
+        >
+          仓库
+        </button>
+      </div>
+      <div className="sb-hist-grid">
+        <button type="button" className="sb-hist-card sb-hist-upload" disabled={locked} onClick={() => fileRef.current?.click()}>
+          <Icon name="plus" size={22} />
+          上传
+        </button>
+        {generating && (
+          <div className="sb-hist-card sb-hist-gen" role="status">
+            <Icon name="refresh" size={22} className="ico-spin" />
+            生成中...
+          </div>
+        )}
+        {[...items].reverse().map((it) => {
+          const isLive = it.kind === "video" && !!liveUrl && it.url === liveUrl;
+          const src = it.kind === "video" ? playableVideoSrc(it.url, cache) || it.url : it.url;
+          return (
+          <div key={it.id} className={`sb-hist-card sb-hist-item${isLive ? " is-live" : ""}`}>
+            <button
+              type="button"
+              className="sb-hist-thumb"
+              onClick={() => setZoom({ src, kind: it.kind })}
+              title={it.kind === "image" ? "查看大图" : isLive ? "当前成片" : "本镜历史成片"}
+            >
+              {it.kind === "video" ? (
+                // eslint-disable-next-line jsx-a11y/media-has-caption
+                <video src={`${src}#t=0.1`} muted playsInline preload="metadata" poster={isLive ? shot.firstFrame : undefined} />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={it.url} alt="" />
+              )}
+              {it.kind === "video" ? <span className="sb-hist-play" aria-hidden /> : null}
+            </button>
+            {it.kind === "video" && !isLive && !locked ? (
+              <button type="button" className="sb-hist-use" onClick={() => applyHistVideo(it.url)}>
+                选用
+              </button>
+            ) : null}
+            {!locked && !isLive && (
+              <button
+                type="button"
+                className="sb-hist-x"
+                aria-label="移除"
+                onClick={() => editShot(shot.id, { histMaterials: stored.filter((x) => x.id !== it.id && x.url !== it.url) })}
+              >
+                <Icon name="close" size={11} />
+              </button>
+            )}
+          </div>
+          );
+        })}
+      </div>
+      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple hidden onChange={onFile} />
+      {zoom && (
+        zoom.kind === "video" ? (
+          <VideoLightbox src={zoom.src} onClose={() => setZoom(null)} />
+        ) : (
+          <ImageLightbox src={zoom.src} onClose={() => setZoom(null)} />
+        )
       )}
     </div>
   );
@@ -3906,6 +4592,8 @@ function StudioStepView(props: {
   setStudioSummary: (s: string) => void;
   scriptType: string;
   setScriptType: (s: string) => void;
+  onSaveScript: () => void;
+  onAssetExtractingChange?: (busy: boolean) => void;
 }) {
   const { goStep, toast } = props;
   // ③ 分镜制作（脚本+视频三栏合一）：当前选中的镜头 id（底部分镜条选中 → 中间预览 + 右侧脚本）
@@ -3914,7 +4602,14 @@ function StudioStepView(props: {
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
   // 「视频设定」步骤已移除（改到新建大片时设定）；旧项目若停在该步，落到「分镜制作」，避免空白
-  const stepKey = props.stepKey === "setting" ? "storyboard" : props.stepKey;
+  const stepKey =
+    props.stepKey === "setting"
+      ? "storyboard"
+      : props.stepKey === "clips"
+        ? "storyboard"
+        : studioSteps.some((s) => s.key === props.stepKey)
+          ? props.stepKey
+          : "script";
 
   if (stepKey === "script") {
     return (
@@ -3936,6 +4631,7 @@ function StudioStepView(props: {
         finishRef={props.scriptFinishRef}
         toast={toast}
         goStep={goStep}
+        onSave={props.onSaveScript}
       />
     );
   }
@@ -3963,6 +4659,7 @@ function StudioStepView(props: {
         toast={toast}
         goStep={goStep}
         openLibraryPicker={props.openLibraryPicker}
+        onExtractingChange={props.onAssetExtractingChange}
       />
     );
   }
@@ -4067,20 +4764,40 @@ function StudioStepView(props: {
               const elemChanged = sel.status === "done" && !!sel.videoUrl && sel.genElemSig != null && sel.genElemSig !== elemSig(sel.assetRefs, props.assets);
               return (
                 <>
-                  <div className="sbm-preview" style={{ aspectRatio: ratioToCss(props.ratio) }}>
+                  <div
+                    className="sbm-preview"
+                    style={filmStageStyle(props.ratio, "52vh", "100%")}
+                    ref={(el) => {
+                      // 有成片时用真实宽高改写画幅（与第 4 步预览一致）
+                      if (!el || !sel.videoUrl) return;
+                      const v = el.querySelector("video");
+                      if (v && v.videoWidth > 0 && v.videoHeight > 0) {
+                        Object.assign(el.style, filmStageBoxStyle(v.videoWidth, v.videoHeight, "52vh", "100%"));
+                      }
+                    }}
+                  >
                     <span className="sbm-preview-idx">{selIdx + 1}/{props.shots.length}</span>
                     {sel.status === "gen" ? (
-                      <div className="clip-progress">
-                        <Icon name="refresh" size={22} className="ico-spin" />
-                        <div className="clip-bar"><span style={{ width: `${sel.pct}%` }} /></div>
-                        <span className="clip-pct">{sel.pct}% · 生成中</span>
-                      </div>
+                      <GeneratingSlot fill />
                     ) : sel.status === "done" && sel.videoUrl ? (
                       <>
                         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                        <video className="sbm-preview-vid" src={`${playableVideoSrc(sel.videoUrl, props.cache)}#t=0.1`} muted playsInline preload="metadata" />
-                        <button className="sbm-preview-play" onClick={() => props.onPlayClip(sel)} aria-label="播放">▶</button>
-                        <span className="clip-ok"><Icon name="check" size={11} /> 已生成</span>
+                        <video
+                          className="sbm-preview-vid"
+                          src={`${playableVideoSrc(sel.videoUrl, props.cache)}#t=0.1`}
+                          muted
+                          playsInline
+                          preload="metadata"
+                          onLoadedMetadata={(e) => {
+                            const v = e.currentTarget;
+                            const box = v.closest(".sbm-preview") as HTMLElement | null;
+                            if (box && v.videoWidth > 0 && v.videoHeight > 0) {
+                              Object.assign(box.style, filmStageBoxStyle(v.videoWidth, v.videoHeight, "52vh", "100%"));
+                            }
+                          }}
+                        />
+                        <button className="sbm-preview-play" onClick={() => props.onPlayClip(sel)} aria-label="播放"></button>
+ <span className="clip-ok"><Icon name="check" size={11} /> 已生成</span>
                       </>
                     ) : sel.status === "failed" ? (
                       <div className="clip-fail">
@@ -4136,7 +4853,7 @@ function StudioStepView(props: {
                 </>
               );
             })() : (
-              <div className="sbm-empty"><Icon name="video" size={40} /><span>还没有分镜，先在①脚本编辑生成镜头脚本</span></div>
+              <div className="sbm-empty"><Icon name="video" size={40} /><span>还没有分镜，先在①剧本编辑生成镜头脚本</span></div>
             )}
           </div>
 
@@ -4161,7 +4878,7 @@ function StudioStepView(props: {
                   </div>
                 )}
                 <label className="sb-flabel">画面描述</label>
-                <AutoGrowTextarea className="sb-field-ta" value={sel.shotDesc} disabled={sel.locked} placeholder="这一镜画面里有什么（用于生成）…" onChange={(v) => props.editShot(sel.id, { shotDesc: v })} />
+                <AutoGrowTextarea className="sb-field-ta" value={sel.shotDesc} disabled={sel.locked} placeholder="全局风格 + 0-4秒：（景别，构图，运镜，光线）在场景 @[场景] 中… 音效：… 严禁字幕与背景音乐" onChange={(v) => props.editShot(sel.id, { shotDesc: v })} />
                 <label className="sb-flabel">字幕</label>
                 <input className="sb-field-in" value={sel.caption} disabled={sel.locked} placeholder="屏幕字幕（已自动从画面描述台词提取，可手动修改）…" onChange={(e) => props.editShot(sel.id, { caption: e.target.value })} />
                 <div className="sb-ctls">
@@ -4204,6 +4921,15 @@ function StudioStepView(props: {
                   </div>
                 </div>
                 {props.assets.length > 0 && (<ShotAssets shot={sel} assets={props.assets} editShot={props.editShot} />)}
+                <ShotHistMaterials
+                  shot={sel}
+                  generating={sel.status === "gen"}
+                  locked={sel.locked}
+                  cache={props.cache}
+                  toast={toast}
+                  editShot={props.editShot}
+                  openLibraryPicker={props.openLibraryPicker}
+                />
               </>
             ) : (
               <div className="sbm-empty-r">选中左下角的镜头以编辑脚本</div>
@@ -4232,6 +4958,8 @@ function StudioStepView(props: {
                   {s.status === "done" && s.videoUrl ? (
                     // eslint-disable-next-line jsx-a11y/media-has-caption
                     <video src={`${playableVideoSrc(s.videoUrl, props.cache)}#t=0.1`} muted playsInline preload="metadata" />
+                  ) : s.status === "gen" ? (
+                    <GeneratingSlot fill />
                   ) : s.firstFrame ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={s.firstFrame} alt={`镜头${i + 1}`} />
@@ -4240,7 +4968,6 @@ function StudioStepView(props: {
                   )}
                   <span className="sbm-cell-dur">{s.dur}s</span>
                   {/* 生成中显示进度、失败显示失败；「已生成」不显示角标；纯待生成用居中占位文字 */}
-                  {s.status === "gen" && <span className="sbm-cell-badge b-gen">{s.pct}%</span>}
                   {s.status === "failed" && <span className="sbm-cell-badge b-failed">失败</span>}
                 </div>
               </button>
@@ -4272,6 +4999,31 @@ function StudioStepView(props: {
     );
   }
 
+  if (stepKey !== "preview") {
+    return (
+      <ScriptStep
+        script={props.script}
+        setScript={props.setScript}
+        input={props.studioInput}
+        setInput={props.setStudioInput}
+        idea={props.studioIdea}
+        setIdea={props.setStudioIdea}
+        summary={props.studioSummary}
+        setSummary={props.setStudioSummary}
+        styleHint={videoStyles.find((v) => v.name === props.settings.视频风格)?.stylePrompt ?? ""}
+        useKB={settingsUseRegionEnhance(props.settings)}
+        scriptType={props.scriptType}
+        setScriptType={props.setScriptType}
+        rebuildShots={props.rebuildShots}
+        setSettings={props.setSettings}
+        finishRef={props.scriptFinishRef}
+        toast={toast}
+        goStep={goStep}
+        onSave={props.onSaveScript}
+      />
+    );
+  }
+
   // preview
   const ready = props.shots.filter((s) => s.status === "done");
   if (!ready.length) {
@@ -4293,9 +5045,9 @@ function StudioStepView(props: {
         {/* 步骤说明文字已删除；此处仅保留已设置背景音乐的音量/移除控件 */}
         {props.audioMode !== "original" && props.bgm && (
           <span className="sp-bgm-info" title={props.bgm.name}>
-            <span className="sp-bgm-name">🎵 {props.bgm.name}</span>
-            <input
-              className="sp-bgm-vol"
+            <span className="sp-bgm-name"> {props.bgm.name}</span>
+ <input
+ className="sp-bgm-vol"
               type="range"
               min={0}
               max={100}
@@ -4369,6 +5121,8 @@ function FilmPlayer({
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(true);
   const [segT, setSegT] = useState(0);
+  /** 当前画面真实像素比；有视频元数据后优先于项目「视频比例」 */
+  const [nativeAR, setNativeAR] = useState<{ w: number; h: number } | null>(null);
   const seekingRef = useRef(false);
   const pendingSeek = useRef<{ slot: number; time: number } | null>(null);
   const total = shots.reduce((a, s) => a + s.dur, 0) || 1;
@@ -4438,6 +5192,17 @@ function FilmPlayer({
     else b.pause();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bgm, playing, muted, idx, hasVoice]);
+
+  // 切镜 / 源变化后：用当前 active 视频的真实宽高作为预览画幅
+  useEffect(() => {
+    const v = vRefs[active].current;
+    if (v && v.videoWidth > 0 && v.videoHeight > 0) {
+      const w = v.videoWidth;
+      const h = v.videoHeight;
+      setNativeAR((prev) => (prev && prev.w === w && prev.h === h ? prev : { w, h }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, idx, slotShot, cache, shots]);
 
   const fmt = (s: number) => {
     const sec = Math.max(0, Math.floor(s));
@@ -4566,7 +5331,7 @@ function FilmPlayer({
       {/* 背景音乐：整片循环 */}
       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
       <audio ref={bgmRef} hidden />
-      <div className="film-stage" style={{ aspectRatio: ratioToCss(ratio) }}>
+      <div className="film-stage" style={nativeAR ? filmStageBoxStyle(nativeAR.w, nativeAR.h) : filmStageStyle(ratio)}>
         {[0, 1].map((slot) => (
           <video
             // eslint-disable-next-line jsx-a11y/media-has-caption
@@ -4595,8 +5360,11 @@ function FilmPlayer({
               }
             }}
             onLoadedMetadata={(e) => {
+              const el = e.target as HTMLVideoElement;
+              if (slot === active && el.videoWidth > 0 && el.videoHeight > 0) {
+                setNativeAR({ w: el.videoWidth, h: el.videoHeight });
+              }
               if (pendingSeek.current && pendingSeek.current.slot === slot) {
-                const el = e.target as HTMLVideoElement;
                 el.currentTime = pendingSeek.current.time;
                 pendingSeek.current = null;
                 if (slot === active && playing) el.play().catch(() => {});
@@ -4610,13 +5378,13 @@ function FilmPlayer({
         ))}
         {!playing && (
           <button className="film-bigplay" onClick={toggle} aria-label="播放">
-            ▶
-          </button>
-        )}
-        {showCaption &&
-          (() => {
-            const sub = subtitles.find((s) => t >= s.start && t < s.start + s.dur);
-            return sub?.text ? <span className="film-caption">{sub.text}</span> : null;
+ 
+ </button>
+ )}
+ {showCaption &&
+ (() => {
+ const sub = subtitles.find((s) => t >= s.start && t < s.start + s.dur);
+ return sub?.text ? <span className="film-caption">{sub.text}</span> : null;
           })()}
         {/* 转场叠色预览：本镜入场首 half 秒从色淡入 / 下一镜有转场时本镜末 half 秒淡出到色 */}
         {(() => {
@@ -4638,7 +5406,7 @@ function FilmPlayer({
         {/* 控制条：叠在视频底部（原生播放器样式）——通宽进度条 + 播放/时间/字幕/音量/全屏 */}
         <div className="film-ctrls">
           <button className="vp-ctrl" onClick={toggle} aria-label={playing ? "暂停" : "播放"}>
-            {playing ? "❚❚" : "▶"}
+            {playing ? "暂停" : "播放"}
           </button>
           <span className="vp-time">{fmt(t)}</span>
           <div
@@ -4670,12 +5438,12 @@ function FilmPlayer({
               onClick={onToggleCaption}
               aria-label={showCaption ? "隐藏字幕" : "显示字幕"}
               title={showCaption ? "隐藏字幕" : "显示字幕"}
-            >
-              💬
-            </button>
-          )}
-          <button className="vp-ctrl" onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"}>
-            {muted ? "🔇" : "🔊"}
+ >
+              {showCaption ? "字" : "字"}
+ </button>
+ )}
+ <button className="vp-ctrl" onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"}>
+            {muted ? "静音" : "声音"}
           </button>
           <button
             className="vp-ctrl"
@@ -4687,7 +5455,7 @@ function FilmPlayer({
             aria-label="全屏"
             title="全屏"
           >
-            ⛶
+            全屏
           </button>
         </div>
       </div>
@@ -4744,7 +5512,7 @@ function HlTextarea({
         />
       </div>
       {children}
-      {bad.length > 0 && <div className="sp-shot-warn">⚠ 含疑似违规词：{bad.join("、")}，请修改后再生成</div>}
+      {bad.length > 0 && <div className="sp-shot-warn"> 含疑似违规词：{bad.join("、")}，请修改后再生成</div>}
     </div>
   );
 }
@@ -4784,7 +5552,7 @@ function SettingField({
 
 // M4：可编辑元素卡——名称 / 类型 / 参考图（一致性锚点）
 // 三类元素默认 emoji + 生图清晰度 → /api/image size 映射
-const ASSET_KIND_EMOJI: Record<string, string> = { 场景: "🏞️", 角色: "🧑", 道具: "🎁" };
+const ASSET_KIND_EMOJI: Record<string, string> = { 场景: "", 角色: "", 道具: "" };
 // 文生图模型要求图片 ≥ 3,686,400 像素（约 1920×1920），故 1K 档也用 1920² 起（避免 size too small 报错）
 const ASSET_SIZE_MAP: Record<string, string> = { "1080P": "1920x1920", "1K": "1920x1920", "2K": "2048x2048", "4K": "4096x4096" };
 // 场景生成为超宽幅「720度水平全景长图」，便于生成视频时镜头横向摇移 / 裁切调用（约 3.75:1）
@@ -4854,6 +5622,71 @@ function assetExpandInstr(kind: Asset["kind"]): string {
     "只画这一个道具本身，主体居中，不要出现人物或场景背景";
 }
 
+function formatStudioLoadEta(done: boolean, pct: number, eta: number, doneText: string) {
+  if (done || pct >= 100) return doneText;
+  if (eta <= 0) return "即将完成";
+  const m = Math.floor(eta / 60);
+  const r = eta % 60;
+  return m <= 0 ? `预计还需 ${r} 秒` : `预计还需 ${m} 分 ${String(r).padStart(2, "0")} 秒`;
+}
+
+function StudioWorkOverlay({
+  title,
+  sub,
+  pct,
+  etaText,
+  phase,
+  step1,
+  step2,
+}: {
+  title: string;
+  sub: string;
+  pct: number;
+  etaText: string;
+  phase: "a" | "b" | "done";
+  step1: { run: string; ok: string; desc: string };
+  step2: { wait: string; run: string; ok: string; desc: string };
+}) {
+  return (
+    <div className="assets-extract" role="status" aria-live="polite">
+      <div className="assets-extract-panel">
+        <div className="script2-intro assets-extract-intro">
+          <div className="script2-intro-ico"><Icon name="film" size={22} /></div>
+          <h3>{title}</h3>
+          <p>{sub}</p>
+        </div>
+        <div className="assets-extract-prog">
+          <div className="gen-progress-track"><i className="gen-progress-bar" style={{ width: `${pct}%` }} /></div>
+          <div className="assets-extract-meta">
+            <span>{pct}%</span>
+            <em>{etaText}</em>
+          </div>
+        </div>
+        <div className={`assets-extract-card${phase === "a" ? " on" : ""}${phase === "b" || phase === "done" ? " ok" : ""}`}>
+          <div className="assets-extract-badge">
+            {phase === "a" ? <Icon name="refresh" size={15} className="ico-spin" /> : <Icon name="check" size={16} />}
+          </div>
+          <div className="assets-extract-copy">
+            <div className="assets-extract-k">第 1 步</div>
+            <div className="assets-extract-h">{phase === "a" ? step1.run : step1.ok}</div>
+            <div className="assets-extract-d">{step1.desc}</div>
+          </div>
+        </div>
+        <div className={`assets-extract-card${phase === "b" ? " on" : phase === "done" ? " ok" : " wait"}`}>
+          <div className="assets-extract-badge">
+            {phase === "b" ? <Icon name="refresh" size={15} className="ico-spin" /> : phase === "done" ? <Icon name="check" size={16} /> : <span>2</span>}
+          </div>
+          <div className="assets-extract-copy">
+            <div className="assets-extract-k">第 2 步</div>
+            <div className="assets-extract-h">{phase === "b" ? step2.run : phase === "done" ? step2.ok : step2.wait}</div>
+            <div className="assets-extract-d">{step2.desc}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ② 场景角色道具：空态引导 + 工具栏（手动添加分类型 / 自动读剧本生成 / 生成设置）+ 元素卡片列表
 function AssetsStep({
   assets,
@@ -4873,6 +5706,7 @@ function AssetsStep({
   toast,
   goStep,
   openLibraryPicker,
+  onExtractingChange,
 }: {
   assets: Asset[];
   shots: Shot[];
@@ -4891,30 +5725,65 @@ function AssetsStep({
   toast: (s: string, k?: "warn") => void;
   goStep: (k: string) => void;
   openLibraryPicker: (filter: "image" | "video", onPick: (item: AssetCard) => void) => void;
+  onExtractingChange?: (busy: boolean) => void;
 }) {
-  const [addOpen, setAddOpen] = useState(false);
-  const [autoBusy, setAutoBusy] = useState(false);
-  const [setOpen, setSetOpen] = useState(false);
-  const [genIntent, setGenIntent] = useState(false); // 生成设置弹窗是「点一键生成打开(带开始生成按钮)」还是「点⚙只编辑设置」
-  const [genRedo, setGenRedo] = useState(false); // 待生成的 redoAll（一键生成 / 一键全部重做）
-  const [filter, setFilter] = useState<Asset["kind"]>("角色"); // 按类型筛选元素卡片（只按角色/场景/道具，无「全部」）
+ const [addOpen, setAddOpen] = useState(false);
+ const [autoBusy, setAutoBusy] = useState(false);
+ const willAutoExtract = Boolean(script.trim()) && assets.length === 0;
+ const [extractPhase, setExtractPhase] = useState<"idle" | "extract" | "prompts" | "done">(willAutoExtract ? "extract" : "idle");
+ const [extractPct, setExtractPct] = useState(1);
+ const [extractEta, setExtractEta] = useState(90);
+ const awaitingPromptsRef = useRef(false);
+ const extractDoneRef = useRef(false);
+ const extractHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+ const [setOpen, setSetOpen] = useState(false);
+ const [genIntent, setGenIntent] = useState(false); // 生成设置弹窗是「点一键生成打开(带开始生成按钮)」还是「点只编辑设置」
+ const [genRedo, setGenRedo] = useState(false); // 待生成的 redoAll（一键生成 / 一键全部重做）
+ const [filter, setFilter] = useState<Asset["kind"]>("角色"); // 按类型筛选元素卡片（只按角色/场景/道具，无「全部」）
 
   const [selectedId, setSelectedId] = useState<string | null>(null); // 右侧内嵌 AI 生成面板对应的选中元素
   function addAsset(kind: Asset["kind"]) {
     setAddOpen(false);
     // 手动新增的排在最前面，方便用户立即看到并编辑；新建后自动选中，右侧面板立即对应它
     const id = `a-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    setAssets((list) => [{ id, emoji: ASSET_KIND_EMOJI[kind] ?? "🎬", name: `新${kind}`, kind }, ...list]);
+    setAssets((list) => [{ id, emoji: ASSET_KIND_EMOJI[kind] ?? "", name: `新${kind}`, kind }, ...list]);
     setSelectedId(id);
+  }
+
+  function finishExtractOverlay() {
+    if (extractDoneRef.current) return;
+    extractDoneRef.current = true;
+    awaitingPromptsRef.current = false;
+    setExtractPct(100);
+    setExtractEta(0);
+    setExtractPhase("done");
+    if (extractHideTimer.current) clearTimeout(extractHideTimer.current);
+    extractHideTimer.current = setTimeout(() => {
+      setExtractPhase("idle");
+      onExtractingChange?.(false);
+    }, 700);
+  }
+
+  function abortExtractOverlay() {
+    extractDoneRef.current = true;
+    awaitingPromptsRef.current = false;
+    if (extractHideTimer.current) clearTimeout(extractHideTimer.current);
+    setExtractPhase("idle");
+    onExtractingChange?.(false);
   }
 
   // 自动生成：读剧本 → LLM 提取场景/角色/道具（JSON）→ 批量创建元素
   async function autoGen() {
     if (autoBusy) return;
-    if (!script.trim()) return toast("请先在「① 脚本编辑」写好脚本", "warn");
+    if (!script.trim()) return toast("请先在「① 剧本编辑」写好剧本", "warn");
     // 存在「上次自动生成的元素」时先确认：会替换它们（手动添加的会保留）
     if (assets.some((a) => a.id.startsWith("auto-")) && !(await appConfirm("「自动添加」会替换上次自动添加的元素（保留你手动添加的），按最新脚本重新提取。是否继续？"))) return;
     setAutoBusy(true);
+    extractDoneRef.current = false;
+    setExtractPhase("extract");
+    setExtractPct(1);
+    setExtractEta(90);
+    onExtractingChange?.(true);
     let full = "";
     try {
       const resp = await fetch("/api/generate", {
@@ -4925,6 +5794,7 @@ function AssetsStep({
       if (!resp.ok || !resp.body) {
         const j = (await resp.json().catch(() => ({}))) as { error?: string };
         toast(j.error || "生成失败，请重试", "warn");
+        abortExtractOverlay();
         return;
       }
       const reader = resp.body.getReader();
@@ -4951,31 +5821,35 @@ function AssetsStep({
       // 兼容两种返回：字符串数组（老）或 {name,desc} 对象数组（新，带结合剧本的提示词）
       type RawItem = string | { name?: unknown; desc?: unknown };
       const obj = m ? (JSON.parse(m[0]) as { scenes?: RawItem[]; characters?: RawItem[]; props?: RawItem[] }) : null;
-      if (!obj) return toast("解析失败，请重试", "warn");
+      if (!obj) { toast("解析失败，请重试", "warn"); abortExtractOverlay(); return; }
       const pick = (x: RawItem) => (typeof x === "string" ? { name: x, desc: "" } : { name: String(x?.name ?? ""), desc: String(x?.desc ?? "") });
       const items: { kind: Asset["kind"]; name: string; desc: string }[] = [];
       // 顺序：角色 > 场景 > 道具（自动添加优先给出角色）
       (obj.characters || []).forEach((x) => { const it = pick(x); if (it.name) items.push({ kind: "角色", ...it }); });
       (obj.scenes || []).forEach((x) => { const it = pick(x); if (it.name) items.push({ kind: "场景", ...it }); });
       (obj.props || []).forEach((x) => { const it = pick(x); if (it.name) items.push({ kind: "道具", ...it }); });
-      if (!items.length) return toast("脚本里没提取到场景/角色/道具", "warn");
+      if (!items.length) { toast("脚本里没提取到场景/角色/道具", "warn"); abortExtractOverlay(); return; }
       // 只保留「真的出现在某个镜头画面里」的元素：按剧本拆出各镜画面（shotDesc 已剔除旁白/对白），
       // 只在旁白/对白/背景叙述里被提到、任何镜头画面都不出现的元素不建卡片、不生成——否则③里会成为「未使用元素」，白占额度。
       // 判定口径与出镜元素自动绑定一致（画面文本 includes 元素名），保证保留下来的都能绑上、用得到。
       // 剧本无【画面】结构而拆不出画面时，shotDesc 回退为整段文本，等价于按整段脚本判断，避免全部被过滤掉。
       const shotDescText = makeShots(script, 60).map((s) => s.shotDesc || "").join("\n");
       const usedItems = script.trim() ? items.filter((it) => shotDescText.includes(it.name)) : items;
-      if (!usedItems.length) return toast("分镜脚本里没提取到可用的场景/角色/道具", "warn");
+      if (!usedItems.length) { toast("分镜脚本里没提取到可用的场景/角色/道具", "warn"); abortExtractOverlay(); return; }
       const skipped = items.length - usedItems.length;
       // 只替换「上次自动生成的」（id 以 auto- 开头）：保留手动添加 / 示例元素，删掉旧的自动元素、换成本次的。
       // desc = 结合剧本写好的提示词（自动添加特有；手动添加的元素没有 desc）
       setAssets((list) => [
         ...list.filter((a) => !a.id.startsWith("auto-")),
-        ...usedItems.map((it, i) => ({ id: `auto-${Date.now().toString(36)}-${i}`, emoji: ASSET_KIND_EMOJI[it.kind] ?? "🎬", name: it.name, kind: it.kind, desc: it.desc || undefined })),
+        ...usedItems.map((it, i) => ({ id: `auto-${Date.now().toString(36)}-${i}`, emoji: ASSET_KIND_EMOJI[it.kind] ?? "", name: it.name, kind: it.kind, desc: it.desc || undefined })),
       ]);
       toast(`已从分镜脚本生成 ${usedItems.length} 个用到的元素${skipped > 0 ? `（跳过 ${skipped} 个分镜没用到的）` : ""}`);
+      awaitingPromptsRef.current = true;
+      setExtractPhase("prompts");
+      setExtractPct((p) => Math.max(p, 70));
     } catch {
       toast("生成中断，请重试", "warn");
+      abortExtractOverlay();
     } finally {
       setAutoBusy(false);
     }
@@ -5028,8 +5902,13 @@ function AssetsStep({
   useEffect(() => {
     if (!script.trim()) return;
     const pending = assets.filter((a) => !descPrepRef.current.has(a.id) && !isDescStructured(a.desc || ""));
-    if (!pending.length) return;
+    const fromExtract = awaitingPromptsRef.current;
+    if (!pending.length) {
+      if (fromExtract) finishExtractOverlay();
+      return;
+    }
     pending.forEach((a) => descPrepRef.current.add(a.id));
+    if (fromExtract) awaitingPromptsRef.current = false;
     setDescPrepping(true);
     (async () => {
       // 小并发（3 个一批）后台预生成，避免一次性太多请求
@@ -5037,9 +5916,34 @@ function AssetsStep({
         await Promise.all(pending.slice(i, i + 3).map((a) => prepareOneDesc(a)));
       }
       setDescPrepping(false);
+      if (fromExtract) finishExtractOverlay();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assets, script]);
+
+  useEffect(() => {
+    if (extractPhase !== "idle") onExtractingChange?.(true);
+    return () => {
+      if (extractHideTimer.current) clearTimeout(extractHideTimer.current);
+      onExtractingChange?.(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (extractPhase !== "extract" && extractPhase !== "prompts") return;
+    const cap = extractPhase === "extract" ? 68 : 96;
+    const base = extractPhase === "prompts" ? 70 : 1;
+    const estSec = extractPhase === "extract" ? 90 : 60;
+    const t0 = Date.now();
+    const id = setInterval(() => {
+      const elapsed = Date.now() - t0;
+      const ratio = 1 - Math.exp(-elapsed / (estSec * 1000 * 0.55));
+      setExtractPct(Math.min(cap, Math.round(base + (cap - base) * ratio)));
+      setExtractEta(Math.max(1, Math.round(estSec - elapsed / 1000)));
+    }, 200);
+    return () => clearInterval(id);
+  }, [extractPhase]);
 
   // 一键生成全部图片：实际生成逻辑在 Studio（后台持续，切步骤/页面不中断）。这里只做首次点击的「去生成设置」提示。
   // redoAll=true：全部重做（含已有图片，按当前视频风格覆盖重生成）。
@@ -5051,24 +5955,37 @@ function AssetsStep({
     setGenIntent(true);
     setSetOpen(true);
   }
-  const allHaveImg = assets.length > 0 && assets.every((a) => a.refImg);
+  const usedIds = new Set(shots.flatMap((s) => s.assetRefs));
+  const genPool = (usedIds.size ? assets.filter((a) => usedIds.has(a.id)) : assets).filter((a) => a.kind === filter);
+  const allHaveImg = genPool.length > 0 && genPool.every((a) => Boolean(a.refImg));
 
   const empty = assets.length === 0;
   const filtered = empty ? [] : assets.filter((a) => a.kind === filter);
   const selected = empty ? undefined : (filtered.find((a) => a.id === selectedId) ?? filtered[0]);
+  const showExtract = extractPhase !== "idle";
   return (
-    <div className="stage-panel stage-assets">
+    <div className={`stage-panel stage-assets${showExtract ? " is-extracting" : ""}`}>
+      {showExtract && (
+        <StudioWorkOverlay
+          title="正在提取角色、场景和道具"
+          sub="正在读剧本，找出会出镜的角色、场景和关键道具"
+          pct={extractPct}
+          etaText={formatStudioLoadEta(extractPhase === "done", extractPct, extractEta, "提取完成")}
+          phase={extractPhase === "extract" ? "a" : extractPhase === "prompts" ? "b" : "done"}
+          step1={{ run: "正在识别角色、场景和道具", ok: "已找出角色、场景和道具", desc: "从剧本里找出会出镜的人、地点和关键物件" }}
+          step2={{ wait: "接着写画面描述", run: "正在写画面描述", ok: "画面描述已写好", desc: "给每个角色、场景、道具写后续出图用的描述" }}
+        />
+      )}
       {/* 左列：顶部工具栏（固定不滚） + 卡片网格（仅此区域纵向滚动） */}
       <div className="assets-left-col">
         <div className="assets-toolbar">
-          {/* 「自动添加」按钮已删除：进入②时默认自动读剧本添加元素（见下方 autoAddTriedRef effect）。仅在进行中给个提示 */}
-          {autoBusy && (
+          {/* 「自动添加」按钮已删除：进入②时默认自动读剧本添加元素。全屏提取进度见 assets-extract */}
+          {autoBusy && !showExtract && (
             <span className="btn btn-soft btn-sm" style={{ pointerEvents: "none", opacity: 0.8 }}>
               <Icon name="refresh" size={14} className="ico-spin" /> 自动添加中…
             </span>
           )}
-          {/* 进入②后台按剧本预生成结构化提示词进行中提示 */}
-          {descPrepping && !autoBusy && (
+          {descPrepping && !autoBusy && !showExtract && (
             <span className="btn btn-soft btn-sm" style={{ pointerEvents: "none", opacity: 0.8 }}>
               <Icon name="refresh" size={14} className="ico-spin" /> 生成提示词中…
             </span>
@@ -5085,13 +6002,13 @@ function AssetsStep({
               <Icon name="refresh" size={14} className="ico-spin" /> 生成中 {genImgProg.done}/{genImgProg.total} · 点击停止
             </button>
           ) : (
-            <button className="btn btn-primary btn-sm" disabled={autoBusy || empty} onClick={() => onGenAll(allHaveImg)} title={allHaveImg ? "全部元素重新生成参考图（按当前视频风格覆盖现有图片）" : "对所有还没有参考图的元素，先优化描述再 AI 生成参考图（后台生成，可切换到其它步骤）"}>
-              {allHaveImg ? "一键全部重做" : "一键生成全部图片"}
-            </button>
-          )}
-          {/* 单独的「生成设置」⚙ 入口已删除：设置改为点「一键生成全部图片」时弹出 */}
-          {!empty && (
-            <div className="assets-filter">
+            <button className="btn btn-primary btn-sm" disabled={autoBusy || empty} onClick={() => onGenAll(allHaveImg)} title={allHaveImg ? "按当前视频风格重新生成本页全部参考图（覆盖现有图片）" : "对还没有参考图的元素生成参考图（后台生成，可切换到其它步骤）"}>
+              {allHaveImg ? "重新生成全部图片" : "一键生成全部图片"}
+ </button>
+ )}
+ {/* 单独的「生成设置」 入口已删除：设置改为点「一键生成全部图片」时弹出 */}
+ {!empty && (
+ <div className="assets-filter">
               {ASSET_KINDS_ALL.map((k) => (
                 <span key={k} className={filter === k ? "sel-chip on" : "sel-chip"} onClick={() => setFilter(k)}>{k}</span>
               ))}
@@ -5127,17 +6044,17 @@ function AssetsStep({
             <button className="sp-card2-add" onClick={() => addAsset(filter)} title={`新建${filter}`}>
               <span className="sp-card2-add-plus">＋</span>
               <span className="sp-card2-add-lbl">新建{filter}</span>
-            </button>
-          </div>
-        )}
-      </div>
-      {/* 右列常驻 AI 生成面板已移除：AI 生成改为点卡片「✨ AI 生成」弹框（AssetGenModal） */}
-      {/* 「下一步 · 分镜脚本」已移到顶部头部 */}
-      {setOpen &&
-        createPortal(
-          <div className="sh-mask" onClick={() => setSetOpen(false)}>
+ </button>
+ </div>
+ )}
+ </div>
+ {/* 右列常驻 AI 生成面板已移除：AI 生成改为点卡片「 AI 生成」弹框（AssetGenModal） */}
+ {/* 「下一步 · 分镜脚本」已移到顶部头部 */}
+ {setOpen &&
+ createPortal(
+ <div className="sh-mask" onClick={() => setSetOpen(false)}>
             {(() => {
-              const curModelName = genSettings[ASSET_GEN_MODEL_KEY]?.model ?? STUDIO_IMAGE_MODELS[0].name;
+              const curModelName = genSettings[ASSET_GEN_MODEL_KEY]?.model ?? DEFAULT_STUDIO_GEN_MODEL;
               const curModel = studioImageModelEntry(curModelName);
               const curSize = genSettings["角色"]?.size ?? "2K";
               const setAllSize = (s: string) => setGenSettings((p) => ({ ...p, 角色: { ...p["角色"], size: s }, 场景: { ...p["场景"], size: s }, 道具: { ...p["道具"], size: s } }));
@@ -5183,7 +6100,7 @@ function AssetsStep({
                     </span>
                     <div className="gsx-acts">
                       <button className="gsx-btn gsx-btn-go" onClick={start}>
-                        确认{genRedo ? "并全部重做" : "生成"} <PointsCost amount={costPts} />
+                        确认{genRedo ? "并重新生成" : "生成"} <PointsCost amount={costPts} />
                       </button>
                     </div>
                   </div>
@@ -5204,6 +6121,17 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
       <button className="img-lightbox-x" onClick={onClose} aria-label="关闭"><Icon name="close" size={18} /></button>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={src} alt="查看大图" />
+    </div>,
+    document.body,
+  );
+}
+
+function VideoLightbox({ src, onClose }: { src: string; onClose: () => void }) {
+  return createPortal(
+    <div className="img-lightbox" onClick={onClose}>
+      <button className="img-lightbox-x" onClick={onClose} aria-label="关闭"><Icon name="close" size={18} /></button>
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <video src={src} controls autoPlay playsInline onClick={(e) => e.stopPropagation()} />
     </div>,
     document.body,
   );
@@ -5313,8 +6241,8 @@ function AssetCardEdit({
             </>
           ) : (
             <>
-              <button type="button" className="sp-card2-hbtn sp-card2-hbtn--ai" onClick={(e) => { e.stopPropagation(); setModalOpen(true); }}>✎ 编辑</button>
-              <button type="button" className="sp-card2-hbtn" onClick={(e) => { e.stopPropagation(); setUploadMenu(true); }}>⬆ {asset.refImg ? "替换" : "上传"}</button>
+              <button type="button" className="sp-card2-hbtn sp-card2-hbtn--ai" onClick={(e) => { e.stopPropagation(); setModalOpen(true); }}>编辑</button>
+              <button type="button" className="sp-card2-hbtn" onClick={(e) => { e.stopPropagation(); setUploadMenu(true); }}> {asset.refImg ? "替换" : "上传"}</button>
             </>
           )}
         </div>
@@ -5527,11 +6455,11 @@ function VoicePickerModal({
               <button
                 className="vp-play"
                 title="试听"
-                onClick={(e) => { e.stopPropagation(); void playVoicePreview(`你好，我是${cv.name}。`, cv.id); }}
-              >▶</button>
-              {editId === cv.id ? (
-                <input
-                  className="vp-rename"
+ onClick={(e) => { e.stopPropagation(); void playVoicePreview(`你好，我是${cv.name}。`, cv.id); }}
+ ></button>
+ {editId === cv.id ? (
+ <input
+ className="vp-rename"
                   value={editName}
                   autoFocus
                   onClick={(e) => e.stopPropagation()}
@@ -5574,15 +6502,15 @@ function VoicePickerModal({
               <button
                 className="vp-play"
                 title="试听"
-                onClick={(e) => { e.stopPropagation(); void playVoicePreview(`你好，我是${v.name}。`, v.tts); }}
-              >▶</button>
-              <span className="vp-name">{v.name}</span>
+ onClick={(e) => { e.stopPropagation(); void playVoicePreview(`你好，我是${v.name}。`, v.tts); }}
+ ></button>
+ <span className="vp-name">{v.name}</span>
               {v.multiEmotion && <span className="vp-badge">多情感</span>}
               <button
                 className={`vp-fav${favs.includes(v.id) ? " on" : ""}`}
                 title={favs.includes(v.id) ? "取消收藏" : "收藏"}
                 onClick={(e) => { e.stopPropagation(); toggleFav(v.id); }}
-              >{favs.includes(v.id) ? "★" : "☆"}</button>
+              >{favs.includes(v.id) ? "已藏" : "收藏"}</button>
             </div>
           ))}
         </div>
@@ -5724,13 +6652,13 @@ export function VoiceCloneModal({ onClose, onDone }: { onClose: () => void; onDo
             ) : (
               <button className="btn btn-primary btn-sm" onClick={stopRec}>■ 停止录制</button>
             )}
-            <button className="btn btn-soft btn-sm" onClick={() => fileRef.current?.click()} disabled={busy}>⬆ 上传音频</button>
-            <input ref={fileRef} type="file" accept="audio/*" hidden onChange={(e) => onFile(e.target.files?.[0])} />
+            <button className="btn btn-soft btn-sm" onClick={() => fileRef.current?.click()} disabled={busy}> 上传音频</button>
+ <input ref={fileRef} type="file" accept="audio/*" hidden onChange={(e) => onFile(e.target.files?.[0])} />
             {audio && <audio className="vcl-audio" src={audio.url} controls controlsList="nodownload noplaybackrate" />}
           </div>
           {err && <div className="vcl-err">{err}</div>}
-          {phase === "training" && <div className="vcl-status">🧬 正在训练你的声音，请稍候（约 1–2 分钟）…</div>}
-          {phase === "submitting" && <div className="vcl-status">上传中…</div>}
+          {phase === "training" && <div className="vcl-status"> 正在训练你的声音，请稍候（约 1–2 分钟）…</div>}
+ {phase === "submitting" && <div className="vcl-status">上传中…</div>}
         </div>
         <div className="vp-acts">
           <button className="btn btn-ghost btn-sm" onClick={onClose} disabled={busy}>取消</button>
@@ -6150,12 +7078,12 @@ function VoiceSettingsModal({
               ))}
             </div>
           ) : (
-            <span className="vs-emo-lock">🔒 当前音色不支持多情感</span>
-          )}
-        </div>
+            <span className="vs-emo-lock"> 当前音色不支持多情感</span>
+ )}
+ </div>
 
-        <div className="vs-acts">
-          <button className="vs-preview" disabled={previewing} onClick={doPreview}>▶ {previewing ? "试听中…" : "试听"}</button>
+ <div className="vs-acts">
+          <button className="vs-preview" disabled={previewing} onClick={doPreview}> {previewing ? "试听中…" : "试听"}</button>
           <button className="btn btn-primary vs-confirm" onClick={confirm}>{confirmLabel}</button>
         </div>
       </div>
@@ -6211,12 +7139,13 @@ function AssetGenModal({
   const [prompt, setPrompt] = useState(asset.desc?.trim() || asset.name); // 生图·画面描述（默认用元素已写好的提示词，含 AI 扩写结果）
   const [editPrompt, setEditPrompt] = useState(""); // 改图·修改要求（与生图描述独立，互不串写）
   const [size, setSize] = useState(genSize || "2K");
-  const [model, setModel] = useState(STUDIO_IMAGE_MODELS[0].name); // 生图/改图模型（生图与改图共用）
+  const [model, setModel] = useState(DEFAULT_STUDIO_GEN_MODEL); // 生图默认 MoFun；改图仅 Seedream
   const [modelSetOpen, setModelSetOpen] = useState(false); // 「模型/清晰度」设置弹窗开关（点模型按钮弹出）
   const [zoom, setZoom] = useState<string | null>(null); // 点击生成结果放大查看的图 URL
   const [busy, setBusy] = useState(false);
   const [expBusy, setExpBusy] = useState(false);
   const [images, setImages] = useState<string[]>(asset.refImg ? [asset.refImg] : []); // 已有参考图则先展示在结果区，新生成的排在其前
+  const takeCharge = useTakeCharge();
   const [editImage, setEditImage] = useState(""); // 改图：待修改的原图（base64/URL）
   const editFileRef = useRef<HTMLInputElement>(null);
   function onEditFile(e: ChangeEvent<HTMLInputElement>) {
@@ -6350,6 +7279,12 @@ function AssetGenModal({
     if (!p) return toast(tab === "edit" ? "请填写修改要求" : "请先填写画面描述", "warn");
     if (tab === "edit" && !editImage) return toast("请先导入要修改的图片", "warn");
     if (busy) return;
+    const modelId = studioImageModelEntry(model, tab).modelId;
+    const charged = takeCharge(
+      imageShotPoints(studioResolveImageModel(modelId, tab === "edit" || !!baseImage)),
+      tab === "edit" ? "制作大片 · 改图" : "制作大片 · 参考图",
+    );
+    if (!charged.ok) return toast(charged.message, "warn");
     setBusy(true);
     try {
       // 生图：文生图（按类型定制提示词）；改图：图生图（带原图 image + 修改要求）
@@ -6357,11 +7292,10 @@ function AssetGenModal({
       const effStyle = stylePrompt?.trim() || STYLE_UNIFY_FALLBACK;
       const styleLead = `${effStyle}。`;
       const styleSuffix = `，整体画面风格：${effStyle}`;
-      const modelId = studioImageModelEntry(model).modelId;
       // 角色=「左照片+右三视图」横构图 → 宽幅画布；其余按清晰度方图
       const genImgSize = asset.kind === "角色" && !kindPrompt ? "2816x1536" : asset.kind === "场景" && !kindPrompt ? SCENE_PANO_SIZE : asset.kind === "道具" && !kindPrompt ? PROP_TRIVIEW_SIZE : (ASSET_SIZE_MAP[size] || "2048x2048");
       // 生图：有基底图（如尾帧以首帧为基底）→ 图生图保住主体/场景；否则纯文生。改图：图生图（原图 + 修改要求）。
-      const regionEnhance = settingsUseRegionEnhance((getStudioSnapshot() as { settings?: Record<string, string> } | null)?.settings);
+      const useKB = settingsUseRegionEnhance((getStudioSnapshot() as { settings?: Record<string, string> } | null)?.settings);
       const body =
         tab === "edit"
           ? imageRequestBody({
@@ -6370,14 +7304,18 @@ function AssetGenModal({
               n: 1,
               size: genImgSize,
               model: studioResolveImageModel(modelId, true),
-              regionEnhance,
+              useLora: false,
+              useKB,
+              scene: "studio-asset",
             })
           : imageRequestBody({
               prompt: `${styleLead}${p}，${kindPrompt ?? assetKindPrompt(asset.kind)}${styleSuffix}`,
               n: 1,
               size: genImgSize,
               model: studioResolveImageModel(modelId, !!baseImage),
-              regionEnhance,
+              useLora: false,
+              useKB,
+              scene: "studio-asset",
               ...(baseImage ? { image: baseImage } : {}),
             });
       const resp = await fetch("/api/image", {
@@ -6407,8 +7345,8 @@ function AssetGenModal({
           {!inline && <button className="assetgen-x" onClick={onClose} aria-label="关闭"><Icon name="close" size={15} /></button>}
         </div>
         <div className="assetgen-tabs">
-          <button type="button" className={tab === "gen" ? "on" : ""} onClick={() => setTab("gen")}>生图</button>
-          <button type="button" className={tab === "edit" ? "on" : ""} onClick={() => setTab("edit")}>改图</button>
+          <button type="button" className={tab === "gen" ? "on" : ""} onClick={() => { setTab("gen"); if (!STUDIO_IMAGE_MODELS.some((m) => m.name === model)) setModel(DEFAULT_STUDIO_GEN_MODEL); }}>生图</button>
+          <button type="button" className={tab === "edit" ? "on" : ""} onClick={() => { setTab("edit"); if (!STUDIO_EDIT_MODELS.some((m) => m.name === model)) setModel(DEFAULT_STUDIO_EDIT_MODEL); }}>改图</button>
         </div>
         <div className="assetgen-body">
           <div className="assetgen-form">
@@ -6457,7 +7395,7 @@ function AssetGenModal({
                 <textarea
                   className="assetgen-ta"
                   value={prompt}
-                  placeholder={`描述这个${asset.kind}的样子，如：高山云雾茶园、清晨薄雾、写实…`}
+                  placeholder={`描述这个${asset.kind}的样子，如：杨梅林、清晨薄雾、写实…`}
                   onChange={(e) => setPrompt(e.target.value)}
                 />
                 <div className="assetgen-exp">
@@ -6551,7 +7489,7 @@ function AssetGenModal({
                     <button type="button" className="assetgen-del" title="删除这张图" onClick={(e) => { e.stopPropagation(); setImages((prev) => prev.filter((_, idx) => idx !== i)); }}>✕</button>
                     <div className="assetgen-actions">
                       <button type="button" onClick={(e) => { e.stopPropagation(); setZoom(url); }} title="放大查看">查看</button>
-                      <button type="button" onClick={(e) => { e.stopPropagation(); setEditImage(url); setEditPrompt(""); setTab("edit"); }} title="用这张图去改图">去改图</button>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); setEditImage(url); setEditPrompt(""); setTab("edit"); if (!STUDIO_EDIT_MODELS.some((m) => m.name === model)) setModel(DEFAULT_STUDIO_EDIT_MODEL); }} title="用这张图去改图">去改图</button>
                     </div>
                   </div>
                 ))}
@@ -6571,14 +7509,14 @@ function AssetGenModal({
         createPortal(
           <div className="sh-mask" onClick={() => setModelSetOpen(false)}>
             {(() => {
-              const curModel = studioImageModelEntry(model);
+              const curModel = studioImageModelEntry(model, tab);
               return (
                 <div className="gen-set-dialog gsx" onClick={(e) => e.stopPropagation()}>
                   <button className="gsx-close-abs" onClick={() => setModelSetOpen(false)} aria-label="关闭"><Icon name="close" size={15} /></button>
                   <div className="gsx-row">
                     <div className="gsx-label">模型</div>
                     <div className="gsx-opts">
-                      {STUDIO_IMAGE_MODELS.map((m) => (
+                      {studioModelsForTab(tab).map((m) => (
                         <button key={m.name} className={model === m.name ? "gsx-opt on" : "gsx-opt"} title={m.desc} onClick={() => setModel(m.name)}>{m.name}</button>
                       ))}
                     </div>
@@ -6718,7 +7656,7 @@ function ShotFrames({
   const genForFirstFrame = shot.firstFrame ?? prevLastFrame;
   const frameModal = genFor && (
     <AssetGenModal
-      asset={{ id: `frame-${shot.id}-${genFor}`, emoji: "🎬", name: shot.shotDesc || "", kind: "场景" }}
+      asset={{ id: `frame-${shot.id}-${genFor}`, emoji: "", name: shot.shotDesc || "", kind: "场景" }}
       genSize={genSize}
       script={script}
       stylePrompt={stylePrompt}
@@ -7106,8 +8044,8 @@ function Timeline({
                   title={`${seg.name}：${sub.text}（配音 ${seg.dur.toFixed(1)}s）· 点击重新编辑配音`}
                   onClick={(e) => { e.stopPropagation(); if (shotOf && onGenShotDub) onGenShotDub(shotOf); }}
                 >
-                  <span className="tl2-dub-name">🎙 {seg.name}</span>
-                  <span className="tl2-dub-text">{sub.text}</span>
+                  <span className="tl2-dub-name"> {seg.name}</span>
+ <span className="tl2-dub-text">{sub.text}</span>
                 </div>
               );
             })}
@@ -7142,13 +8080,13 @@ function Timeline({
           <div className="tl2-track tl2-bgmtrack">
             {bgm ? (
               <div className="tl2-bgm" style={{ left: 0, width: Math.max(total * pps - 2, 24) }} title="点击更换背景音乐" onClick={() => onOpenBgm?.()}>
-                <span className="tl2-bgm-name">🎵 {bgm.name}</span>
-              </div>
-            ) : (
-              shots.map((s, i) => (
-                <button
-                  key={`bgmgen-${s.id}`}
-                  className="tl2-bgm-gen"
+                <span className="tl2-bgm-name"> {bgm.name}</span>
+ </div>
+ ) : (
+ shots.map((s, i) => (
+ <button
+ key={`bgmgen-${s.id}`}
+ className="tl2-bgm-gen"
                   style={{ left: before(i) * pps + 3, maxWidth: Math.max(s.dur * pps - 8, 56) }}
                   disabled={!onOpenBgm}
                   onClick={(e) => { e.stopPropagation(); onOpenBgm?.(); }}

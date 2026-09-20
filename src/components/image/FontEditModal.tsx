@@ -427,7 +427,7 @@ export function FontEditModal({
                   .filter((t) => t.key === "vector")
                   .map((t) => (
                     <button key={t.key} className="fe-tool" onClick={() => setWorkbench(t.key as ToolKey)}>
-                      <Icon name={TOOL_ICON[t.key] ?? "sparkle"} size={18} />
+                      <Icon name={TOOL_ICON[t.key] ?? "toolVector"} size={18} />
                       {t.name}
                     </button>
                   ))}

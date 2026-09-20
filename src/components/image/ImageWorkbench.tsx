@@ -151,7 +151,7 @@ export function ImageWorkbench({
     setSavedIds((s) => new Set(s).add(rec.id));
     // 同步写入素材库：SVG 转 data URL 作为图片，供「仓库 · 我的素材」展示
     const material: AssetCard = {
-      emoji: "🔤",
+      emoji: "",
       grad: grad as AssetCard["grad"],
       kind: "素材",
       name: `${text || "矢量图"} · 矢量图`,
@@ -285,7 +285,7 @@ export function ImageWorkbench({
           </div>
           {records.length === 0 ? (
             <div className="iw-side-empty">
-              <div className="iw-empty-box">📦</div>
+              <div className="iw-empty-box"></div>
               <div className="iw-empty-text">暂无历史记录</div>
             </div>
           ) : (
@@ -406,7 +406,7 @@ function ToolFooter({
           开始消除 <PointsCost amount={POINT_COST.imageErase} perTime className="iw-go-credit" />
         </button>
         <div className="iw-foot-extra">
-          <button className="iw-mini" title="抓手">✋</button>
+          <button className="iw-mini" title="抓手"></button>
           <button className="iw-mini" title="撤销">↶</button>
           <button className="iw-mini" title="重做">↷</button>
           <button className="iw-mini" title="重置">⟳</button>

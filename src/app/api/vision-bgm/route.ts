@@ -16,8 +16,8 @@ export async function POST(req: NextRequest) {
 
   const apiKey = process.env.VISION_API_KEY || process.env.IMAGE_API_KEY || "";
   const baseURL = (process.env.VISION_BASE_URL || process.env.IMAGE_BASE_URL || "").replace(/\/$/, "");
-  // qwen3-max-2026-01-23 支持视觉，且在当前网关已验证可用
-  const model = process.env.VISION_MODEL || "qwen3-max-2026-01-23";
+  // qwen3-max 注释已过时：活动图转文 / IP 视觉走 doubao-seed-1-6-vision-250815
+  const model = process.env.VISION_MODEL || "doubao-seed-1-6-vision-250815";
 
   if (!apiKey || !baseURL) return Response.json({ bgm: null }, { status: 503 });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { EditorRail } from "@/components/ui/EditorRail";
 import { useToast } from "@/components/ui/Toast";
@@ -41,6 +41,9 @@ import { stripOfficialMarkdown } from "@/lib/agent/skills/prompts/officialArticl
 import { RegionEnhanceStrip } from "@/components/image/RegionEnhanceStrip";
 import { accountRegionId, imageRequestBody, kbFields, notifyRegionEnhance } from "@/lib/regionEnhance";
 import { useAuth } from "@/lib/AuthContext";
+import { IDENTITY_EVENT } from "@/lib/identity";
+import { useTakeCharge } from "@/lib/chargeGenerate";
+import { POINT_COST } from "@/lib/pointCosts";
 
 const iconOf = (k: string): IconName => CONTENT_ICON[k] ?? "content";
 
@@ -106,6 +109,7 @@ export function ContentEditor({
   const { state, generate, stop, reset } = useGenerateStream();
   const { addWork } = useLibrary();
   const { user } = useAuth();
+  const takeCharge = useTakeCharge();
   const regionId = accountRegionId(user);
   const [regionEnhance, setRegionEnhance] = useState(true);
   const [useLora, setUseLora] = useState(true);
@@ -155,14 +159,24 @@ export function ContentEditor({
   const [socialHistory, setSocialHistory] = useState<SocialPlanHistoryItem[]>(() =>
     typeof window === "undefined" ? [] : loadSocialPlans()
   );
+  const [officialArticles, setOfficialArticles] = useState<OfficialArticle[]>(() =>
+    typeof window === "undefined" ? [] : loadOfficialArticles()
+  );
+
+  useEffect(() => {
+    const reload = () => {
+      setSocialHistory(loadSocialPlans());
+      setOfficialArticles(loadOfficialArticles());
+    };
+    reload();
+    window.addEventListener(IDENTITY_EVENT, reload);
+    return () => window.removeEventListener(IDENTITY_EVENT, reload);
+  }, [user?.userId, user?.companyId, user?.joinedOrg, user?.enterpriseVerified]);
   const [activePlanId, setActivePlanId] = useState<string | null>(null);
   /** 是否展开查看完整方案：生成后只落历史条目，点击后才打开全部 */
   const [planDetailOpen, setPlanDetailOpen] = useState(false);
   const [posterLoading, setPosterLoading] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
-  const [officialArticles, setOfficialArticles] = useState<OfficialArticle[]>(() =>
-    typeof window === "undefined" ? [] : loadOfficialArticles()
-  );
   const [viewedOfficial, setViewedOfficial] = useState<OfficialArticle | null>(null);
 
   const planKind: "social" | "brand" | null =
@@ -252,6 +266,11 @@ export function ContentEditor({
       toast("请至少选择一个推广平台！", "warn");
       return;
     }
+    const charged = takeCharge(POINT_COST.contentBrand, "品牌策划");
+    if (!charged.ok) {
+      toast(charged.message, "warn");
+      return;
+    }
     notifyRegionEnhance(toast, { useLora, useKB });
     setMode("brand");
     setSocialPlan(null);
@@ -284,7 +303,7 @@ export function ContentEditor({
         regionId,
       });
       const saved = addWork({
-        emoji: "✨",
+        emoji: "",
         grad: "thumb-grad-6",
         kind: "文案",
         name: `${brandForm.product.trim().slice(0, 12) || "品牌推广"} · 策划方案`,
@@ -309,6 +328,11 @@ export function ContentEditor({
     }
     if (officialForm.style === "自定义" && !officialForm.customStyle.trim()) {
       toast("请填写自定义风格说明！", "warn");
+      return;
+    }
+    const charged = takeCharge(POINT_COST.contentOfficial, "公众号文章");
+    if (!charged.ok) {
+      toast(charged.message, "warn");
       return;
     }
     notifyRegionEnhance(toast, { useLora, useKB });
@@ -344,7 +368,7 @@ export function ContentEditor({
     };
     setOfficialArticles(addOfficialArticle(row));
     const saved = addWork({
-      emoji: "📰",
+      emoji: "",
       grad: "thumb-grad-6",
       kind: "文案",
       name: `${row.title.slice(0, 12)}${row.title.length > 12 ? "…" : ""}`,
@@ -372,6 +396,11 @@ export function ContentEditor({
     }
     if (socialForm.platforms.length === 0) {
       toast("请至少选择一个推广平台！", "warn");
+      return;
+    }
+    const charged = takeCharge(POINT_COST.contentSocial, "社媒策划");
+    if (!charged.ok) {
+      toast(charged.message, "warn");
       return;
     }
     notifyRegionEnhance(toast, { useLora, useKB });
@@ -441,7 +470,7 @@ export function ContentEditor({
         regionId,
       });
       const saved = addWork({
-        emoji: "📕",
+        emoji: "",
         grad: "thumb-grad-2",
         kind: "文案",
         name: `${socialForm.product.trim().slice(0, 12) || "社媒推文"} · 推广文案`,
@@ -511,7 +540,7 @@ export function ContentEditor({
         throw new Error("poster-generate-failed");
       }
       addWork({
-        emoji: "图",
+        emoji: "",
         grad: "thumb-grad-5",
         kind: "图片",
         name: `${product.slice(0, 12)}${product.length > 12 ? "…" : ""} · 推广海报`,
@@ -590,7 +619,7 @@ export function ContentEditor({
         throw new Error("image-generate-failed");
       }
       addWork({
-        emoji: "图",
+        emoji: "",
         grad: "thumb-grad-4",
         kind: "图片",
         name: `${product.slice(0, 12)}${product.length > 12 ? "…" : ""} · ${picked.platform}配图`,
@@ -712,7 +741,7 @@ export function ContentEditor({
                 <div className="preview-empty" style={{ minHeight: 320 }}>
                   <div>
                     <div className="pe-ico">
-                      <Icon name="sparkle" size={46} />
+                      <Icon name="content" size={46} />
                     </div>
                     该功能参考灵感建设中
                     <br />
@@ -723,7 +752,7 @@ export function ContentEditor({
             ) : state.error && active !== "official" ? (
               <div className="preview-empty" style={{ minHeight: 300 }}>
                 <div>
-                  <div className="pe-ico">⚠️</div>
+                  <div className="pe-ico"></div>
                   {state.error}
                 </div>
               </div>

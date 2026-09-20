@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
 
   const apiKey = process.env.IMAGE_API_KEY || process.env.LLM_API_KEY || "";
   const baseURL = (process.env.IMAGE_BASE_URL || process.env.LLM_BASE_URL || "").replace(/\/$/, "");
-  const model = process.env.LLM_MODEL || "qwen3-max-2026-01-23";
+  const model = process.env.LLM_MODEL || "qwen3.8-27b";
   if (!apiKey || !baseURL) return Response.json({ text: null }, { status: 503 });
 
   // 把已选的性别/年龄作为约束一并给模型，避免优化后与用户所选不一致

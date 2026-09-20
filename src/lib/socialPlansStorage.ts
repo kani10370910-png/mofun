@@ -16,13 +16,18 @@ export interface SocialPlanHistoryItem {
   regionId?: string;
 }
 
+import { identityScopedStorageKey } from "@/lib/identity";
+
 const KEY = "mofun.socialPlans";
+function storageKey() {
+  return identityScopedStorageKey(KEY);
+}
 const MAX = 40;
 
 export function loadSocialPlans(): SocialPlanHistoryItem[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(KEY);
+    const raw = window.localStorage.getItem(storageKey());
     if (!raw) return [];
     const parsed = JSON.parse(raw) as SocialPlanHistoryItem[];
     return Array.isArray(parsed) ? parsed : [];
@@ -34,7 +39,7 @@ export function loadSocialPlans(): SocialPlanHistoryItem[] {
 export function saveSocialPlans(rows: SocialPlanHistoryItem[]) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(rows.slice(0, MAX)));
+    window.localStorage.setItem(storageKey(), JSON.stringify(rows.slice(0, MAX)));
   } catch (e) {
     if (e instanceof DOMException && (e.name === "QuotaExceededError" || e.code === 22)) {
       window.dispatchEvent(new CustomEvent("mofun:storage-quota"));

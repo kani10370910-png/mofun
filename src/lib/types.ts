@@ -359,6 +359,8 @@ export interface VideoRunRow {
   failReason?: string; // 生成失败时的具体原因（来自 API 错误信息）
   regionEnhance?: boolean;
   regionId?: string;
+  /** 同一次「生成数量>1」共用，历史卡片只显示一份提示词头 */
+  batchId?: string;
 }
 
 // 音画一体生成管线阶段（一句话视频：无声视频→镜头分析→声音设计→多轨音频→对齐→混音）
@@ -458,7 +460,9 @@ export type GenStages = Record<"content" | "image" | "video", string[]>;
 
 /* ---------- 文案生成 API ---------- */
 export interface GenerateRequest {
-  scene: ContentSceneKey | "research-brand" | "research-industry" | "research-hotsale" | "ip" | "ip-propose" | "ip-story-desc" | "ip-story" | "t2i-associate" | "t2i-event" | "t2i-product" | "studio-script" | "studio-script-pro" | "studio-assets" | "studio-asset-desc" | "studio-char-info" | "studio-idea" | "studio-summary" | "studio-shots" | "studio-safe-rewrite" | "studio-style-match" | "studio-speakers" | "studio-voice-match" | "studio-shot-elements" | "studio-shot-elements-fill" | "avatar-script" | "agent-chat";
+  scene: ContentSceneKey | "research-brand" | "research-industry" | "research-hotsale" | "ip" | "ip-propose" | "ip-story-desc" | "ip-story" | "t2i-associate" | "t2i-event" | "t2i-product" | "studio-script" | "studio-script-pro" | "studio-assets" | "studio-asset-desc" | "studio-char-info" | "studio-idea" | "studio-summary" | "studio-shots" | "studio-shot-script" | "studio-safe-rewrite" | "studio-style-match" | "studio-speakers" | "studio-voice-match" | "studio-shot-elements" | "studio-shot-elements-fill" | "avatar-script" | "agent-chat";
+  /** 跳过运营智能体工作流，直接走 LLM（首页 Skill 对话用） */
+  skipWorkflow?: boolean;
   mode?: "outline" | "full";
   styleHint?: string; // 制作大片：项目「视频风格」描述词，注入文本扩写使全片文字基调与画面风格一致（智能匹配为空）
   scriptType?: string; // 制作大片·脚本编辑：自定义场景 / 文旅宣传 / 农产品推广 / 非遗展示 / 民宿农家乐；自定义场景不附加类型提示词

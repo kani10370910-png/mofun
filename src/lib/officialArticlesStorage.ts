@@ -12,13 +12,18 @@ export interface OfficialArticle {
   regionId?: string;
 }
 
+import { identityScopedStorageKey } from "@/lib/identity";
+
 const KEY = "mofun.officialArticles";
+function storageKey() {
+  return identityScopedStorageKey(KEY);
+}
 const MAX = 30;
 
 export function loadOfficialArticles(): OfficialArticle[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(KEY);
+    const raw = window.localStorage.getItem(storageKey());
     if (!raw) return [];
     const parsed = JSON.parse(raw) as OfficialArticle[];
     return Array.isArray(parsed) ? parsed : [];
@@ -30,7 +35,7 @@ export function loadOfficialArticles(): OfficialArticle[] {
 export function saveOfficialArticles(rows: OfficialArticle[]) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(rows.slice(0, MAX)));
+    window.localStorage.setItem(storageKey(), JSON.stringify(rows.slice(0, MAX)));
   } catch (e) {
     if (e instanceof DOMException && (e.name === "QuotaExceededError" || e.code === 22)) {
       window.dispatchEvent(new CustomEvent("mofun:storage-quota"));

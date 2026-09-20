@@ -2,35 +2,105 @@ import { NextRequest } from "next/server";
 import { resolveProvider, buildMessages } from "@/lib/llm";
 import type { GenerateRequest } from "@/lib/types";
 import { generateKbQuery, hydrateKbFields } from "@/lib/kbServer";
+import { agentCanRun, firstNodeModel, resolveAgentForGenerate, workflowHasKind, workflowOrigin } from "@/lib/opsAgents";
+import { fetchOpsModelCreds, openaiCompatBase, opsApiKey } from "@/lib/opsModels";
+import { executeAgentWorkflow } from "@/lib/workflow/execute";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 /* SSE 帮助：把一段文本封成 data 事件 */
 function sse(obj: unknown): string {
   return `data: ${JSON.stringify(obj)}\n\n`;
 }
 
+function sseTextResponse(text: string): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(sse({ text })));
+      controller.enqueue(encoder.encode(sse({ done: true })));
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    },
+  });
+}
+
 export async function POST(req: NextRequest) {
-  let body: GenerateRequest;
+  let body: GenerateRequest & { agentCode?: string; skipWorkflow?: boolean };
   try {
-    body = (await req.json()) as GenerateRequest;
+    body = (await req.json()) as GenerateRequest & { agentCode?: string; skipWorkflow?: boolean };
   } catch {
     return Response.json({ error: "请求体解析失败" }, { status: 400 });
   }
 
+  const skipWorkflow =
+    body.skipWorkflow === true ||
+    body.scene === "studio-script-pro" ||
+    body.scene === "studio-script" ||
+    body.scene === "studio-shots" ||
+    body.scene === "studio-shot-script";
+  const agent = skipWorkflow ? null : await resolveAgentForGenerate(body.scene, body.agentCode);
+  if (agentCanRun(agent, ["llm"])) {
+    if (agent && workflowHasKind(agent.workflow, "kb") && body.useKB !== false) {
+      body.useKB = true;
+    }
+    const messages = buildMessages(body);
+    const systemHint = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+    const userText =
+      messages.filter((m) => m.role === "user").map((m) => m.content).join("\n") || generateKbQuery(body);
+    const result = await executeAgentWorkflow({
+      agent,
+      origin: workflowOrigin(req),
+      input: {
+        text: userText,
+        systemHint,
+        regionId: body.regionId,
+        county: body.county,
+        useKB: body.useKB,
+      },
+    });
+    if (result.ok && result.text) return sseTextResponse(result.text);
+    if (!result.ok) {
+      return Response.json({ error: result.error || "工作流生成失败" }, { status: 502 });
+    }
+  }
+
+  if (agent && workflowHasKind(agent.workflow, "kb") && body.useKB !== false) {
+    body.useKB = true;
+  }
+  const llmModel = agent ? firstNodeModel(agent.workflow, "llm") : "";
+
   let provider;
   try {
-    provider = resolveProvider();
+    provider = resolveProvider(body.scene, llmModel || undefined);
+    const ops = await fetchOpsModelCreds(llmModel || provider.model);
+    const opsKey = opsApiKey(ops);
+    if (opsKey) provider.apiKey = opsKey;
+    if (ops?.base_url) provider.baseURL = openaiCompatBase(ops.base_url);
+    if (ops?.code) provider.model = ops.code;
+    if (!provider.apiKey) throw new Error("MISSING_API_KEY");
   } catch (e) {
     const msg = e instanceof Error && e.message === "MISSING_API_KEY"
-      ? "尚未配置模型 API Key：请在 .env.local 中填写 LLM_API_KEY 后重启服务。"
+      ? "运营端未配置该对话模型的 API 密钥：请在供应商列表或模型里填写后重试。"
       : "模型配置读取失败。";
     return Response.json({ error: msg }, { status: 503 });
   }
 
   body = await hydrateKbFields(body, generateKbQuery(body));
   const messages = buildMessages(body);
+  const scriptScene =
+    body.scene === "studio-script-pro" ||
+    body.scene === "studio-script" ||
+    body.scene === "studio-shots" ||
+    body.scene === "studio-shot-script";
 
   // 调上游 OpenAI 兼容 /chat/completions（流式）
   const ctrl = new AbortController();
@@ -48,6 +118,8 @@ export async function POST(req: NextRequest) {
       messages,
       stream: true,
       temperature: 0.8,
+      enable_thinking: false,
+      max_tokens: scriptScene ? 8192 : 2048,
     }),
     signal: ctrl.signal,
   };
@@ -108,10 +180,9 @@ export async function POST(req: NextRequest) {
             }
             try {
               const json = JSON.parse(data);
-              const delta = json?.choices?.[0]?.delta?.content;
-              if (typeof delta === "string" && delta.length) {
-                controller.enqueue(encoder.encode(sse({ text: delta })));
-              }
+              const delta = json?.choices?.[0]?.delta;
+              const text = typeof delta?.content === "string" ? delta.content : "";
+              if (text) controller.enqueue(encoder.encode(sse({ text })));
             } catch {
               // 跳过无法解析的中间帧
             }

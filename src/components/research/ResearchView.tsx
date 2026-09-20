@@ -45,9 +45,9 @@ type ResearchModeKey = "brand" | "industry" | "hotsale";
 type RecentByMode = Record<ResearchModeKey, string[]>;
 const RECENT_STORAGE_KEY = "mofun_research_recent_v1";
 const DEFAULT_RECENT: RecentByMode = {
-  brand: ["萧山杨梅", "安吉白茶", "西湖龙井"],
+  brand: ["萧山杨梅", "萧山萝卜干", "西湖龙井"],
   industry: ["预制菜产业", "茶产业链", "冷链物流"],
-  hotsale: ["萧山萝卜干", "安吉白茶", "预制菜产业"],
+  hotsale: ["萧山萝卜干", "萧山杨梅", "预制菜产业"],
 };
 
 function loadRecentByMode(): RecentByMode {
@@ -160,7 +160,7 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
     setSelectedReport(row);
     setGeneratedText(full);
     const saved = addWork({
-      emoji: "📊",
+      emoji: "",
       grad: "thumb-grad-4",
       kind: "文案",
       name: row.title.slice(0, 40),
@@ -180,7 +180,7 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
       return;
     }
     const saved = addWork({
-      emoji: "📊",
+      emoji: "",
       grad: "thumb-grad-4",
       kind: "文案",
       name: selectedReport.title.slice(0, 40),
@@ -398,7 +398,7 @@ export function ResearchView({ initialSub }: { initialSub?: string }) {
                 <div className="preview-empty" style={{ minHeight: 320 }}>
                   <div>
                     <div className="pe-ico">
-                      <Icon name="sparkle" size={46} />
+                      <Icon name="search" size={46} />
                     </div>
                     参考灵感建设中
                     <br />

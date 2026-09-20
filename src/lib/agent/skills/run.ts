@@ -1,7 +1,7 @@
 /**
  * 按 Skill 执行 propose / generate（工作台 scene 对齐）
  */
-import { collectGenerate } from "@/lib/useGenerateStream";
+import { collectGenerateResult } from "@/lib/useGenerateStream";
 import { buildCreativeBrief } from "../orchestrator";
 import { getSpecialist } from "../specialists";
 import { formatSocialOutput, parseProposals } from "../parse";
@@ -11,14 +11,64 @@ import type { AgentProposal, AgentRuntimeState, SkillDef, SkillId } from "../typ
 import type { GenerateRequest } from "@/lib/types";
 import { imageRequestBody, kbFields } from "@/lib/regionEnhance";
 import { seedreamOutputSize, enforceIpCreatePrompt } from "@/lib/image";
+import { lockImagePrompt, userBrandName, parseLabeledFields } from "@/lib/harness/userCopy";
+import { modelSupportsCountyLora } from "@/lib/imageModelCatalog";
+
+function isInstructionDump(text: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  if (/^(确认|再试一次|直接生成)$/.test(t)) return true;
+  return /需要产出最终|无标题[、,]\s*无分点|不要输出引号|不能出现思考过程|字数统计|Count characters|Draft\s*:|请按以下信息生成|系统说下面|禁止对用户说/i.test(
+    t,
+  );
+}
+
+function unwrapSceneCopy(raw: string): string {
+  const t = (raw || "").trim();
+  if (!t) return "";
+  if (/请按以下信息生成/.test(t) || /成片描述|创意描述|画面描述/.test(t)) {
+    const inner = parseLabeledFields(t);
+    const picked = (inner.creativeDesc || inner.topic || inner.oneLiner || "").trim();
+    if (picked) return picked;
+  }
+  return t;
+}
+
+function pickOnelineCopy(state: AgentRuntimeState, task: string): string {
+  const ordered = [
+    state.slots.creativeDesc,
+    state.slots.oneLiner,
+    state.lastGenerateText,
+    state.optimizedPrompt,
+    task,
+  ];
+  for (const raw of ordered) {
+    const copy = unwrapSceneCopy(raw || "");
+    if (copy.length >= 8 && !isInstructionDump(copy)) return copy;
+  }
+  return "";
+}
+
+function lockOnelineVideoPrompt(copy: string, slots: Record<string, string>): string {
+  const style = (slots.style || "").trim();
+  const dur = (slots.duration || slots.dur || "").trim();
+  const bits = [copy.trim()];
+  if (style && style !== "智能匹配") bits.push(`视觉风格：${style}。`);
+  bits.push("严格按照上面的主体、场景、构图和字幕拍摄，不要改成其他故事或场景。");
+  bits.push("画面上的文字只能使用上述文案里写明的字，不要另写标题。");
+  if (dur) bits.push(`时长约${dur}。`);
+  return bits.join("");
+}
 
 function withAgentKb(req: GenerateRequest): GenerateRequest {
   if (req.useKB === false) return { ...req, useKB: false };
   return { ...kbFields(true), ...req, useKB: true };
 }
 
-function llm(req: GenerateRequest) {
-  return collectGenerate(withAgentKb(req));
+async function llm(req: GenerateRequest) {
+  const r = await collectGenerateResult(withAgentKb(req));
+  if (r.error && !r.text) throw new Error(r.error);
+  return r.text;
 }
 
 export type ExecuteResult = {
@@ -29,11 +79,54 @@ export type ExecuteResult = {
   error?: string;
 };
 
+async function genVideo(opts: {
+  prompt: string;
+  ratio?: string;
+  dur?: string;
+  model?: string;
+  generateAudio?: boolean;
+  imageUrl?: string;
+  quality?: string;
+}): Promise<{ videoUrl: string; error?: string }> {
+  try {
+    const r = await fetch("/api/video", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt: opts.prompt,
+        ratio: opts.ratio || "智能",
+        dur: opts.dur || "5秒",
+        model: opts.model || "Seedance 2.0",
+        generateAudio: opts.generateAudio !== false,
+        skipWorkflow: true,
+        agentCode: opts.imageUrl ? "FlashVideo-GenerateVideoI2V" : "FlashVideo-GenerateVideo",
+        ...(opts.quality ? { quality: opts.quality } : {}),
+        ...(opts.imageUrl ? { imageUrl: opts.imageUrl } : {}),
+      }),
+      signal: AbortSignal.timeout(450_000),
+    });
+    const j = (await r.json()) as { videoUrl?: string; error?: unknown };
+    if (!r.ok || !j.videoUrl) {
+      const reason =
+        typeof j.error === "string"
+          ? j.error
+          : r.status === 504
+            ? "生成超时（视频耗时过长）"
+            : `视频生成失败（${r.status}）`;
+      return { videoUrl: "", error: reason };
+    }
+    return { videoUrl: j.videoUrl };
+  } catch (e) {
+    return { videoUrl: "", error: e instanceof Error ? e.message : "无法连接视频服务" };
+  }
+}
+
 async function genImage(
   prompt: string,
   n = 1,
   ref?: string,
-  size = "2048x2048"
+  size = "2048x2048",
+  model?: string,
 ): Promise<{ images: string[]; error?: string }> {
   try {
     const r = await fetch("/api/image", {
@@ -44,8 +137,9 @@ async function genImage(
           prompt,
           n: Math.min(Math.max(n, 1), 2),
           size,
+          model,
           useKB: true,
-          useLora: true,
+          useLora: modelSupportsCountyLora(model),
           ...(ref ? { image: ref } : {}),
         }),
       ),
@@ -145,6 +239,14 @@ function needSpec(state: AgentRuntimeState) {
 
 /** 真实提案：按 Skill.proposeScene 调 /api/generate */
 export async function runSkillPropose(state: AgentRuntimeState): Promise<ExecuteResult> {
+  try {
+    return await runSkillProposeBody(state);
+  } catch (e) {
+    return { ok: false, text: "", error: e instanceof Error && e.message ? e.message : "提案失败" };
+  }
+}
+
+async function runSkillProposeBody(state: AgentRuntimeState): Promise<ExecuteResult> {
   const spec = needSpec(state);
   if (!spec) return { ok: false, text: "", error: "尚未识别创作方向" };
 
@@ -167,15 +269,18 @@ export async function runSkillPropose(state: AgentRuntimeState): Promise<Execute
       state.slots.advantage && state.slots.advantage !== "暂无" ? state.slots.advantage : undefined;
     const raw = await llm({
       scene: "social",
-      product: state.slots.topic || brief,
+      product: state.slots.productName || state.slots.product || state.slots.topic || brief,
       brand: state.slots.brand && state.slots.brand !== "暂无" ? state.slots.brand : undefined,
       audience: state.slots.audience || "通用人群",
       platforms: [plat],
       advantage,
       outline: buildSocialOutline(state, plat),
-      tone: state.slots.audience || "亲切口语",
+      tone: state.slots.tone || "口语种草",
+      intent: state.slots.intent,
+      hook: state.slots.hook,
+      cta: state.slots.cta,
     });
-    if (!raw) return { ok: false, text: "", error: "文案提案生成失败，请检查 LLM 配置后重试" };
+    if (!raw) return { ok: false, text: "", error: "文案提案生成失败，请检查对话模型配置后重试" };
     const formatted = formatSocialOutput(raw);
     const segs = formatted.split(/\n{2,}/).filter(Boolean);
     const proposals =
@@ -205,7 +310,7 @@ export async function runSkillPropose(state: AgentRuntimeState): Promise<Execute
         ? await llm({ scene: "t2i-associate", input: brief })
         : await llm({ scene: "ip-propose", description });
 
-  if (!full) return { ok: false, text: "", error: "提案生成失败，请检查网络与 LLM_API_KEY 后重试" };
+  if (!full) return { ok: false, text: "", error: "提案生成失败，请检查对话模型配置后重试" };
 
   if (skill.id === "skill.video.avatar") {
     const proposals =
@@ -266,7 +371,18 @@ export async function runSkillPropose(state: AgentRuntimeState): Promise<Execute
 /** 真实生成：按 Skill.generateScene / output 调 LLM 或文生图 */
 export async function runSkillGenerate(
   state: AgentRuntimeState,
-  opts?: { refImage?: string; skill?: SkillId | "vi_extend" | string }
+  opts?: { refImage?: string; skill?: SkillId | "vi_extend" | string; confirming?: boolean }
+): Promise<ExecuteResult> {
+  try {
+    return await runSkillGenerateBody(state, opts);
+  } catch (e) {
+    return { ok: false, text: "", error: e instanceof Error && e.message ? e.message : "生成失败" };
+  }
+}
+
+async function runSkillGenerateBody(
+  state: AgentRuntimeState,
+  opts?: { refImage?: string; skill?: SkillId | "vi_extend" | string; confirming?: boolean }
 ): Promise<ExecuteResult> {
   const skill = resolveActiveSkill(state, opts);
   if (!skill) return { ok: false, text: "", error: "尚未识别创作方向或可用 Skill" };
@@ -275,19 +391,19 @@ export async function runSkillGenerate(
     if (skill.id === "skill.template.apply") {
       return {
         ok: true,
-        text: "模版库可按品类筛选案例后套用到对应工作台。你也可以直接在对话里告诉我想做的品类（IP / Logo / 海报等），我按对应 Skill 帮你生成。",
+        text: "模版库可按品类筛选案例后套用到对应工作台。你也可以直接在对话里告诉我想做的品类（IP / Logo / 海报等），我按对应流程帮你生成。",
       };
     }
     if (skill.id === "skill.storage.works") {
       return {
         ok: true,
-        text: "「我的作品」在仓库里可查看历史生成。你也可以直接说想继续做什么（如再出一版 IP、改海报），我按对应 Skill 接着做。",
+        text: "「我的作品」在仓库里可查看历史生成。你也可以直接说想继续做什么（如再出一版 IP、改海报），我接着做。",
       };
     }
     if (skill.id === "skill.storage.materials") {
       return {
         ok: true,
-        text: "「我的素材」可管理参考图。创作时也可点输入框旁附件上传素材，我按当前 Skill 调用。",
+        text: "「我的素材」可管理参考图。创作时也可点输入框旁附件上传素材。",
       };
     }
     return {
@@ -304,10 +420,12 @@ export async function runSkillGenerate(
 
   const chosen = state.proposals?.find((p) => p.id === state.chosenProposalId);
   const brief = buildCreativeBrief(spec, state.slots, chosen);
+  const preOpt = (state.optimizedPrompt || state.slots.optimizedPrompt || "").trim();
   const isVi = skill.id === "skill.image.vi_extend";
 
   // —— 纯文本 Skill ——
   if (skill.output === "text") {
+    const task = preOpt || brief;
     let raw = "";
     switch (skill.id) {
       case "skill.content.social":
@@ -319,13 +437,16 @@ export async function runSkillGenerate(
           state.slots.advantage && state.slots.advantage !== "暂无" ? state.slots.advantage : undefined;
         raw = await llm({
           scene: "social",
-          product: state.slots.topic || brief,
+          product: state.slots.productName || state.slots.product || state.slots.topic || task,
           brand,
           audience: state.slots.audience || "通用人群",
           platforms: [plat],
           advantage,
           outline: buildSocialOutline(state, plat),
-          tone: state.slots.audience || "亲切口语",
+          tone: state.slots.tone || "口语种草",
+          intent: state.slots.intent,
+          hook: state.slots.hook,
+          cta: state.slots.cta,
         });
         if (raw) raw = formatSocialOutput(raw);
         break;
@@ -333,115 +454,145 @@ export async function runSkillGenerate(
       case "skill.content.official":
         raw = await llm({
           scene: "official",
-          title: state.slots.topic || brief,
+          title: state.slots.topic || task,
           keywords: state.slots.keywords,
           length: state.slots.length || "800-1200字",
           tone: state.slots.style || "干货科普",
           outline: state.slots.outline,
-          input: [state.slots.keywords, brief].filter(Boolean).join("，"),
+          input: [state.slots.keywords, task].filter(Boolean).join("，"),
         });
         if (raw) raw = stripOfficialMarkdown(raw);
         break;
       case "skill.content.brand":
         raw = await llm({
           scene: "brand",
-          brand: state.slots.brand || brief,
-          product: state.slots.sellingPoints || brief,
-          advantage: state.slots.sellingPoints,
-          platforms: ["微信朋友圈", "小红书"],
+          brand: state.slots.brandName || state.slots.brand || task,
+          product: state.slots.brandName || task,
+          audience: state.slots.audience,
+          advantage: state.slots.advantage || state.slots.sellingPoints,
+          platforms: state.slots.platform ? [state.slots.platform] : ["微信朋友圈", "小红书", "抖音", "微信公众号"],
+          input: state.slots.goal,
         });
         break;
-      case "skill.research.brand":
-        raw = await llm({
-          scene: "research-brand",
-          brand: state.slots.brand || brief,
-          input: state.slots.market || "",
-        });
+      case "skill.research.brand": {
+        const kind = state.slots.researchType || "";
+        const subject = state.slots.topic || state.slots.brand || task;
+        if (/产业/.test(kind)) {
+          raw = await llm({
+            scene: "research-industry",
+            input: subject,
+            styleHint: state.slots.reportType || state.slots.reportFocus || "完整投资分析报告",
+            length: state.slots.timeScope || state.slots.timeSpan,
+          });
+        } else if (/爆款/.test(kind)) {
+          raw = await llm({
+            scene: "research-hotsale",
+            input: subject,
+            length: state.slots.timeScope || state.slots.timeSpan,
+          });
+        } else {
+          raw = await llm({
+            scene: "research-brand",
+            brand: subject,
+            input: state.slots.market || "",
+            length: state.slots.timeScope || state.slots.timeSpan,
+          });
+        }
         break;
+      }
       case "skill.research.industry":
         raw = await llm({
           scene: "research-industry",
           input: [
-            state.slots.industry || brief,
+            state.slots.industry || state.slots.topic || task,
             state.slots.region ? `地区：${state.slots.region}` : "",
           ]
             .filter(Boolean)
             .join("\n"),
-          styleHint: state.slots.reportFocus || "完整投资分析报告",
-          length: state.slots.timeSpan,
+          styleHint: state.slots.reportType || state.slots.reportFocus || "完整投资分析报告",
+          length: state.slots.timeScope || state.slots.timeSpan,
         });
         break;
       case "skill.research.hotsale":
         raw = await llm({
           scene: "research-hotsale",
-          input: state.slots.category || brief,
+          input: state.slots.category || task,
           product: state.slots.platform,
         });
         break;
       case "skill.video.avatar":
         raw = await llm({
           scene: "avatar-script",
-          input: state.slots.script || chosen?.text || brief,
-          description: state.slots.role || "农技推广",
+          input: state.slots.topic || state.slots.script || chosen?.text || task,
+          description: state.slots.performance || state.slots.role || "农技推广",
         });
         break;
       case "skill.video.studio":
         raw = await llm({
           scene: "studio-script",
-          input: state.slots.brief || brief,
-          styleHint: state.slots.type,
+          input: state.slots.topic || state.slots.brief || task,
+          styleHint: state.slots.filmType || state.slots.type,
         });
         break;
       case "skill.video.studio_assets":
         raw = await llm({
           scene: "studio-assets",
-          input: state.slots.brief || brief,
+          input: state.slots.brief || task,
           styleHint: state.slots.type,
         });
         break;
       case "skill.video.studio_storyboard":
         raw = await llm({
           scene: "studio-shots",
-          input: state.slots.brief || brief,
+          input: state.slots.brief || task,
           styleHint: state.slots.type,
         });
         break;
       case "skill.video.studio_preview":
         raw = await llm({
           scene: "studio-summary",
-          input: state.slots.brief || brief,
+          input: state.slots.brief || task,
           styleHint: state.slots.type,
         });
         break;
       case "skill.video.oneline":
-        raw = await llm({
-          scene: "t2i-associate",
-          input: `一句话短视频（文生视频）分镜文案：${state.slots.oneLiner || brief}，氛围${state.slots.mood || "清新田园"}`,
-        });
-        break;
-      case "skill.video.oneline_i2v":
-        raw = await llm({
-          scene: "t2i-associate",
-          input: `一句话短视频（图生视频）镜头说明：基于参考图，${state.slots.oneLiner || brief}，氛围${state.slots.mood || "清新田园"}，写清运动与镜头节奏`,
-        });
-        break;
+      case "skill.video.oneline_i2v": {
+        const copy = pickOnelineCopy(state, task);
+        if (copy) {
+          const audioRaw = String(state.slots.audio || state.slots.generateAudio || state.slots.withAudio || "");
+          const audioOff = /关闭|否|无声|^关$/.test(audioRaw);
+          const { videoUrl, error } = await genVideo({
+            prompt: lockOnelineVideoPrompt(copy, state.slots),
+            ratio: state.slots.ratio || "智能",
+            dur: state.slots.duration || state.slots.dur || "5秒",
+            model: state.slots.model || "Seedance 2.0",
+            generateAudio: !audioOff,
+            quality: state.slots.quality,
+            imageUrl: skill.id === "skill.video.oneline_i2v" ? opts?.refImage : undefined,
+          });
+          if (!videoUrl) return { ok: false, text: "", error: error || "视频生成失败" };
+          return { ok: true, text: "已按确认的成片描述生成视频。", images: [videoUrl] };
+        }
+        return { ok: false, text: "", error: "还没有成片文案，请先确认画面描述后再生成。" };
+      }
       case "skill.image.ip_story":
         raw = await llm({
           scene: "ip-story",
-          description: state.slots.creativeDesc || brief,
-          ipName: state.slots.brandName || "品牌IP",
+          description: state.slots.creativeDesc || state.slots.brandDesc || task,
+          ipName: state.slots.brandName || state.slots.ipName || "品牌IP",
           supplement: [state.slots.colors, state.slots.ratio].filter(Boolean).join("，"),
         });
+        if (raw) raw = `这是根据当前形象写的 IP 故事：\n\n${raw.trim()}`;
         break;
       default:
         if (skill.generateScene) {
           raw = await llm({
             scene: skill.generateScene as "t2i-associate",
-            input: brief,
+            input: task,
           });
         }
     }
-    if (!raw) return { ok: false, text: "", error: "生成失败，请检查 LLM 配置（LLM_API_KEY）后重试" };
+    if (!raw) return { ok: false, text: "", error: "生成失败，请检查对话模型配置后重试" };
     return { ok: true, text: raw };
   }
 
@@ -475,14 +626,16 @@ export async function runSkillGenerate(
     };
     const hint = modeHint[skill.id] || state.slots.scene || "白底主图";
     const expanded =
+      preOpt ||
       (await llm({
         scene: "t2i-product",
         input: hint,
         eventSub: hint,
         artStyle: "写实摄影",
-      })) || `${brief}，${hint}，真实商品主体清晰`;
+      })) ||
+      `${brief}，${hint}，真实商品主体清晰`;
     const productSize = slotRatioToSize(state.slots.ratio, "1:1");
-    const { images, error } = await genImage(expanded, 1, ref, productSize);
+    const { images, error } = await genImage(expanded, 1, ref, productSize, state.slots.model);
     if (!images.length) return { ok: false, text: "", error: error || "商拍出图失败" };
     return { ok: true, text: `已生成（${skill.name}），点击图片可查看大图：`, images };
   }
@@ -497,7 +650,7 @@ export async function runSkillGenerate(
     return { ok: false, text: "", error: "图生图需要参考图。请先点附件上传，再生成。" };
   }
 
-  let prompt = brief;
+  let prompt = preOpt || brief;
   const ratioFallback =
     skill.id === "skill.image.event" || skill.id === "skill.image.event_i2i"
       ? "3:4"
@@ -517,7 +670,11 @@ export async function runSkillGenerate(
           : seedreamOutputSize(1800, 1080)
         : slotRatioToSize(state.slots.ratio, ratioFallback);
 
-  if (isVi) {
+  if (preOpt) {
+    if (skill.id === "skill.image.ip" && state.slots.mode !== "扩展设计") {
+      prompt = enforceIpCreatePrompt(prompt);
+    }
+  } else if (isVi) {
     prompt =
       (await llm({
         scene: "t2i-associate",
@@ -555,11 +712,13 @@ export async function runSkillGenerate(
       state.slots.creativeDesc !== "我来补充"
         ? `，创意描述：${state.slots.creativeDesc}`
         : "";
+    const logoName = userBrandName(state.slots) || state.slots.brandName || "";
     prompt =
       (await llm({
         scene: "t2i-associate",
-        input: `品牌 Logo 设计：名称「${state.slots.brandName || ""}」，logo 风格「${state.slots.style || "智能匹配"}」${desc}，平面标志，白底，居中，无多余文字堆砌，画面比例 ${ratioLabel}`,
-      })) || brief;
+        input: `平面 Logo 标志（不是宣传海报、不是茶园人物场景）：名称「${logoName}」，logo 风格「${state.slots.style || "智能匹配"}」${desc}，白底居中，品牌名用「${logoName}」原文字，禁止换成其他特产名，画面比例 ${ratioLabel}`,
+      })) || `平面 Logo，品牌名「${logoName}」，白底居中，${state.slots.style || "智能匹配"}`;
+    prompt = lockImagePrompt(prompt, state.slots, "logo");
   } else if (skill.id === "skill.image.font") {
     const fontText = state.slots.text || brief;
     const fontStyle = state.slots.style || "书法体";
@@ -583,6 +742,16 @@ export async function runSkillGenerate(
   if (prompt && !prompt.includes(ratioLabel) && state.slots.ratio) {
     prompt = `${prompt}。画面比例严格为 ${ratioLabel}，按此比例构图出图。`;
   }
+
+  prompt = lockImagePrompt(
+    prompt,
+    state.slots,
+    skill.id === "skill.image.logo"
+      ? "logo"
+      : skill.id === "skill.image.event" || skill.id === "skill.image.event_i2i"
+        ? "poster"
+        : undefined,
+  );
 
   // AI 字体：尽量带上对应文字效果的预览样张，按图生贴近字效
   let fontStyleRef = opts?.refImage;
@@ -611,14 +780,17 @@ export async function runSkillGenerate(
         : opts?.refImage
       : undefined;
 
+  const fromPick = Number(String(state.slots.count || "").replace(/[^0-9]/g, ""));
   const n =
     isVi || skill.id === "skill.image.event_i2i"
       ? 1
-      : skill.id === "skill.image.ip" || skill.id === "skill.image.ip_extend"
-        ? 2
-        : 1;
+      : fromPick > 0
+        ? fromPick
+        : skill.id === "skill.image.ip" || skill.id === "skill.image.ip_extend"
+          ? 2
+          : 1;
 
-  const { images, error } = await genImage(prompt, n, useRef, imageSize);
+  const { images, error } = await genImage(prompt, n, useRef, imageSize, state.slots.model);
   if (!images.length) return { ok: false, text: "", error: error || "出图失败" };
   return {
     ok: true,

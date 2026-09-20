@@ -120,6 +120,7 @@ export function Img2TextModal({
         body: JSON.stringify({
           image: img,
           prompt: visionPrompt,
+          agentCode: "Activity-Image2Text",
           ...(useKB ? { useKB: true, county, kbContext } : { useKB: false }),
         }),
       });

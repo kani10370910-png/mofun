@@ -99,7 +99,7 @@ export function TemplateView() {
               : "tpl-inspo-media has-cover-img"
         }
       >
-        <span className="tpl-hot">🔥 热门</span>
+        <span className="tpl-hot"> 热门</span>
         {t.img ? (
           isFontTemplate(t) ? (
             <AutoBgImg className="tpl-inspo-img" src={asset(t.img)} alt={t.name} ratio={0.93} />
@@ -158,7 +158,7 @@ export function TemplateView() {
       onClick={() => setDetail(t)}
     >
       <div className={`tpl-pin-media ${t.img ? "" : t.grad}`}>
-        {t.hot && <span className="tpl-hot">🔥 热门</span>}
+        {t.hot && <span className="tpl-hot"> 热门</span>}
         {t.img ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img className="tpl-pin-img" src={asset(t.img)} alt={t.name} loading="lazy" />
@@ -255,7 +255,7 @@ export function TemplateView() {
 
       {hot.length > 0 && (
         <>
-          <h2 className="section-title">🔥 热门推荐</h2>
+          <h2 className="section-title"> 热门推荐</h2>
           <div className="inspo-grid">{hot.map(hotCard)}</div>
         </>
       )}

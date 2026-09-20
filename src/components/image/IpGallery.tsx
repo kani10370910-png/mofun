@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import type { AssetCard } from "@/lib/types";
@@ -13,6 +13,7 @@ import { IpStoryModal } from "./IpStoryModal";
 import { IpDownloadModal } from "./IpDownloadModal";
 import { ResultCardActions } from "./ResultCardActions";
 import { RegionEnhanceBadge } from "./RegionEnhanceStrip";
+import { GeneratingSlot } from "@/components/ui/GeneratingSlot";
 import { ClampText } from "@/components/ui/ClampText";
 import type { IpGenPayload, IpCopyPayload } from "./ImageIpPanel";
 
@@ -250,13 +251,6 @@ export function IpGallery({
   );
 }
 
-const LOAD_PHASES = [
-  "正在理解您的 IP 创意…",
-  "AI 正在绘制形象草稿…",
-  "细化线条与色彩中，稍等片刻…",
-  "即将完成，请耐心等待…",
-];
-
 function IpRunRowView({
   row,
   highlight,
@@ -281,14 +275,8 @@ function IpRunRowView({
   onGenerate: (payload: IpGenPayload) => void;
 }) {
   const loading = row.pct < 100;
-  const [phaseIdx, setPhaseIdx] = useState(0);
   // 点击历史里的小参考图 / IP 缩略图 → 大图预览
   const [zoomSrc, setZoomSrc] = useState<string | null>(null);
-  useEffect(() => {
-    if (!loading) return;
-    const t = window.setInterval(() => setPhaseIdx((p) => (p + 1) % LOAD_PHASES.length), 8_000);
-    return () => window.clearInterval(t);
-  }, [loading]);
   const cells = row.grads.map((grad, i) => ({ grad, i, key: `ip-${row.id}-${i}` }));
   const shown = !loading && !row.error && onlyFav ? cells.filter(({ key }) => isFav(key)) : cells;
   // 「只看收藏」下，已完成且无收藏结果的行整行隐藏
@@ -440,13 +428,7 @@ function IpRunRowView({
       <div className="lh-imgs">
         {shown.map(({ grad, i, key }) =>
           loading ? (
-            <div className={`lh-img ${grad} lh-loading`} key={i} style={{ aspectRatio: ratioToAspect(row.ratioName) }}>
-              <span className="lh-progress">{row.pct}%完成</span>
-              <span className="lh-think">
-                <Icon name="sparkle" size={22} />
-                <em>{LOAD_PHASES[phaseIdx]}</em>
-              </span>
-            </div>
+            <GeneratingSlot key={i} className="lh-img" aspect={ratioToAspect(row.ratioName)} />
           ) : row.error ? (
             <div className={`lh-img ${grad}`} key={i} style={{ aspectRatio: ratioToAspect(row.ratioName), display: "grid", placeItems: "center", padding: 12, textAlign: "center" }}>
               <span className="lh-fail">{row.error}</span>
@@ -524,7 +506,7 @@ function IpResultCard({
   const [dlOpen, setDlOpen] = useState(false); // 编辑/下载（生成信息）弹窗
 
   const asset = (kind: string): AssetCard => ({
-    emoji: "🧸",
+    emoji: "",
     grad: grad as AssetCard["grad"],
     kind,
     name: `${name} · IP 设计 ${index}`,
@@ -578,10 +560,10 @@ function IpResultCard({
           </button>
         </div>
       ) : (
-        <span className="lh-emoji">🧸</span>
-      )}
-      {/* hover 遮罩：居中「编辑/下载」胶囊按钮（结构 1:1 对齐 logo / AI 字体卡片） */}
-      <div className="lh-hover lh-hover-bottom">
+        <span className="lh-emoji"></span>
+ )}
+ {/* hover 遮罩：居中「编辑/下载」胶囊按钮（结构 1:1 对齐 logo / AI 字体卡片） */}
+ <div className="lh-hover lh-hover-bottom">
         <button
           className="btn btn-ghost btn-sm"
           onClick={(e) => {

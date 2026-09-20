@@ -141,7 +141,7 @@ export function LibraryPicker({
                 ) : (
                   <span className={`libpick-emoji ${it.grad}`}>{it.emoji}</span>
                 )}
-                {filter === "video" && <span className="libpick-vbadge">▶</span>}
+                {filter === "video" && <span className="libpick-vbadge"></span>}
                 <span className="libpick-name">{it.name}</span>
               </button>
             ))}

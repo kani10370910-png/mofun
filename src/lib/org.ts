@@ -7,19 +7,19 @@
  */
 
 import type { AuthUser, TeamMember } from "@/lib/auth";
-import { DEMO_TEAM, DEMO_USER } from "@/lib/auth";
+import { DEMO_TEAM, DEMO_USER, hasEnterpriseInfo, isEnterpriseOwner, isJoinedOrgMember, resolveAccountUserName } from "@/lib/auth";
 import { DEFAULT_REGION_ID, getRegionPack, resolveRegionIdFromText } from "@/data/regionAssets";
 
 /** 配额（对齐火山默认值；可工单扩容的在 UI 标注） */
 export const ORG_QUOTAS = {
-  /** 组织单元层级：Root 下仅市 / 县 / 区三级 */
-  maxDepth: 3,
+  /** 组织单元层级：不限制 */
+  maxDepth: Number.POSITIVE_INFINITY,
   /** 账号数，默认可工单扩至 1000 */
   maxAccounts: 20,
   maxAccountsUpgrade: 1000,
-  /** 组织单元数，默认可工单扩至 500 */
-  maxUnits: 20,
-  maxUnitsUpgrade: 500,
+  /** 组织单元数：不限制 */
+  maxUnits: Number.POSITIVE_INFINITY,
+  maxUnitsUpgrade: Number.POSITIVE_INFINITY,
   /** 单 OU 内账号数：不限制 */
   maxAccountsPerUnit: Infinity,
   /** 自定义管控策略数 */
@@ -70,6 +70,8 @@ export interface Organization {
   rootOuId: string;
   adminUserId: string;
   companyId: string;
+  /** 成员自助加入用的企业码 */
+  joinCode?: string;
   /** 是否已开启企业组织（火山：开启/关闭企业组织） */
   enabled: boolean;
   /** 是否启用管控策略（火山：开启管控策略后才生效） */
@@ -77,6 +79,10 @@ export interface Organization {
   /** 允许加入的认证主体（企业实名主体） */
   certSubjects: string[];
   createdAt: string;
+  /** 主账号本月额度已与积分池对齐，避免重复抬升把已下发额度加回来 */
+  quotaAligned?: boolean;
+  /** 企业开通的企业会员套餐 id；成员看会员等级时用 */
+  enterprisePlanId?: string;
 }
 
 export interface OrgUnit {
@@ -84,6 +90,10 @@ export interface OrgUnit {
   orgId: string;
   parentId: string | null;
   name: string;
+  /** 组织编码（可选） */
+  code?: string;
+  /** 联系电话（可选） */
+  phone?: string;
   regionId?: string;
   tags: string[];
   description?: string;
@@ -106,6 +116,13 @@ export interface Membership {
   account: string;
   /** 创建人 userId：子账号只能管理自己创建的下级；主账号可管理全部子账号 */
   createdByUserId?: string;
+  /** 本月可用积分 */
+  monthlyLimit?: number;
+  /** 是否允许自行购买会员或充值算力；禁止时只能由上一级发放额度 */
+  canSelfRecharge?: boolean;
+  employeeNo?: string;
+  expiresAt?: string;
+  extraInfo?: string;
 }
 
 export interface Invitation {
@@ -195,6 +212,43 @@ function nowText() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
+const JOIN_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+/** 去掉易混字符后的企业码 */
+export function normalizeJoinCode(raw: string) {
+  return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/** 由企业 ID 生成稳定 6 位企业码 */
+export function makeOrgJoinCode(seed: string) {
+  let h = 2166136261;
+  const s = seed || "mofun-org";
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  let out = "";
+  for (let i = 0; i < 6; i++) {
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    out += JOIN_CODE_ALPHABET[(h >>> 0) % JOIN_CODE_ALPHABET.length];
+  }
+  return out;
+}
+
+export function ensureOrgJoinCode(store: OrgStore): OrgStore {
+  const current = normalizeJoinCode(store.organization.joinCode || "");
+  if (current.length >= 4) {
+    if (current === store.organization.joinCode) return store;
+    const next = { ...store, organization: { ...store.organization, joinCode: current } };
+    saveOrgStore(next);
+    return next;
+  }
+  const joinCode = makeOrgJoinCode(store.organization.companyId || store.organization.id);
+  const next = { ...store, organization: { ...store.organization, joinCode } };
+  saveOrgStore(next);
+  return next;
+}
+
 function fullAccessPolicy(orgId: string): ControlPolicy {
   return {
     id: `pol_full_${orgId}`,
@@ -239,6 +293,7 @@ export function createDemoOrgStore(user?: AuthUser | null): OrgStore {
       role: "主账号",
       status: "正常",
       avatarUrl: u.avatarUrl,
+      monthlyLimit: 20000,
     },
     {
       id: "m2",
@@ -249,6 +304,7 @@ export function createDemoOrgStore(user?: AuthUser | null): OrgStore {
       department: "湖州市",
       role: "管理员账号",
       status: "正常",
+      monthlyLimit: 8000,
     },
     {
       id: "m3",
@@ -259,6 +315,7 @@ export function createDemoOrgStore(user?: AuthUser | null): OrgStore {
       department: "递铺区",
       role: "成员账号",
       status: "正常",
+      monthlyLimit: 3000,
     },
     {
       id: "m4",
@@ -269,6 +326,7 @@ export function createDemoOrgStore(user?: AuthUser | null): OrgStore {
       department: "德清县",
       role: "成员账号",
       status: "正常",
+      monthlyLimit: 2000,
     },
     {
       id: "m5",
@@ -279,6 +337,29 @@ export function createDemoOrgStore(user?: AuthUser | null): OrgStore {
       department: "德清县",
       role: "成员账号",
       status: "正常",
+      monthlyLimit: 2000,
+    },
+    {
+      id: "m6",
+      name: "县管理小李",
+      account: "13800005555",
+      userId: "qy_demo_anji_admin",
+      passwordPlain: DEFAULT_MEMBER_PASSWORD,
+      department: "安吉县",
+      role: "管理员账号",
+      status: "正常",
+      monthlyLimit: 8000,
+    },
+    {
+      id: "m7",
+      name: "县成员小王",
+      account: "13800006666",
+      userId: "qy_demo_anji_member",
+      passwordPlain: DEFAULT_MEMBER_PASSWORD,
+      department: "安吉县",
+      role: "成员账号",
+      status: "正常",
+      monthlyLimit: 0,
     },
   ];
 
@@ -288,6 +369,7 @@ export function createDemoOrgStore(user?: AuthUser | null): OrgStore {
     rootOuId: rootId,
     adminUserId: u.userId,
     companyId: u.companyId,
+    joinCode: makeOrgJoinCode(u.companyId || orgId),
     enabled: true,
     policyEnabled: true,
     certSubjects: [u.company || u.orgName],
@@ -354,6 +436,7 @@ export function createDemoOrgStore(user?: AuthUser | null): OrgStore {
       memberId: "m1",
       name: members[0].name,
       account: members[0].account,
+      monthlyLimit: 20000,
     },
     {
       id: "ms_2",
@@ -369,6 +452,7 @@ export function createDemoOrgStore(user?: AuthUser | null): OrgStore {
       name: members[1].name,
       account: members[1].account,
       createdByUserId: members[0].userId,
+      monthlyLimit: 8000,
     },
     {
       id: "ms_3",
@@ -384,6 +468,7 @@ export function createDemoOrgStore(user?: AuthUser | null): OrgStore {
       name: members[2].name,
       account: members[2].account,
       createdByUserId: members[1].userId,
+      monthlyLimit: 3000,
     },
     {
       id: "ms_4",
@@ -399,6 +484,7 @@ export function createDemoOrgStore(user?: AuthUser | null): OrgStore {
       name: members[3].name,
       account: members[3].account,
       createdByUserId: members[0].userId,
+      monthlyLimit: 2000,
     },
     {
       id: "ms_5",
@@ -414,6 +500,39 @@ export function createDemoOrgStore(user?: AuthUser | null): OrgStore {
       name: members[4].name,
       account: members[4].account,
       createdByUserId: members[0].userId,
+      monthlyLimit: 2000,
+    },
+    {
+      id: "ms_6",
+      userId: members[5].userId,
+      orgId,
+      ouId: ouCountyAnji,
+      role: "ou_admin",
+      status: "active",
+      consoleLogin: true,
+      securePhone: "13800005555",
+      tags: ["管理员账号"],
+      memberId: "m6",
+      name: members[5].name,
+      account: members[5].account,
+      createdByUserId: members[1].userId,
+      monthlyLimit: 8000,
+    },
+    {
+      id: "ms_7",
+      userId: members[6].userId,
+      orgId,
+      ouId: ouCountyAnji,
+      role: "member",
+      status: "active",
+      consoleLogin: true,
+      securePhone: "13800006666",
+      tags: ["成员账号"],
+      memberId: "m7",
+      name: members[6].name,
+      account: members[6].account,
+      createdByUserId: members[5].userId,
+      monthlyLimit: 0,
     },
   ];
 
@@ -455,6 +574,142 @@ export function createDemoOrgStore(user?: AuthUser | null): OrgStore {
   };
 }
 
+/** 新开通企业：只有主账号和根节点，不带演示市县/成员 */
+export function createEmptyOrgStore(user?: AuthUser | null): OrgStore {
+  const u = user || DEMO_USER;
+  const companyId = u.companyId || `ENT-${(u.phone || u.userId || "new").replace(/\W/g, "").slice(-8)}`;
+  const orgId = `org_${companyId}`;
+  const rootId = `ou_root_${companyId}`;
+  const phone = (u.phone || "").trim();
+  const account = /^1\d{10}$/.test(phone) ? phone : (u.username || phone || companyId);
+  const name = (resolveAccountUserName(u) || u.username || account).trim();
+  const orgName = (u.orgName || u.company || "").trim() || name;
+  const member: TeamMember = {
+    id: "m1",
+    name,
+    account,
+    userId: u.userId,
+    passwordPlain: u.loginPassword || DEFAULT_MEMBER_PASSWORD,
+    isPrimary: true,
+    department: "",
+    role: "主账号",
+    status: "正常",
+    avatarUrl: u.avatarUrl,
+    monthlyLimit: 20000,
+    phone: account,
+  };
+  const organization: Organization = {
+    id: orgId,
+    name: orgName,
+    rootOuId: rootId,
+    adminUserId: u.userId,
+    companyId,
+    joinCode: makeOrgJoinCode(companyId || orgId),
+    enabled: true,
+    policyEnabled: true,
+    certSubjects: [u.company || orgName],
+    createdAt: u.createdAt || nowText(),
+  };
+  const units: OrgUnit[] = [
+    {
+      id: rootId,
+      orgId,
+      parentId: null,
+      name: orgName,
+      tags: ["root"],
+      description: "组织根节点；主账号归属于此，可改名，不可删除",
+    },
+  ];
+  const memberships: Membership[] = [
+    {
+      id: "ms_1",
+      userId: member.userId,
+      orgId,
+      ouId: rootId,
+      role: "admin",
+      status: "active",
+      consoleLogin: true,
+      securePhone: account,
+      tags: ["主账号"],
+      memberId: member.id,
+      name: member.name,
+      account: member.account,
+      monthlyLimit: 20000,
+    },
+  ];
+  const full = fullAccessPolicy(orgId);
+  return {
+    version: 2,
+    organization,
+    units,
+    memberships,
+    invitations: [],
+    members: [member],
+    policies: [full],
+    policyAttachments: [{ id: "pa_root_full", policyId: full.id, targetType: "ou", targetId: rootId }],
+    trustedServices: defaultTrustedServices(),
+  };
+}
+
+function isDemoOrgUser(user?: AuthUser | null) {
+  return user?.username === "jxk1@test" || user?.userId === DEMO_USER.userId;
+}
+
+function isSharedDemoStore(store: OrgStore) {
+  const companyId = String(store.organization.companyId || "");
+  const orgId = String(store.organization.id || "");
+  if (companyId === "ENT-JXK-001" || orgId === "org_ENT-JXK-001") return true;
+  return store.members.some((m) => String(m.userId || "").startsWith("qy_demo_"));
+}
+
+function seedOrgStore(user?: AuthUser | null): OrgStore {
+  return isDemoOrgUser(user) ? createDemoOrgStore(user) : createEmptyOrgStore(user);
+}
+
+function storeBelongsToUser(store: OrgStore, user?: AuthUser | null): boolean {
+  if (!user?.userId) return false;
+  if (isSharedDemoStore(store) && !isDemoOrgUser(user)) return false;
+  const phone = (user.phone || "").trim();
+  const acct = (user.username || "").trim();
+  if (user.joinedOrg && !user.enterpriseVerified) {
+    return store.members.some(
+      (m) =>
+        m.userId === user.userId ||
+        (!!acct && m.account === acct) ||
+        (!!phone && (m.account === phone || m.phone === phone)),
+    );
+  }
+  if (user.enterpriseVerified) {
+    return (
+      (!isSharedDemoStore(store) && store.organization.companyId === user.companyId) ||
+      store.organization.adminUserId === user.userId ||
+      store.members.some(
+        (m) =>
+          m.isPrimary &&
+          (m.userId === user.userId || (!!acct && m.account === acct) || (!!phone && m.account === phone)),
+      )
+    );
+  }
+  return store.members.some((m) => m.userId === user.userId);
+}
+
+function readStoredOrg(key: string): OrgStore | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as OrgStore;
+    if (parsed?.version === 2 && parsed.organization?.id) return parsed;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function orgStorageKey(companyId: string) {
+  return `${STORE_KEY}:${companyId}`;
+}
+
 function migrateV1(raw: unknown, user?: AuthUser | null): OrgStore {
   const seed = createDemoOrgStore(user);
   const old = raw as Partial<OrgStore> & { organization?: Partial<Organization> };
@@ -481,38 +736,114 @@ function migrateV1(raw: unknown, user?: AuthUser | null): OrgStore {
   };
 }
 
+export function defaultMonthlyLimit(role?: MembershipRole | string, isPrimary?: boolean) {
+  if (isPrimary || role === "admin" || role === "主账号") return 20000;
+  if (role === "ou_admin" || role === "管理员账号") return 8000;
+  return 3000;
+}
+
+function hydrateMemberQuotas(store: OrgStore): OrgStore {
+  let changed = false;
+  const members = store.members.map((m) => {
+    if (typeof m.monthlyLimit === "number" && m.monthlyLimit >= 0) return m;
+    changed = true;
+    const ms = store.memberships.find((x) => x.memberId === m.id);
+    return { ...m, monthlyLimit: defaultMonthlyLimit(ms?.role || String(m.role), m.isPrimary) };
+  });
+  const memberships = store.memberships.map((ms) => {
+    if (typeof ms.monthlyLimit === "number" && ms.monthlyLimit >= 0) return ms;
+    changed = true;
+    const m = members.find((x) => x.id === ms.memberId);
+    return { ...ms, monthlyLimit: m?.monthlyLimit ?? defaultMonthlyLimit(ms.role) };
+  });
+  if (!changed) return store;
+  const next = { ...store, members, memberships };
+  saveOrgStore(next);
+  return next;
+}
+
+export function memberMonthlyLimit(store: OrgStore, userId: string) {
+  const m = store.members.find((x) => x.userId === userId);
+  const ms = store.memberships.find((x) => x.userId === userId);
+  const n = m?.monthlyLimit ?? ms?.monthlyLimit;
+  if (typeof n === "number" && n >= 0) return Math.floor(n);
+  return defaultMonthlyLimit(ms?.role || m?.role, m?.isPrimary);
+}
+
+function takeOwnOrgStore(store: OrgStore | null, user?: AuthUser | null): OrgStore | null {
+  if (!store) return null;
+  if (isSharedDemoStore(store) && !isDemoOrgUser(user)) return null;
+  if (user?.userId && !storeBelongsToUser(store, user)) return null;
+  return store;
+}
+
 export function loadOrgStore(user?: AuthUser | null): OrgStore {
-  if (typeof window === "undefined") return createDemoOrgStore(user);
+  if (typeof window === "undefined") return alignMemberAccountPhones(seedOrgStore(user));
   try {
-    const raw = window.localStorage.getItem(STORE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as OrgStore;
-      if (parsed?.version === 2 && parsed.organization?.id) return parsed;
+    const companyId = (user?.companyId || "").trim();
+    const keyed = takeOwnOrgStore(companyId ? readStoredOrg(orgStorageKey(companyId)) : null, user);
+    if (keyed) {
+      return alignMemberAccountPhones(ensureOrgJoinCode(hydrateMemberQuotas(keyed)));
     }
-    const legacy = window.localStorage.getItem(LEGACY_KEY);
-    if (legacy) {
-      const migrated = migrateV1(JSON.parse(legacy), user);
+    const global = takeOwnOrgStore(readStoredOrg(STORE_KEY), user);
+    if (global) {
+      const migrated = alignMemberAccountPhones(ensureOrgJoinCode(hydrateMemberQuotas(global)));
       saveOrgStore(migrated);
       return migrated;
     }
-    const seed = createDemoOrgStore(user);
+    const legacy = window.localStorage.getItem(LEGACY_KEY);
+    if (legacy && isDemoOrgUser(user)) {
+      const migrated = alignMemberAccountPhones(hydrateMemberQuotas(migrateV1(JSON.parse(legacy), user)));
+      saveOrgStore(migrated);
+      return migrated;
+    }
+    const seed = alignMemberAccountPhones(seedOrgStore(user));
     saveOrgStore(seed);
     return seed;
   } catch {
-    return createDemoOrgStore(user);
+    return alignMemberAccountPhones(seedOrgStore(user));
   }
 }
 
 export function saveOrgStore(store: OrgStore) {
   if (typeof window === "undefined") return;
   const next = { ...store, version: 2 as const };
-  window.localStorage.setItem(STORE_KEY, JSON.stringify(next));
+  const companyId = (store.organization.companyId || "").trim();
+  const raw = JSON.stringify(next);
+  if (companyId) window.localStorage.setItem(orgStorageKey(companyId), raw);
+  else window.localStorage.setItem(STORE_KEY, raw);
+}
+
+/** 企业主账号开通/变更企业会员后写入组织，加入成员可看到企业会员 */
+export function setOrganizationEnterprisePlan(store: OrgStore, planId: string | null): OrgStore {
+  const next = {
+    ...store,
+    organization: {
+      ...store.organization,
+      enterprisePlanId: planId?.trim() || undefined,
+    },
+  };
+  saveOrgStore(next);
+  return next;
 }
 
 export function resetOrgStore(user?: AuthUser | null): OrgStore {
-  const seed = createDemoOrgStore(user);
+  const seed = seedOrgStore(user);
   saveOrgStore(seed);
   return seed;
+}
+
+export function findOrgStoreByJoinCode(rawCode: string): OrgStore | undefined {
+  const code = normalizeJoinCode(rawCode);
+  if (code.length < 4 || typeof window === "undefined") return undefined;
+  const keys = Object.keys(window.localStorage).filter(
+    (k) => k === STORE_KEY || k.startsWith(`${STORE_KEY}:`),
+  );
+  for (const key of keys) {
+    const store = readStoredOrg(key);
+    if (store && normalizeJoinCode(store.organization.joinCode || "") === code) return store;
+  }
+  return undefined;
 }
 
 export function getUnit(store: OrgStore, ouId: string): OrgUnit | undefined {
@@ -523,13 +854,34 @@ export function getChildren(store: OrgStore, parentId: string | null): OrgUnit[]
   return store.units.filter((u) => u.parentId === parentId);
 }
 
+/** 当前登录账号应展示的用户名（与个人信息、成员列表一致） */
+export function actorAccountUserName(store: OrgStore, user?: AuthUser | null): string {
+  const self = user ? findActorTeamMember(store, user) : undefined;
+  const label = resolveAccountUserName(user, self?.name);
+  if (label) return label;
+  const phone = (self?.phone || self?.account || user?.phone || user?.username || "").trim();
+  if (phone && phone !== "—") return phone;
+  return "";
+}
+
+/** 无下级部门时树根展示自己的用户名 */
+export function orgSelfAccountLabel(store: OrgStore, user?: AuthUser | null): string {
+  const label = actorAccountUserName(store, user);
+  if (label) return label;
+  const self =
+    (user ? findActorTeamMember(store, user) : undefined) || store.members.find((m) => m.isPrimary);
+  const phone = (self?.phone || self?.account || user?.phone || user?.username || "").trim();
+  if (phone && phone !== "—") return phone;
+  return (store.organization.name || "我的账号").trim();
+}
+
 export function getUnitDepth(store: OrgStore, ouId: string): number {
   let depth = 0;
   let cur = getUnit(store, ouId);
   while (cur?.parentId) {
     depth += 1;
     cur = getUnit(store, cur.parentId);
-    if (depth > ORG_MAX_DEPTH + 2) break;
+    if (depth > 64) break;
   }
   return depth;
 }
@@ -549,8 +901,9 @@ export function nextOuLevelLabel(store: OrgStore, parentId: string): OuAdminLeve
   return OU_LEVEL_LABELS[nextDepth - 1];
 }
 
+/** 任意已有节点下都可继续新增下级 */
 export function canCreateChildOu(store: OrgStore, parentId: string): boolean {
-  return nextOuLevelLabel(store, parentId) !== null;
+  return !!getUnit(store, parentId);
 }
 
 export function ouLevelPlaceholder(level: OuAdminLevel): string {
@@ -637,23 +990,98 @@ export function countSubtreeMembers(store: OrgStore, ouId: string): number {
   return store.memberships.filter((m) => ids.has(m.ouId)).length;
 }
 
+export function subtreeOuIds(store: OrgStore, ouId: string): string[] {
+  const ids = new Set<string>([ouId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const u of store.units) {
+      if (u.parentId && ids.has(u.parentId) && !ids.has(u.id)) {
+        ids.add(u.id);
+        changed = true;
+      }
+    }
+  }
+  return [...ids];
+}
+
+const MEMBER_PHONE_RE = /^1\d{10}$/;
+
+/** 登录账号即手机号：优先合法 11 位账号，否则用手机号，再否则两边共用同一字符串。 */
+export function resolveMemberLoginId(account?: string | null, phone?: string | null): string {
+  const a = String(account || "").trim();
+  const p = String(phone || "").trim();
+  if (MEMBER_PHONE_RE.test(a)) return a;
+  if (MEMBER_PHONE_RE.test(p)) return p;
+  return a || p;
+}
+
+export function memberPhoneOf(store: OrgStore, memberId: string): string {
+  const member = store.members.find((m) => m.id === memberId);
+  const ms = store.memberships.find((m) => m.memberId === memberId);
+  return (
+    resolveMemberLoginId(member?.account || ms?.account, member?.phone || ms?.securePhone) || "—"
+  );
+}
+
+/** 把成员账号、手机号写成同一登录号，修复历史不一致数据。 */
+export function alignMemberAccountPhones(store: OrgStore): OrgStore {
+  let changed = false;
+  const members = store.members.map((m) => {
+    const ms = store.memberships.find((x) => x.memberId === m.id);
+    const login = resolveMemberLoginId(m.account || ms?.account, m.phone || ms?.securePhone);
+    if (!login) return m;
+    if (m.account === login && (m.phone || "") === login) return m;
+    changed = true;
+    return { ...m, account: login, phone: login };
+  });
+  const memberships = store.memberships.map((ms) => {
+    const member = members.find((x) => x.id === ms.memberId);
+    const login = member?.account || resolveMemberLoginId(ms.account, ms.securePhone);
+    if (!login) return ms;
+    if (ms.account === login && (ms.securePhone || "") === login) return ms;
+    changed = true;
+    return { ...ms, account: login, securePhone: login };
+  });
+  if (!changed) return store;
+  const next = { ...store, members, memberships };
+  saveOrgStore(next);
+  return next;
+}
+
+export function memberDepartmentOf(store: OrgStore, memberId: string): string {
+  const ms = store.memberships.find((m) => m.memberId === memberId);
+  if (!ms) return "—";
+  if (ms.ouId === store.organization.rootOuId) return "—";
+  return getUnit(store, ms.ouId)?.name || "—";
+}
+
 export function createOrgUnit(
   store: OrgStore,
   parentId: string,
-  input: { name: string; regionId?: string; tags?: string[]; description?: string }
+  input: {
+    name: string;
+    code?: string;
+    phone?: string;
+    regionId?: string;
+    tags?: string[];
+    description?: string;
+  }
 ): { store: OrgStore; error?: string; unit?: OrgUnit } {
   if (!store.organization.enabled) return { store, error: "企业组织已关闭" };
   const parent = getUnit(store, parentId);
   if (!parent) return { store, error: "父节点不存在" };
-  if (store.units.length >= ORG_QUOTAS.maxUnits) {
-    return { store, error: `组织单元数已达配额 ${ORG_QUOTAS.maxUnits}（可工单扩至 ${ORG_QUOTAS.maxUnitsUpgrade}）` };
-  }
   const depth = getUnitDepth(store, parentId) + 1;
-  if (depth > ORG_QUOTAS.maxDepth) {
-    return { store, error: "组织单元最多市/县/区三级，当前层级不可继续新增" };
-  }
   const name = input.name.trim();
-  if (!name) return { store, error: "请填写组织单元名称" };
+  if (!name) return { store, error: "请输入名称" };
+  const code = input.code?.trim() || undefined;
+  const phone = input.phone?.trim() || undefined;
+  if (phone && !/^[\d+\-()\s]{6,20}$/.test(phone)) {
+    return { store, error: "请输入正确的联系电话" };
+  }
+  if (code && store.units.some((u) => (u.code || "").toLowerCase() === code.toLowerCase())) {
+    return { store, error: "编码已存在" };
+  }
   const levelLabel = OU_LEVEL_LABELS[depth - 1];
   const inferredRegion =
     !input.regionId && depth === 1 ? resolveRegionIdFromText(name) : undefined;
@@ -662,8 +1090,14 @@ export function createOrgUnit(
     orgId: store.organization.id,
     parentId,
     name,
+    code,
+    phone,
     regionId: input.regionId || inferredRegion || undefined,
-    tags: input.tags?.filter(Boolean).length ? input.tags.filter(Boolean) : [levelLabel],
+    tags: input.tags?.filter(Boolean).length
+      ? input.tags.filter(Boolean)
+      : levelLabel
+        ? [levelLabel]
+        : [],
     description: input.description?.trim() || undefined,
   };
   const next = { ...store, units: [...store.units, unit] };
@@ -674,23 +1108,35 @@ export function createOrgUnit(
 export function updateOrgUnit(
   store: OrgStore,
   ouId: string,
-  patch: Partial<Pick<OrgUnit, "name" | "regionId" | "tags" | "description">>
+  patch: Partial<Pick<OrgUnit, "name" | "code" | "phone" | "regionId" | "tags" | "description">>,
 ): { store: OrgStore; error?: string } {
   const unit = getUnit(store, ouId);
   if (!unit) return { store, error: "组织单元不存在" };
-  const nextName = patch.name != null ? patch.name.trim() || unit.name : unit.name;
+  const nextName = patch.name != null ? patch.name.trim() : unit.name;
   if (!nextName) return { store, error: "请填写组织单元名称" };
+  const nextCode = patch.code !== undefined ? patch.code.trim() || undefined : unit.code;
+  if (
+    nextCode &&
+    store.units.some((u) => u.id !== ouId && (u.code || "").toLowerCase() === nextCode.toLowerCase())
+  ) {
+    return { store, error: "编码已存在" };
+  }
+  const nextPhone = patch.phone !== undefined ? patch.phone.trim() || undefined : unit.phone;
+  if (nextPhone && !/^[\d+\-()\s]{6,20}$/.test(nextPhone)) {
+    return { store, error: "请输入正确的联系电话" };
+  }
   const nextUnits = store.units.map((u) => {
     if (u.id !== ouId) return u;
     return {
       ...u,
       name: nextName,
+      code: nextCode,
+      phone: nextPhone,
       regionId: patch.regionId === "" ? undefined : patch.regionId ?? u.regionId,
       tags: patch.tags ?? u.tags,
       description: patch.description !== undefined ? patch.description.trim() || undefined : u.description,
     };
   });
-  // 改名后同步成员 department 展示字段
   let nextMembers = store.members;
   if (nextName !== unit.name) {
     nextMembers = store.members.map((m) => {
@@ -700,7 +1146,11 @@ export function updateOrgUnit(
       return m;
     });
   }
-  const next = { ...store, units: nextUnits, members: nextMembers };
+  const nextOrg =
+    ouId === store.organization.rootOuId && nextName !== store.organization.name
+      ? { ...store.organization, name: nextName }
+      : store.organization;
+  const next = { ...store, organization: nextOrg, units: nextUnits, members: nextMembers };
   saveOrgStore(next);
   return { store: next };
 }
@@ -885,10 +1335,19 @@ export function createMemberInOu(
   input: {
     name: string;
     account: string;
+    userId?: string;
     role?: MembershipRole;
     tags?: string[];
     passwordPlain?: string;
     createdByUserId?: string;
+    monthlyLimit?: number;
+    /** 发放人本月已用，用于从发放人剩余额度划出 */
+    fromUsed?: number;
+    phone?: string;
+    employeeNo?: string;
+    expiresAt?: string;
+    extraInfo?: string;
+    status?: "正常" | "停用" | "冻结";
   }
 ): { store: OrgStore; error?: string } {
   if (!store.organization.enabled) return { store, error: "企业组织已关闭" };
@@ -897,24 +1356,52 @@ export function createMemberInOu(
   if (store.memberships.length >= ORG_QUOTAS.maxAccounts) {
     return { store, error: `账号数已达配额 ${ORG_QUOTAS.maxAccounts}（可工单扩至 ${ORG_QUOTAS.maxAccountsUpgrade}）` };
   }
-  const account = input.account.trim();
+  const account = resolveMemberLoginId(input.account, input.phone);
   const name = input.name.trim() || account;
+  const reuseUserId = input.userId?.trim() || "";
   if (!account) return { store, error: "请填写账号" };
   if (store.memberships.some((m) => m.account === account)) return { store, error: "该账号已在组织中" };
+  if (reuseUserId && store.memberships.some((m) => m.userId === reuseUserId)) {
+    return { store, error: "该账号已在组织中" };
+  }
+  const grant = Math.max(0, Math.floor(Number(input.monthlyLimit ?? 0)));
+  const fromUsed = Math.max(0, Math.floor(Number(input.fromUsed || 0)));
+  if (grant > 0) {
+    const fromId = input.createdByUserId;
+    if (!fromId) return { store, error: "缺少发放人，无法划出额度" };
+    const from = store.members.find((m) => m.userId === fromId);
+    if (!from) return { store, error: "找不到发放人" };
+    const fromRemain = Math.max(0, Math.floor(from.monthlyLimit ?? 0) - fromUsed);
+    if (grant > fromRemain) {
+      return { store, error: `你的剩余额度不足（还可发放 ${fromRemain}）` };
+    }
+  }
   const pwd = (input.passwordPlain ?? DEFAULT_MEMBER_PASSWORD).trim() || DEFAULT_MEMBER_PASSWORD;
   const memberId = uid("m");
-  const userId = uid("qy");
+  const userId = reuseUserId || uid("qy");
   const role: MembershipRole =
     input.role === "admin" ? "member" : input.role === "ou_admin" ? "ou_admin" : "member";
+  const rowStatus: TeamMember["status"] =
+    input.status === "冻结" ? "冻结" : input.status === "停用" ? "停用" : "正常";
+  const phone = account;
+  const employeeNo = input.employeeNo?.trim() || undefined;
+  const expiresAt = input.expiresAt?.trim() || undefined;
+  const extraInfo = input.extraInfo?.trim() || undefined;
   const member: TeamMember = {
     id: memberId,
     name,
     account,
     userId,
     passwordPlain: pwd,
-    department: unit.name,
+    department: unit.id === store.organization.rootOuId ? "" : unit.name,
     role: roleLabel(role),
-    status: "正常",
+    status: rowStatus,
+    monthlyLimit: grant,
+    canSelfRecharge: false,
+    phone,
+    employeeNo,
+    expiresAt,
+    extraInfo,
   };
   const membership: Membership = {
     id: uid("ms"),
@@ -922,21 +1409,104 @@ export function createMemberInOu(
     orgId: store.organization.id,
     ouId,
     role,
-    status: "active",
-    consoleLogin: true,
+    status: rowStatus === "正常" ? "active" : "disabled",
+    consoleLogin: rowStatus === "正常",
+    securePhone: phone,
     tags: input.tags?.length ? input.tags : [roleLabel(role)],
     memberId,
     name,
     account,
     createdByUserId: input.createdByUserId,
+    monthlyLimit: grant,
+    canSelfRecharge: false,
+    employeeNo,
+    expiresAt,
+    extraInfo,
   };
+  let members = [...store.members, member];
+  let memberships = [...store.memberships, membership];
+  if (grant > 0 && input.createdByUserId) {
+    members = members.map((m) =>
+      m.userId === input.createdByUserId
+        ? { ...m, monthlyLimit: Math.max(0, Math.floor(m.monthlyLimit ?? 0) - grant) }
+        : m,
+    );
+    memberships = memberships.map((m) =>
+      m.userId === input.createdByUserId
+        ? { ...m, monthlyLimit: Math.max(0, Math.floor(m.monthlyLimit ?? 0) - grant) }
+        : m,
+    );
+  }
   const next = {
     ...store,
-    members: [...store.members, member],
-    memberships: [...store.memberships, membership],
+    members,
+    memberships,
   };
   saveOrgStore(next);
   return { store: next };
+}
+
+export function isLocalOrgMember(store: OrgStore, user?: AuthUser | null): boolean {
+  if (!user) return false;
+  const phone = user.phone?.trim();
+  const account = user.username?.trim();
+  return store.memberships.some(
+    (m) =>
+      m.userId === user.userId ||
+      (!!account && m.account === account) ||
+      (!!phone && (m.account === phone || m.securePhone === phone)),
+  );
+}
+
+/** 个人用企业码加入当前企业组织，复用已有 userId，不新建成员账号 */
+export function joinEnterpriseByCode(
+  user: AuthUser,
+  rawCode: string,
+): { store: OrgStore; error?: string; orgName?: string; already?: boolean } {
+  const code = normalizeJoinCode(rawCode);
+  const found = findOrgStoreByJoinCode(code);
+  const store = ensureOrgJoinCode(found || loadOrgStore(user));
+  if (code.length < 4) return { store, error: "请填写有效企业码" };
+  if (normalizeJoinCode(store.organization.joinCode || "") !== code) {
+    return { store, error: "企业码无效" };
+  }
+  if (!store.organization.enabled) return { store, error: "企业组织已关闭" };
+  if (isOrgAdminActor(store, user.userId, user)) {
+    return { store, error: "你已是该企业主账号，无需加入" };
+  }
+  if (isLocalOrgMember(store, user)) {
+    return { store, orgName: store.organization.name, already: true };
+  }
+  const account = (user.phone || user.username || "").trim();
+  const ouId = resolveDefaultMemberOuId(store, user) || store.organization.rootOuId;
+  const created = createMemberInOu(store, ouId, {
+    name: resolveAccountUserName(user) || account,
+    account,
+    userId: user.userId,
+    role: "member",
+    phone: user.phone,
+    createdByUserId: store.organization.adminUserId,
+    monthlyLimit: 0,
+  });
+  if (created.error) return { store: created.store, error: created.error };
+  return { store: created.store, orgName: created.store.organization.name };
+}
+
+export function leaveEnterpriseMembership(
+  store: OrgStore,
+  user: AuthUser,
+): { store: OrgStore; error?: string } {
+  const phone = user.phone?.trim();
+  const account = user.username?.trim();
+  const ms = store.memberships.find(
+    (m) =>
+      m.userId === user.userId ||
+      (!!account && m.account === account) ||
+      (!!phone && (m.account === phone || m.securePhone === phone)),
+  );
+  if (!ms) return { store };
+  if (ms.role === "admin") return { store, error: "主账号不能退出企业，请使用退出认证" };
+  return removeMembership(store, ms.id);
 }
 
 export function inviteMember(
@@ -1258,9 +1828,16 @@ export function findMembershipByMemberId(store: OrgStore, memberId: string): Mem
 /** 用 userId / 账号 / 昵称 等定位当前操作者对应的 TeamMember */
 export function findActorTeamMember(store: OrgStore, user?: AuthUser | null): TeamMember | undefined {
   if (!user) return undefined;
-  const keys = [user.userId, user.username, user.email, user.phone, user.nickname, user.workEmail].filter(
-    Boolean,
-  ) as string[];
+  const org = (user.orgName || user.company || "").trim();
+  const nick = (user.nickname || "").trim();
+  const keys = [
+    user.userId,
+    user.username,
+    user.email,
+    user.phone,
+    user.workEmail,
+    nick && nick !== org ? nick : "",
+  ].filter(Boolean) as string[];
 
   for (const key of keys) {
     const byUserId = store.members.find((m) => m.userId === key);
@@ -1290,6 +1867,11 @@ export function isOrgAdminActor(
   actorUserId?: string | null,
   user?: AuthUser | null
 ): boolean {
+  if (user?.joinedOrg) {
+    const uid = actorUserId || user.userId;
+    if (!uid) return false;
+    return findMembershipByUserId(store, uid)?.role === "admin";
+  }
   const uid = actorUserId || user?.userId;
   if (uid && store.organization.adminUserId === uid) return true;
   if (uid) {
@@ -1339,6 +1921,8 @@ export function isOrgManagerActor(
 /** 把登录用户与 store 中主账号 userId / adminUserId 对齐（修复权限点不了） */
 export function syncOrgAdminIdentity(store: OrgStore, user?: AuthUser | null): OrgStore {
   if (!user?.userId) return store;
+  if (isSharedDemoStore(store) && !isDemoOrgUser(user)) return store;
+  if (user.joinedOrg && !user.enterpriseVerified) return store;
   const acct = user.username || user.email;
   const phone = user.phone?.trim();
   const primary =
@@ -1425,6 +2009,22 @@ export function syncOrgAdminIdentity(store: OrgStore, user?: AuthUser | null): O
   return next;
 }
 
+/** 当前操作者所在组织单元；主账号视为根节点 */
+export function actorOuId(
+  store: OrgStore,
+  actorUserId?: string | null,
+  user?: AuthUser | null
+): string | undefined {
+  if (isOrgAdminActor(store, actorUserId, user)) return store.organization.rootOuId;
+  const uid = actorUserId || user?.userId;
+  if (uid) {
+    const ms = findMembershipByUserId(store, uid);
+    if (ms?.ouId) return ms.ouId;
+  }
+  const tm = findActorTeamMember(store, user);
+  return tm ? findMembershipByMemberId(store, tm.id)?.ouId : undefined;
+}
+
 /** 主账号可管管理员账号与成员账号；管理员账号仅可管成员账号；成员账号仅可管自己创建的下级 */
 export function canManageSubAccount(
   store: OrgStore,
@@ -1448,6 +2048,67 @@ export function canManageSubAccount(
   if (!uid) return false;
   const targetMs = findMembershipByMemberId(store, target.id);
   return targetRole === "member" && !!targetMs?.createdByUserId && targetMs.createdByUserId === uid;
+}
+
+/**
+ * 上级可把本月额度下发给下级使用：
+ * - 主账号：组织内非主账号
+ * - 管理员：本级成员，以及下级组织的管理员 / 成员
+ * - 成员：仅自己创建的下级成员
+ */
+export function canGrantQuotaTo(
+  store: OrgStore,
+  actorUserId: string | null | undefined,
+  target: TeamMember,
+  user?: AuthUser | null
+): boolean {
+  if (target.isPrimary) return false;
+  const uid = actorUserId || user?.userId;
+  const actorTm =
+    findActorTeamMember(store, user) || (uid ? store.members.find((m) => m.userId === uid) : undefined);
+  if (actorTm && actorTm.id === target.id) return false;
+  if (uid && target.userId === uid) return false;
+
+  const targetRole = resolveMemberAccountRole(store, target);
+  if (targetRole === "admin") return false;
+
+  const targetMs = findMembershipByMemberId(store, target.id);
+  if (!targetMs) return false;
+
+  if (isOrgAdminActor(store, actorUserId, user)) {
+    return targetRole === "ou_admin" || targetRole === "member";
+  }
+
+  const ouId = actorOuId(store, actorUserId, user);
+  if (!ouId) {
+    return targetRole === "member" && !!targetMs.createdByUserId && targetMs.createdByUserId === uid;
+  }
+
+  const inSubtree = subtreeOuIds(store, ouId).includes(targetMs.ouId);
+  if (!inSubtree) return false;
+
+  if (isOrgManagerActor(store, actorUserId, user)) {
+    return targetRole === "ou_admin" || targetRole === "member";
+  }
+
+  return targetRole === "member" && !!targetMs.createdByUserId && targetMs.createdByUserId === uid;
+}
+
+/** 选中下级组织时，优先发给该级管理员，否则发该级成员 */
+export function preferredQuotaGrantTarget(
+  store: OrgStore,
+  actorUserId: string | null | undefined,
+  ouId: string,
+  user?: AuthUser | null
+): TeamMember | undefined {
+  const direct = membersInOu(store, ouId)
+    .map((ms) => store.members.find((m) => m.id === ms.memberId))
+    .filter((m): m is TeamMember => !!m);
+  const ranked = [
+    ...direct.filter((m) => resolveMemberAccountRole(store, m) === "ou_admin"),
+    ...direct.filter((m) => resolveMemberAccountRole(store, m) === "member"),
+  ];
+  return ranked.find((m) => canGrantQuotaTo(store, actorUserId, m, user));
 }
 
 /**
@@ -1492,6 +2153,114 @@ export function canDeleteMember(
   return canManageSubAccount(store, uid, target, user);
 }
 
+/** 非主账号是否允许自行购买会员 / 充值算力 */
+export function memberCanSelfRecharge(store: OrgStore, member: TeamMember | undefined): boolean {
+  if (!member) return true;
+  if (member.isPrimary || resolveMemberAccountRole(store, member) === "admin") return true;
+  if (typeof member.canSelfRecharge === "boolean") return member.canSelfRecharge;
+  const ms = findMembershipByMemberId(store, member.id);
+  if (typeof ms?.canSelfRecharge === "boolean") return ms.canSelfRecharge;
+  return false;
+}
+
+/** 当前登录账号是否允许自行购买会员 / 充值算力 */
+export function actorCanSelfRecharge(user?: AuthUser | null): boolean {
+  if (!user) return false;
+  if (isEnterpriseOwner(user)) return true;
+  if (isJoinedOrgMember(user)) {
+    const store = loadOrgStore(user);
+    const member = findActorTeamMember(store, user);
+    if (!member) return false;
+    return memberCanSelfRecharge(store, member);
+  }
+  if (!hasEnterpriseInfo(user)) return true;
+  const store = loadOrgStore(user);
+  const member = findActorTeamMember(store, user);
+  if (!member) return false;
+  return memberCanSelfRecharge(store, member);
+}
+
+export function updateMemberSelfRecharge(
+  store: OrgStore,
+  memberId: string,
+  allow: boolean,
+): { store: OrgStore; error?: string } {
+  const member = store.members.find((m) => m.id === memberId);
+  if (!member) return { store, error: "成员不存在" };
+  if (member.isPrimary || resolveMemberAccountRole(store, member) === "admin") {
+    return { store, error: "主账号默认可自行购买或充值" };
+  }
+  const next: OrgStore = {
+    ...store,
+    members: store.members.map((m) => (m.id === memberId ? { ...m, canSelfRecharge: allow } : m)),
+    memberships: store.memberships.map((m) =>
+      m.memberId === memberId ? { ...m, canSelfRecharge: allow } : m,
+    ),
+  };
+  saveOrgStore(next);
+  return { store: next };
+}
+
+/** 企业成员本月额度（C 端成员管理调控，运营端不改） */
+export function updateMemberMonthlyLimit(
+  store: OrgStore,
+  memberId: string,
+  limit: number
+): { store: OrgStore; error?: string } {
+  if (!store.members.some((m) => m.id === memberId)) return { store, error: "成员不存在" };
+  const monthlyLimit = Math.max(0, Math.floor(Number(limit) || 0));
+  const next: OrgStore = {
+    ...store,
+    members: store.members.map((m) => (m.id === memberId ? { ...m, monthlyLimit } : m)),
+    memberships: store.memberships.map((m) => (m.memberId === memberId ? { ...m, monthlyLimit } : m)),
+  };
+  saveOrgStore(next);
+  return { store: next };
+}
+
+/** 从发放人剩余额度划到被发放人本月额度，下级即可用来生成 */
+export function transferMemberMonthlyQuota(
+  store: OrgStore,
+  fromUserId: string,
+  toMemberId: string,
+  amount: number,
+  fromUsed: number,
+): { store: OrgStore; error?: string } {
+  const amt = Math.floor(Number(amount) || 0);
+  if (amt <= 0) return { store, error: "发放数量须大于 0" };
+  const from =
+    store.members.find((m) => m.userId === fromUserId) ||
+    store.members.find((m) => m.id === fromUserId);
+  const to = store.members.find((m) => m.id === toMemberId);
+  if (!from) return { store, error: "找不到发放人" };
+  if (!to) return { store, error: "找不到被发放人" };
+  if (from.id === to.id) return { store, error: "不能发给自己" };
+  if (to.isPrimary || resolveMemberAccountRole(store, to) === "admin") {
+    return { store, error: "不能向主账号发放额度" };
+  }
+  const fromLimit = Math.max(0, Math.floor(from.monthlyLimit ?? 0));
+  const remain = fromLimit - Math.max(0, Math.floor(fromUsed));
+  if (amt > remain) return { store, error: `剩余额度不足（还可发放 ${Math.max(0, remain)}）` };
+  const toLimit = Math.max(0, Math.floor(to.monthlyLimit ?? 0));
+  const nextFrom = fromLimit - amt;
+  const nextTo = toLimit + amt;
+  const next: OrgStore = {
+    ...store,
+    members: store.members.map((m) => {
+      if (m.id === from.id) return { ...m, monthlyLimit: nextFrom };
+      if (m.id === to.id) return { ...m, monthlyLimit: nextTo };
+      return m;
+    }),
+    memberships: store.memberships.map((m) => {
+      if (m.memberId === from.id) return { ...m, monthlyLimit: nextFrom };
+      if (m.memberId === to.id) return { ...m, monthlyLimit: nextTo };
+      return m;
+    }),
+  };
+  saveOrgStore(next);
+  return { store: next };
+}
+
 /** 更新成员展示名（同步 TeamMember + Membership） */
 export function updateMemberDisplayName(
   store: OrgStore,
@@ -1499,7 +2268,7 @@ export function updateMemberDisplayName(
   name: string
 ): { store: OrgStore; error?: string } {
   const nextName = name.trim();
-  if (!nextName) return { store, error: "请填写显示名称" };
+  if (!nextName) return { store, error: "请填写用户名" };
   if (!store.members.some((m) => m.id === memberId)) return { store, error: "成员不存在" };
   const next: OrgStore = {
     ...store,
@@ -1512,24 +2281,18 @@ export function updateMemberDisplayName(
   return { store: next };
 }
 
-/** 改昵称后：组织名称 + 主账号成员名一并同步，避免侧栏 / 组织信息 / 成员表不一致 */
+/** 改用户名后：同步本账号在成员表中的名称，不改企业名称 */
 export function syncOrgDisplayName(user: AuthUser | null | undefined, name: string): OrgStore | null {
   if (!user) return null;
   const nextName = name.trim();
   if (!nextName) return null;
-  let store = syncOrgAdminIdentity(loadOrgStore(user), user);
-  store = {
-    ...store,
-    organization: { ...store.organization, name: nextName },
-  };
-  saveOrgStore(store);
-  const primary =
-    store.members.find((m) => m.isPrimary) ||
+  const store = syncOrgAdminIdentity(loadOrgStore(user), user);
+  const self =
+    findActorTeamMember(store, user) ||
     store.members.find((m) => m.userId === user.userId) ||
-    (user.username ? store.members.find((m) => m.account === user.username) : undefined) ||
-    (user.phone ? store.members.find((m) => m.account === user.phone) : undefined);
-  if (primary) {
-    return updateMemberDisplayName(store, primary.id, nextName).store;
+    store.members.find((m) => m.isPrimary);
+  if (self) {
+    return updateMemberDisplayName(store, self.id, nextName).store;
   }
   return store;
 }
@@ -1541,6 +2304,8 @@ export function updateMemberAccount(
   account: string,
   name?: string
 ): { store: OrgStore; error?: string } {
+  const member = store.members.find((m) => m.id === memberId);
+  if (!member) return { store, error: "成员不存在" };
   const full = account.trim();
   if (!full) return { store, error: "请填写账号" };
   if (store.memberships.some((m) => m.account === full && m.memberId !== memberId)) {
@@ -1549,16 +2314,14 @@ export function updateMemberAccount(
   if (store.members.some((m) => m.account === full && m.id !== memberId)) {
     return { store, error: "该账号已被占用" };
   }
-  const member = store.members.find((m) => m.id === memberId);
-  if (!member) return { store, error: "成员不存在" };
   const nextName = (name ?? member.name).trim() || full;
   const next: OrgStore = {
     ...store,
     members: store.members.map((m) =>
-      m.id === memberId ? { ...m, account: full, name: nextName } : m
+      m.id === memberId ? { ...m, account: full, name: nextName, phone: full } : m
     ),
     memberships: store.memberships.map((m) =>
-      m.memberId === memberId ? { ...m, account: full, name: nextName } : m
+      m.memberId === memberId ? { ...m, account: full, name: nextName, securePhone: full } : m
     ),
   };
   saveOrgStore(next);
@@ -1638,15 +2401,15 @@ export function listCityOus(store: OrgStore): OrgUnit[] {
   );
 }
 
-/** 新建/邀请成员默认挂载 OU：操作者所在单元；主账号在 Root 时取第一个市级单元 */
+/** 新建/邀请成员默认挂载 OU：操作者所在单元；否则根节点（无下级部门时也可加人） */
 export function resolveDefaultMemberOuId(
   store: OrgStore,
   user?: AuthUser | null
 ): string | null {
   const rootId = store.organization.rootOuId;
   const ms = findMembershipByUserId(store, user?.userId);
-  if (ms?.ouId && ms.ouId !== rootId) return ms.ouId;
-  return listCityOus(store)[0]?.id ?? null;
+  if (ms?.ouId && getUnit(store, ms.ouId)) return ms.ouId;
+  return listCityOus(store)[0]?.id ?? rootId ?? null;
 }
 
 export function listCountyOus(store: OrgStore, cityId: string): OrgUnit[] {
